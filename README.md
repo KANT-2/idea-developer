@@ -26,6 +26,7 @@
 8. [AI 코딩 규칙](docs/07_AI_CODING_RULES.md)
 9. [부모 팀 이관 메모](docs/08_PARENT_HANDOFF.md)
 10. [코드 전달 양식](docs/09_CODE_DISTRIBUTION_TEMPLATE.md)
+11. [저장소 관리자 설정](docs/10_REPOSITORY_OWNER_SETUP.md)
 
 ## 가장 중요한 규칙
 
