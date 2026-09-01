@@ -82,4 +82,3 @@ python manage.py runserver
 ```bash
 deactivate
 ```
-
