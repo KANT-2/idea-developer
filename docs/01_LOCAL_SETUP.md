@@ -35,7 +35,7 @@ git config --global --list
 
 ```bash
 cd <프로젝트를-둘-폴더>
-git clone https://github.com/kixxuya/idea-developer.git
+git clone https://github.com/KANT-2/idea-developer.git
 cd idea-developer
 ```
 
@@ -82,3 +82,4 @@ python manage.py runserver
 ```bash
 deactivate
 ```
+
