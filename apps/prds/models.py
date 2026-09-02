@@ -4,7 +4,19 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Case, Count, F, IntegerField, Q, Value, When
+from django.db.models import (
+    Case,
+    CharField,
+    Count,
+    Exists,
+    F,
+    IntegerField,
+    OuterRef,
+    Q,
+    Subquery,
+    Value,
+    When,
+)
 from django.db.models.functions import Cast, Round
 
 
@@ -64,6 +76,41 @@ class PrdQuerySet(models.QuerySet):
                 ),
                 output_field=IntegerField(),
             )
+        )
+
+    def accessible_home(self, *, user_id: int, round_id: int, team_id: int):
+        participant_access = PrdParticipant.objects.filter(
+            prd_id=OuterRef("pk"),
+            user_id=user_id,
+        )
+        return (
+            self.active()
+            .filter(round_id=round_id)
+            .annotate(_is_participant=Exists(participant_access))
+            .filter(
+                Q(creator_user_id=user_id)
+                | Q(_is_participant=True)
+                | Q(is_team_shared=True, team_id=team_id)
+            )
+        )
+
+    def with_home_metrics(self, *, user_id: int):
+        my_role = PrdParticipant.objects.filter(
+            prd_id=OuterRef("pk"),
+            user_id=user_id,
+        ).values("role")[:1]
+        return self.with_completion_rate().annotate(
+            participant_count=Count("participants", distinct=True),
+            ai_coaching_count=Count(
+                "ai_usage_logs",
+                filter=Q(
+                    ai_usage_logs__feature_type="COACHING",
+                    ai_usage_logs__action_type="chat",
+                    ai_usage_logs__status="success",
+                ),
+                distinct=True,
+            ),
+            my_role=Subquery(my_role, output_field=CharField()),
         )
 
 
@@ -139,6 +186,7 @@ class Prd(models.Model):
     )
     round_id = models.PositiveBigIntegerField()
     team_id = models.PositiveBigIntegerField(null=True, blank=True)
+    is_team_shared = models.BooleanField(default=False)
     creator_user_id = models.PositiveBigIntegerField()
     creation_idempotency_key = models.CharField(max_length=128)
     is_deleted = models.BooleanField(default=False)
@@ -155,6 +203,10 @@ class Prd(models.Model):
             models.Index(fields=["prd_type", "-updated_at"], name="prd_type_updated_idx"),
             models.Index(fields=["deadline"], name="prd_deadline_idx"),
             models.Index(fields=["round_id", "team_id"], name="prd_round_team_idx"),
+            models.Index(
+                fields=["round_id", "team_id", "is_team_shared"],
+                name="prd_team_shared_idx",
+            ),
         ]
         constraints = [
             models.CheckConstraint(

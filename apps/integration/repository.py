@@ -52,6 +52,13 @@ class UserSearchResult:
 
 
 @dataclass(frozen=True, slots=True)
+class RoundUserSummary:
+    user_id: int
+    participant_id: int
+    display_name: str
+
+
+@dataclass(frozen=True, slots=True)
 class SearchPage:
     results: tuple
     page: int
@@ -92,6 +99,10 @@ class IntegrationRepository(Protocol):
     def get_eligible_memberships(
         self, *, user_ids: tuple[int, ...], round_id: int
     ) -> tuple[RoundMembership, ...]: ...
+
+    def get_round_user_summaries(
+        self, *, user_ids: tuple[int, ...], round_id: int
+    ) -> dict[int, RoundUserSummary]: ...
 
 
 class DjangoViewIntegrationRepository:
@@ -441,6 +452,61 @@ class DjangoViewIntegrationRepository:
             )
         return memberships
 
+    def get_round_user_summaries(
+        self, *, user_ids: tuple[int, ...], round_id: int
+    ) -> dict[int, RoundUserSummary]:
+        if not user_ids:
+            return {}
+        try:
+            membership_rows = list(
+                UserRoundTeamView.objects.using(self.database_alias)
+                .filter(user_id__in=user_ids, round_id=round_id)
+                .values(
+                    "user_id",
+                    "participant_id",
+                    "display_name_snapshot",
+                    "email",
+                )
+            )
+            user_rows = {
+                row["user_id"]: row
+                for row in AxUserTeamLoginView.objects.using(self.database_alias)
+                .filter(user_id__in=user_ids)
+                .values(
+                    "user_id",
+                    "first_name",
+                    "last_name",
+                    "primary_email",
+                    "user_email",
+                )
+            }
+        except DatabaseError as exc:
+            self._raise_unavailable(exc)
+        if len({row["user_id"] for row in membership_rows}) != len(membership_rows):
+            raise IntegrationDataIntegrityError(
+                "Multiple memberships exist for a card participant in the selected round."
+            )
+        summaries = {}
+        for membership in membership_rows:
+            user = user_rows.get(membership["user_id"], {})
+            full_name = " ".join(
+                part for part in (user.get("first_name"), user.get("last_name")) if part
+            )
+            display_name = (
+                membership.get("display_name_snapshot")
+                or full_name
+                or user.get("primary_email")
+                or membership.get("email")
+                or user.get("user_email")
+                or f"사용자 {membership['user_id']}"
+            )
+            summaries[membership["user_id"]] = RoundUserSummary(
+                user_id=membership["user_id"],
+                participant_id=membership["participant_id"],
+                display_name=display_name,
+            )
+        return summaries
+
     @staticmethod
     def _membership_fields():
         return (
@@ -725,6 +791,43 @@ class FixtureIntegrationRepository:
                 "Duplicate user or participant memberships exist in the selected round."
             )
         return memberships
+
+    def get_round_user_summaries(
+        self, *, user_ids: tuple[int, ...], round_id: int
+    ) -> dict[int, RoundUserSummary]:
+        requested_user_ids = set(user_ids)
+        users_by_id = {row["user_id"]: row for row in self.user_rows if isinstance(row, dict)}
+        matching_rows = [
+            row
+            for row in self.membership_rows
+            if isinstance(row, dict)
+            and row["user_id"] in requested_user_ids
+            and row["round_id"] == round_id
+        ]
+        if len({row["user_id"] for row in matching_rows}) != len(matching_rows):
+            raise IntegrationDataIntegrityError(
+                "Multiple memberships exist for a card participant in the selected round."
+            )
+        summaries = {}
+        for membership in matching_rows:
+            user = users_by_id.get(membership["user_id"], {})
+            full_name = " ".join(
+                part for part in (user.get("first_name"), user.get("last_name")) if part
+            )
+            display_name = (
+                membership.get("display_name_snapshot")
+                or full_name
+                or user.get("primary_email")
+                or membership.get("email")
+                or user.get("user_email")
+                or f"사용자 {membership['user_id']}"
+            )
+            summaries[membership["user_id"]] = RoundUserSummary(
+                user_id=membership["user_id"],
+                participant_id=membership["participant_id"],
+                display_name=display_name,
+            )
+        return summaries
 
     @staticmethod
     def _to_parent_user(row) -> ParentUser:

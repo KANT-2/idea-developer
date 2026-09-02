@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "apps.jobs",
     "apps.brainstorm",
     "apps.prds",
+    "apps.ai",
 ]
 
 AUTH_USER_MODEL = "accounts.LocalUserMapping"
@@ -61,6 +62,8 @@ OTP_IP_REQUEST_LIMIT = int(os.getenv("OTP_IP_REQUEST_LIMIT", "20"))
 USER_SEARCH_MIN_LENGTH = int(os.getenv("USER_SEARCH_MIN_LENGTH", "2"))
 USER_SEARCH_PAGE_SIZE = int(os.getenv("USER_SEARCH_PAGE_SIZE", "20"))
 USER_SEARCH_MAX_PAGE_SIZE = int(os.getenv("USER_SEARCH_MAX_PAGE_SIZE", "50"))
+HOME_PAGE_SIZE = int(os.getenv("HOME_PAGE_SIZE", "12"))
+HOME_MAX_PAGE_SIZE = int(os.getenv("HOME_MAX_PAGE_SIZE", "50"))
 PARENT_ROLE_PARTICIPANT_MAP = json.loads(os.getenv("PARENT_ROLE_PARTICIPANT_MAP", "{}"))
 PARENT_STAFF_PARTICIPANT_ROLE = os.getenv("PARENT_STAFF_PARTICIPANT_ROLE", "")
 PARENT_SUPERUSER_PARTICIPANT_ROLE = os.getenv("PARENT_SUPERUSER_PARTICIPANT_ROLE", "")
