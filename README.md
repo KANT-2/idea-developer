@@ -39,4 +39,76 @@
 
 ## 현재 상태
 
-초기 저장소에는 협업 문서와 실제 프로젝트의 빈 폴더 구조만 있습니다. 팀원은 팀장에게 받은 정확한 파일 경로와 코드를 해당 폴더에 새 파일로 추가한 뒤 commit·push합니다.
+백엔드 프로젝트 뼈대가 준비되어 있습니다. 제품 테이블, 제품 API, 실제 AI 호출은 아직 구현하지 않았습니다. 기준 정책은 `docs/specs/home-backend-scenario.md`와 `docs/specs/brainstorm-backend-scenario.md`입니다.
+
+## 로컬 실행
+
+Python 3.12 이상과 PostgreSQL이 필요합니다. PowerShell 기준 예시입니다.
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements/development.txt
+Copy-Item .env.example .env
+```
+
+PostgreSQL에서 로컬 사용자와 `idea_developer` 데이터베이스를 준비한 뒤 `.env`의 접속값을 수정합니다. 애플리케이션 schema는 다음 명령으로 생성합니다.
+
+```powershell
+psql -U idea_developer -d idea_developer -f scripts/bootstrap_database.sql
+python manage.py migrate
+python manage.py runserver
+```
+
+헬스체크는 인증 없이 배포 상태를 확인하기 위한 유일한 공개 API입니다.
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/health/
+```
+
+## 테스트와 코드 품질
+
+테스트 설정은 외부 DB 쿼리가 없는 단위 테스트에 PostgreSQL 접속을 요구하지 않습니다.
+
+```powershell
+python manage.py check --settings=config.settings.test
+python manage.py test --settings=config.settings.test
+ruff format --check .
+ruff check .
+```
+
+자동 포매팅은 `ruff format .`으로 실행합니다.
+
+## 백그라운드 worker
+
+작업 테이블 상태 계약이 기준 문서에서 확정되기 전까지 worker는 등록된 작업 없이 안전하게 대기하는 구조만 제공합니다.
+
+```powershell
+python manage.py run_job_worker
+python manage.py run_job_worker --once
+```
+
+향후 승인된 PostgreSQL 작업 테이블 구현은 `JOB_RUNNER_CLASS` 설정으로 연결합니다. Redis, Celery, Django Channels는 필수 의존성이 아닙니다.
+
+## UI와 부모 이관 지점
+
+- `templates/base.html`은 Bootstrap `5.3.2`와 `extra_head`, `breadcrumb`, `content`, `modals`, `extra_js` block을 사용합니다.
+- `templates/brainstorm/shell.html`은 `#brainstorm-root`만 제공하며 React와 ReactDOM `18.3.1`을 고정 CDN으로 불러옵니다.
+- `static/brainstorm/js/app.js`는 JSX와 브라우저 Babel 변환을 사용하지 않습니다.
+- 부모 이관 시 `https://cdn.jsdelivr.net`을 CSP `script-src`와 필요한 `style-src`에 반영해야 합니다.
+- CSRF 토큰은 base template의 meta에 노출됩니다. API 호출은 같은 origin의 session cookie와 `X-CSRFToken` 헤더를 사용해야 하며 서버에서 로그인·권한을 다시 검사합니다.
+
+## 독립 연동 경계
+
+`apps.integration.context`는 로컬 로그인 사용자를 외부 `user_id`와 현재 `round_id`, `team_id` 문맥으로 바꾸는 adapter 계약을 제공합니다. 실제 참여자·역할 검증과 부모 PostgreSQL VIEW의 unmanaged model은 해당 구현 단계에서 추가합니다. 연동 DB가 설정되면 `integration` alias로 읽고, VIEW model에는 migration을 만들지 않습니다. VIEW는 읽기 전용 DB 계정으로 연결해야 합니다.
+
+협업 polling 간격은 `.env`에서 설정합니다. 실제 polling endpoint와 version 충돌 응답은 제품 리소스·version 필드 정책이 승인된 뒤 추가합니다.
+
+## 설정 구분
+
+- 기본: `config.settings.base`
+- 개발: `config.settings.development` (manage.py 기본값)
+- 테스트: `config.settings.test`
+- 운영: `config.settings.production`
+
+운영에서는 `DJANGO_SECRET_KEY`, PostgreSQL 비밀번호, 외부 서비스 키를 환경변수나 비밀 저장소로만 주입합니다. 저장소에는 실제 비밀값을 넣지 않습니다.

@@ -1,0 +1,8 @@
+:root {
+  --idea-page-background: #f8f9fa;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--idea-page-background);
+}
