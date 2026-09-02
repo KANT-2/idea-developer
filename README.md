@@ -112,6 +112,12 @@ Google의 현재 안내상 Gemini 무료 등급에 전송한 콘텐츠는 제품
 재시도하거나 최종 시간 초과로 닫습니다. 성공·실패·취소된 실제 실행은 `ai_usage_logs`에 별도로
 기록하며 프롬프트 정의 행은 사용 횟수로 집계하지 않습니다.
 
+재시도 가능한 provider 오류와 timeout은 `AI_JOB_MAX_ATTEMPTS` 범위에서
+`AI_JOB_RETRY_BASE_SECONDS * 2^(시도 횟수-1)`만큼 기다린 뒤 다시 실행합니다. 구조화 출력·ID
+검증 실패처럼 재시도해도 해결되지 않는 오류와 최대 시도 횟수에 도달한 작업은 terminal 상태로
+보존하며 정리 명령이 이를 임의로 다시 대기열에 넣지 않습니다. 사용자가 명시적으로 누르는 재시도
+API만 terminal 작업의 시도 횟수를 초기화합니다.
+
 ## PRD AI 코치와 질문 초안
 
 PRD 작성 화면은 `/ideas/prds/<prd_id>/`입니다. AI 코치 대화는 PRD·섹션·사용자별로
@@ -153,6 +159,32 @@ PRD Context만 전달합니다.
 추천은 미리보기일 뿐 데이터를 변경하지 않으며, 사용자가 선택한 항목만 version 검사를 거쳐 한
 트랜잭션으로 반영합니다. 하나라도 충돌하면 전체 반영을 취소하고 `409 Conflict`와 최신 노드를
 반환합니다. 요청과 반영 API는 각각 `Idempotency-Key` 헤더를 사용합니다.
+
+## 브레인스토밍 Markdown 내보내기와 정리
+
+읽기 권한이 있는 사용자는 다음 API에서 UTF-8 Markdown 파일을 내려받을 수 있습니다.
+
+`GET /api/v1/prds/<prd_id>/brainstorm/export/markdown/`
+
+query parameter는 `scope=all|accepted`, `organization=section|flat`,
+`include_unclassified=true|false`를 지원합니다. 기본값은 전체 활성 메모, 섹션별 정리, 미분류
+포함입니다. 보류·삭제 메모와 제목 카드는 항상 제외하고, 내보낸 메모끼리의 활성 연결선만
+`연결된 아이디어` 목록으로 표현합니다. 다운로드 파일명은 PRD ID와 안전하게 정규화한 제목,
+날짜로 구성합니다.
+
+다음 명령은 한 번에 설정된 batch 크기만큼 만료 데이터를 정리합니다.
+
+```bash
+python manage.py cleanup_background_data --dry-run
+python manage.py cleanup_background_data
+```
+
+기본적으로 소프트 삭제 후 30일이 지난 노드와 관련 연결선을 영구 삭제합니다. 복원 기간 안의
+데이터와 활성 데이터는 건드리지 않습니다. 완료된 임시 AI 분석·분류·PRD 반영·질문 초안 결과는
+기본 7일 후 `output_data`만 비우고 AI 작업, 사용량 및 적용 기록은 보존합니다. 보존기간과 batch
+크기는 `BRAINSTORM_DELETE_RETENTION_DAYS`, `AI_PREVIEW_RETENTION_DAYS`,
+`BACKGROUND_CLEANUP_BATCH_SIZE`로 조정합니다. 운영에서는 이 명령을 별도 scheduler로 주기적으로
+실행해야 합니다.
 
 ## AI PRD 반영
 
