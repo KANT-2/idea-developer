@@ -100,9 +100,26 @@ if os.getenv("INTEGRATION_DB_NAME"):
         "HOST": os.getenv("INTEGRATION_DB_HOST", "127.0.0.1"),
         "PORT": os.getenv("INTEGRATION_DB_PORT", "5432"),
         "CONN_MAX_AGE": int(os.getenv("INTEGRATION_DB_CONN_MAX_AGE", "0")),
+        "OPTIONS": {
+            "options": os.getenv(
+                "INTEGRATION_DB_OPTIONS",
+                "-c default_transaction_read_only=on -c search_path=public",
+            )
+        },
     }
 
 DATABASE_ROUTERS = ["apps.integration.db_router.IntegrationViewRouter"]
+requested_integration_alias = os.getenv("INTEGRATION_DB_ALIAS") or None
+INTEGRATION_DB_ALIAS = requested_integration_alias or (
+    "integration" if "integration" in DATABASES else "default"
+)
+if INTEGRATION_DB_ALIAS not in DATABASES:
+    raise RuntimeError(f"Unknown INTEGRATION_DB_ALIAS: {INTEGRATION_DB_ALIAS}")
+INTEGRATION_ACTIVE_ROUND_STATUSES = frozenset(env_list("INTEGRATION_ACTIVE_ROUND_STATUSES"))
+INTEGRATION_CONTEXT_RESOLVER_CLASS = os.getenv(
+    "INTEGRATION_CONTEXT_RESOLVER_CLASS",
+    "apps.integration.context.StandaloneSessionContextResolver",
+)
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

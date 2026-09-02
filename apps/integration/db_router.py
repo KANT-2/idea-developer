@@ -1,5 +1,7 @@
 from django.conf import settings
 
+from .exceptions import IntegrationReadOnlyError
+
 
 class IntegrationViewRouter:
     """Routes future unmanaged VIEW models and never migrates them."""
@@ -13,7 +15,7 @@ class IntegrationViewRouter:
 
     def db_for_write(self, model, **hints):
         if model._meta.app_label == self.route_app_label:
-            return None
+            raise IntegrationReadOnlyError("Parent integration VIEWs are read-only.")
         return None
 
     def allow_migrate(self, db, app_label, model_name=None, **hints):

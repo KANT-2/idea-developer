@@ -100,7 +100,19 @@ python manage.py run_job_worker --once
 
 ## 독립 연동 경계
 
-`apps.integration.context`는 로컬 로그인 사용자를 외부 `user_id`와 현재 `round_id`, `team_id` 문맥으로 바꾸는 adapter 계약을 제공합니다. 실제 참여자·역할 검증과 부모 PostgreSQL VIEW의 unmanaged model은 해당 구현 단계에서 추가합니다. 연동 DB가 설정되면 `integration` alias로 읽고, VIEW model에는 migration을 만들지 않습니다. VIEW는 읽기 전용 DB 계정으로 연결해야 합니다.
+`apps.integration.context`는 로컬 로그인 사용자를 외부 `user_id`와 현재 `round_id`, `team_id` 문맥으로 바꾸는 adapter 계약을 제공합니다. `public.ax_user_team_login_view`와 `public.user_round_team_view`는 `managed=False` 모델과 전용 repository로만 조회합니다. ORM 쓰기 메서드와 DB router가 INSERT·UPDATE·DELETE를 차단하며, 별도 DB 연결에는 PostgreSQL `default_transaction_read_only=on`을 적용합니다.
+
+`.env`에 부모 VIEW용 읽기 전용 계정과 부모 시스템에서 실제 사용하는 진행 중 회차 상태값을 설정합니다. 기준 문서에는 해당 상태 문자열이 없으므로 임의 기본값을 제공하지 않습니다.
+
+```text
+INTEGRATION_DB_NAME=ax_evaluation
+INTEGRATION_DB_USER=<읽기 전용 계정>
+INTEGRATION_ACTIVE_ROUND_STATUSES=<부모가 확인한 실제 상태값>
+```
+
+회차 확인 화면은 `/integration/round/`입니다. 단일 진행 회차는 자동 확인하고, 없으면 회차 없음 화면, 여러 개면 선택 화면을 표시합니다. URL·form·session의 `round_id`는 항상 `user_round_team_view`의 `user_id + round_id`로 다시 검증합니다. VIEW 장애나 중복 팀 데이터가 발생하면 `503`으로 fail closed하며, 참가하지 않은 회차는 `403`을 반환합니다.
+
+`apps/integration/migrations/0001_initial.py`는 unmanaged Django model state만 기록합니다. `RunSQL`이나 VIEW 생성·수정 SQL은 포함하지 않으며 부모 VIEW의 생명주기를 소유하지 않습니다.
 
 협업 polling 간격은 `.env`에서 설정합니다. 실제 polling endpoint와 version 충돌 응답은 제품 리소스·version 필드 정책이 승인된 뒤 추가합니다.
 
