@@ -33,6 +33,7 @@ from apps.prds.models import (
     PrdParticipantRole,
     PrdQuestion,
     PrdSection,
+    PrdStatus,
     PrdType,
 )
 
@@ -361,3 +362,32 @@ class AiCoachingApiTests(TestCase):
         self.assertEqual(chat.status_code, 403)
         self.assertEqual(draft.status_code, 403)
         self.assertEqual(AiJob.objects.count(), 0)
+
+    def test_completed_prd_blocks_ai_requests_and_answer_apply(self):
+        preview = self.post(
+            "request-draft",
+            {"question_id": self.question.pk},
+            key="before-completion",
+        )
+        self.run_job()
+        job_id = preview.json()["data"]["id"]
+        self.prd.status = PrdStatus.COMPLETED
+        self.prd.completed_at = timezone.now()
+        self.prd.save(update_fields=["status", "completed_at", "updated_at"])
+
+        chat = self.request_chat(key="completed-chat")
+        draft = self.post(
+            "request-draft",
+            {"question_id": self.question.pk},
+            key="completed-draft",
+        )
+        apply_response = self.post(
+            "apply-draft",
+            {"question_version": 1, "content": "잠긴 답변"},
+            job_id=job_id,
+        )
+
+        self.assertEqual(chat.status_code, 403)
+        self.assertEqual(draft.status_code, 403)
+        self.assertEqual(apply_response.status_code, 403)
+        self.assertFalse(PrdAnswer.objects.filter(question=self.question).exists())

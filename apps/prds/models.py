@@ -184,6 +184,7 @@ class Prd(models.Model):
         choices=PrdStatus.choices,
         default=PrdStatus.IN_PROGRESS,
     )
+    completed_at = models.DateTimeField(null=True, blank=True)
     round_id = models.PositiveBigIntegerField()
     team_id = models.PositiveBigIntegerField(null=True, blank=True)
     is_team_shared = models.BooleanField(default=False)
@@ -397,6 +398,39 @@ class PrdChangeHistory(models.Model):
         db_table = "prd_change_history"
         ordering = ["-created_at", "-id"]
         indexes = [models.Index(fields=["prd", "-created_at"], name="prd_history_created_idx")]
+
+
+class PrdStatusAuditAction(models.TextChoices):
+    COMPLETED = "completed", "완료"
+    REOPENED = "reopened", "재개"
+
+
+class PrdStatusAuditLog(models.Model):
+    """Immutable security/audit facts for completion state transitions."""
+
+    prd = models.ForeignKey(Prd, on_delete=models.CASCADE, related_name="status_audit_logs")
+    actor_user_id = models.PositiveBigIntegerField()
+    action = models.CharField(max_length=16, choices=PrdStatusAuditAction.choices)
+    previous_status = models.CharField(max_length=32, choices=PrdStatus.choices)
+    new_status = models.CharField(max_length=32, choices=PrdStatus.choices)
+    reason = models.TextField(blank=True)
+    previous_completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "prd_status_audit_logs"
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["prd", "-created_at"], name="prd_status_audit_idx")]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(actor_user_id__gt=0),
+                name="prd_status_audit_actor_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(action__in=PrdStatusAuditAction.values),
+                name="prd_status_audit_action_valid",
+            ),
+        ]
 
 
 class PrdCommentType(models.TextChoices):

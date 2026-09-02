@@ -18,6 +18,7 @@ class PrdNotFound(Exception):
 class PrdAccess:
     prd: Prd
     role: str | None
+    is_admin: bool = False
 
 
 class PrdAccessService:
@@ -40,9 +41,10 @@ class PrdAccessService:
             role = PrdParticipantRole.OWNER
 
         has_team_access = prd.is_team_shared and prd.team_id == context.team_id
-        if role is None and not has_team_access:
+        is_admin = context.is_staff or context.is_superuser
+        if role is None and not has_team_access and not is_admin:
             raise PermissionDenied("The user cannot access this PRD.")
-        return PrdAccess(prd=prd, role=role)
+        return PrdAccess(prd=prd, role=role, is_admin=is_admin)
 
 
 class PrdPermissionPresenter:
@@ -53,16 +55,30 @@ class PrdPermissionPresenter:
         return {
             "role": role,
             "can_view": True,
-            "can_edit": self._allows(role, ParticipantAction.EDIT),
-            "can_comment": self._allows(role, ParticipantAction.COMMENT),
-            "can_manage_participants": self._allows(role, ParticipantAction.MANAGE_PARTICIPANTS),
-            "can_complete": self._allows(role, ParticipantAction.COMPLETE),
-            "can_reopen": self._allows(role, ParticipantAction.REOPEN),
-            "can_request_ai": self._allows(role, ParticipantAction.REQUEST_AI),
-            "can_apply_ai": self._allows(role, ParticipantAction.APPLY_AI),
+            "can_edit": self._allows(access, ParticipantAction.EDIT),
+            "can_comment": self._allows(access, ParticipantAction.COMMENT),
+            "can_review_comment": self._allows(access, ParticipantAction.REVIEW_COMMENT),
+            "can_manage_participants": self._allows(access, ParticipantAction.MANAGE_PARTICIPANTS),
+            "can_complete": self._allows(access, ParticipantAction.COMPLETE),
+            "can_reopen": self._allows(access, ParticipantAction.REOPEN),
+            "can_request_ai": self._allows(access, ParticipantAction.REQUEST_AI),
+            "can_apply_ai": self._allows(access, ParticipantAction.APPLY_AI),
             "is_completed": access.prd.status == PrdStatus.COMPLETED,
         }
 
     @staticmethod
-    def _allows(role, action):
-        return bool(role and role_permission_policy.allows(role, action, is_completed=False))
+    def _allows(access, action):
+        if (
+            action == ParticipantAction.REOPEN
+            and access.is_admin
+            and access.prd.status == PrdStatus.COMPLETED
+        ):
+            return True
+        return bool(
+            access.role
+            and role_permission_policy.allows(
+                access.role,
+                action,
+                is_completed=access.prd.status == PrdStatus.COMPLETED,
+            )
+        )

@@ -26,6 +26,8 @@ from apps.prds.models import (
     PrdQuestion,
     PrdSection,
     PrdStatus,
+    PrdStatusAuditAction,
+    PrdStatusAuditLog,
     PrdType,
 )
 
@@ -166,7 +168,16 @@ class PrdDetailApiTests(TestCase):
             deleted_at=timezone.now() if is_deleted else None,
         )
 
-    def login_as(self, user_id, *, role=None, round_id=3, team_id=30):
+    def login_as(
+        self,
+        user_id,
+        *,
+        role=None,
+        round_id=3,
+        team_id=30,
+        is_staff=False,
+        is_superuser=False,
+    ):
         self.client.force_login(LocalUserMapping.objects.get(external_user_id=user_id))
         self.resolver.resolve.return_value = IntegrationContext(
             user_id=user_id,
@@ -174,8 +185,8 @@ class PrdDetailApiTests(TestCase):
             participant_id=user_id * 10,
             team_id=team_id,
             parent_role="student",
-            is_staff=False,
-            is_superuser=False,
+            is_staff=is_staff,
+            is_superuser=is_superuser,
         )
 
     def post_json(self, url, payload):
@@ -198,6 +209,135 @@ class PrdDetailApiTests(TestCase):
         self.assertEqual(data["permissions"]["role"], "owner")
         self.assertTrue(data["permissions"]["can_edit"])
         self.assertTrue(data["permissions"]["can_comment"])
+
+    def test_owner_completes_and_reopens_with_audited_previous_completion(self):
+        completed = self.post_json(
+            reverse("prd_api:complete", args=[self.prd.id]),
+            {},
+        )
+
+        self.assertEqual(completed.status_code, 200)
+        self.prd.refresh_from_db()
+        completed_at = self.prd.completed_at
+        self.assertEqual(self.prd.status, PrdStatus.COMPLETED)
+        self.assertIsNotNone(completed_at)
+        permissions = self.client.get(reverse("prd_api:detail", args=[self.prd.id])).json()["data"][
+            "permissions"
+        ]
+        self.assertFalse(permissions["can_edit"])
+        self.assertFalse(permissions["can_comment"])
+        self.assertFalse(permissions["can_apply_ai"])
+        self.assertTrue(permissions["can_reopen"])
+
+        missing_reason = self.post_json(
+            reverse("prd_api:reopen", args=[self.prd.id]),
+            {},
+        )
+        reopened = self.post_json(
+            reverse("prd_api:reopen", args=[self.prd.id]),
+            {"reason": "튜터 리뷰 반영"},
+        )
+
+        self.assertEqual(missing_reason.status_code, 400)
+        self.assertEqual(reopened.status_code, 200)
+        self.prd.refresh_from_db()
+        self.assertEqual(self.prd.status, PrdStatus.IN_PROGRESS)
+        self.assertIsNone(self.prd.completed_at)
+        audit = PrdStatusAuditLog.objects.get(action=PrdStatusAuditAction.REOPENED)
+        self.assertEqual(audit.actor_user_id, 7)
+        self.assertEqual(audit.reason, "튜터 리뷰 반영")
+        self.assertEqual(audit.previous_completed_at, completed_at)
+        self.assertEqual(
+            list(self.prd.change_history.values_list("event_type", flat=True)),
+            ["prd_reopened", "prd_completed"],
+        )
+
+    def test_only_owner_completes_and_only_owner_or_admin_reopens(self):
+        self.login_as(8, role=PrdParticipantRole.EDITOR)
+        denied_complete = self.post_json(
+            reverse("prd_api:complete", args=[self.prd.id]),
+            {},
+        )
+        self.assertEqual(denied_complete.status_code, 403)
+
+        self.prd.status = PrdStatus.COMPLETED
+        self.prd.completed_at = timezone.now()
+        self.prd.save(update_fields=["status", "completed_at", "updated_at"])
+        denied_reopen = self.post_json(
+            reverse("prd_api:reopen", args=[self.prd.id]),
+            {"reason": "권한 없음"},
+        )
+        self.assertEqual(denied_reopen.status_code, 403)
+
+        self.login_as(11, is_staff=True)
+        admin_reopen = self.post_json(
+            reverse("prd_api:reopen", args=[self.prd.id]),
+            {"reason": "관리자 검토 후 재개"},
+        )
+        self.assertEqual(admin_reopen.status_code, 200)
+        self.assertEqual(
+            PrdStatusAuditLog.objects.get(action=PrdStatusAuditAction.REOPENED).actor_user_id,
+            11,
+        )
+
+    def test_incomplete_prd_requires_explicit_completion_confirmation(self):
+        self.question.is_completed = False
+        self.question.save(update_fields=["is_completed", "updated_at"])
+        url = reverse("prd_api:complete", args=[self.prd.id])
+
+        warning = self.post_json(url, {})
+        confirmed = self.post_json(url, {"confirm_incomplete": True})
+
+        self.assertEqual(warning.status_code, 400)
+        self.assertIn("confirm_incomplete", warning.json()["error"]["details"])
+        self.assertEqual(confirmed.status_code, 200)
+
+    def test_completed_comments_are_locked_except_tutor_post_completion_review(self):
+        self.prd.status = PrdStatus.COMPLETED
+        self.prd.completed_at = timezone.now()
+        self.prd.save(update_fields=["status", "completed_at", "updated_at"])
+        url = reverse("prd_api:comments", args=[self.prd.id])
+
+        owner_comment = self.post_json(url, {"content": "일반 의견"})
+        self.login_as(9, role=PrdParticipantRole.TUTOR)
+        tutor_general = self.post_json(url, {"content": "일반 리뷰"})
+        tutor_review = self.post_json(
+            url,
+            {
+                "content": "완료 후 검토 의견",
+                "comment_type": PrdCommentType.POST_COMPLETION_REVIEW,
+            },
+        )
+
+        self.assertEqual(owner_comment.status_code, 403)
+        self.assertEqual(tutor_general.status_code, 403)
+        self.assertEqual(tutor_review.status_code, 201)
+        comment = PrdComment.objects.get()
+        self.assertEqual(comment.comment_type, PrdCommentType.POST_COMPLETION_REVIEW)
+        self.assertFalse(comment.is_contribution_eligible)
+
+        updated = self.patch_json(
+            reverse("prd_api:comment-item", args=[self.prd.id, comment.id]),
+            {"content": "리뷰 보완"},
+        )
+        self.assertEqual(updated.status_code, 200)
+
+    def test_completed_general_comment_cannot_be_modified(self):
+        comment = PrdComment.objects.create(
+            prd=self.prd,
+            author_user_id=7,
+            author_role_at_created=PrdParticipantRole.OWNER,
+            comment_type=PrdCommentType.GENERAL,
+            content="완료 전 코멘트",
+            is_contribution_eligible=True,
+        )
+        self.prd.status = PrdStatus.COMPLETED
+        self.prd.completed_at = timezone.now()
+        self.prd.save(update_fields=["status", "completed_at", "updated_at"])
+        url = reverse("prd_api:comment-item", args=[self.prd.id, comment.id])
+
+        self.assertEqual(self.patch_json(url, {"content": "수정"}).status_code, 403)
+        self.assertEqual(self.client.delete(url).status_code, 403)
 
     def test_team_shared_viewer_has_read_only_permissions(self):
         self.login_as(11)
@@ -266,10 +406,15 @@ class PrdDetailApiTests(TestCase):
         guidance = self.post_json(url, {"content": "지도", "comment_type": "guidance"})
         review = self.post_json(url, {"content": "리뷰", "comment_type": "review"})
         general = self.post_json(url, {"content": "일반", "comment_type": "general"})
+        post_completion = self.post_json(
+            url,
+            {"content": "시기 오류", "comment_type": "post_completion_review"},
+        )
 
         self.assertEqual(guidance.status_code, 201)
         self.assertEqual(review.status_code, 201)
         self.assertEqual(general.status_code, 403)
+        self.assertEqual(post_completion.status_code, 403)
         self.assertTrue(
             all(not comment.is_contribution_eligible for comment in PrdComment.objects.all())
         )

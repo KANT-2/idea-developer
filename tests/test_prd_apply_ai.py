@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.accounts.models import LocalUserMapping
 from apps.ai.models import (
@@ -35,6 +36,7 @@ from apps.prds.models import (
     PrdParticipantRole,
     PrdQuestion,
     PrdSection,
+    PrdStatus,
     PrdType,
 )
 
@@ -377,3 +379,29 @@ class PrdApplyAiTests(TestCase):
             "tutor-preview",
         )
         self.assertEqual(response.status_code, 403)
+
+    def test_completed_prd_blocks_preview_and_apply(self):
+        _, job = self.preview(section_id=self.section_a.pk)
+        self.run_job()
+        job.refresh_from_db()
+        self.prd.status = PrdStatus.COMPLETED
+        self.prd.completed_at = timezone.now()
+        self.prd.save(update_fields=["status", "completed_at", "updated_at"])
+
+        preview = self.post(
+            "ai-prd-apply-preview",
+            {"section_id": self.section_a.pk},
+            "completed-preview",
+        )
+        apply_response = self.post(
+            "ai-prd-apply-apply",
+            self.apply_payload(job, [self.question_a1]),
+            "completed-apply",
+        )
+
+        self.assertEqual(preview.status_code, 403)
+        self.assertEqual(apply_response.status_code, 403)
+        self.assertEqual(
+            PrdAnswer.objects.get(question=self.question_a1).content,
+            "기존 핵심 답변",
+        )

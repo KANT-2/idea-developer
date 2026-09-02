@@ -20,6 +20,7 @@ from .models import (
     PrdQuestion,
     PrdSection,
 )
+from .status_services import PrdStatusConflict, PrdStatusService
 from .views import (
     _context_error,
     _request_id,
@@ -48,6 +49,14 @@ def _error_response(request, exc):
             message="입력값을 확인해 주세요.",
             status=400,
             details=details,
+            request_id=_request_id(request),
+        )
+    if isinstance(exc, PrdStatusConflict):
+        return api_error(
+            code="status_conflict",
+            message="현재 PRD 상태에서는 요청한 상태 변경을 수행할 수 없습니다.",
+            status=409,
+            details={"current_status": exc.current_status},
             request_id=_request_id(request),
         )
     return _context_error(request, exc)
@@ -127,6 +136,9 @@ def prd_detail(request, prd_id):
                 "description": access.prd.description,
                 "prd_type": access.prd.prd_type,
                 "status": access.prd.status,
+                "completed_at": (
+                    access.prd.completed_at.isoformat() if access.prd.completed_at else None
+                ),
                 "deadline": (access.prd.deadline.isoformat() if access.prd.deadline else None),
                 "round_id": access.prd.round_id,
                 "team_id": access.prd.team_id,
@@ -140,6 +152,65 @@ def prd_detail(request, prd_id):
         },
         request_id=_request_id(request),
     )
+
+
+@require_http_methods(["POST"])
+def complete_prd(request, prd_id):
+    if response := _require_authentication(request):
+        return response
+    try:
+        context, access = _get_access(request, prd_id)
+        payload = _parse_json(request)
+        confirm_incomplete = payload.get("confirm_incomplete", False)
+        if not isinstance(confirm_incomplete, bool):
+            raise ValidationError({"confirm_incomplete": "확인 값은 boolean이어야 합니다."})
+        prd = PrdStatusService().complete(
+            access=access,
+            actor_user_id=context.user_id,
+            confirm_incomplete=confirm_incomplete,
+        )
+        return api_success(
+            {
+                "id": prd.id,
+                "status": prd.status,
+                "completed_at": prd.completed_at.isoformat(),
+            },
+            request_id=_request_id(request),
+        )
+    except (
+        PrdNotFound,
+        PrdStatusConflict,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+    ) as exc:
+        return _error_response(request, exc)
+
+
+@require_http_methods(["POST"])
+def reopen_prd(request, prd_id):
+    if response := _require_authentication(request):
+        return response
+    try:
+        context, access = _get_access(request, prd_id)
+        payload = _parse_json(request)
+        prd = PrdStatusService().reopen(
+            access=access,
+            actor_user_id=context.user_id,
+            reason=payload.get("reason", ""),
+        )
+        return api_success(
+            {"id": prd.id, "status": prd.status, "completed_at": None},
+            request_id=_request_id(request),
+        )
+    except (
+        PrdNotFound,
+        PrdStatusConflict,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+    ) as exc:
+        return _error_response(request, exc)
 
 
 def _serialize_section(section):

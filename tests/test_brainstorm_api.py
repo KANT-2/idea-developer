@@ -496,18 +496,70 @@ class BrainstormApiTests(TestCase):
 
     def test_completed_prd_blocks_mutation_and_anonymous_is_rejected(self):
         self.initialize_canvas()
+        first = self.create_note()
+        second = self.create_note(content="두 번째")
+        connection = BrainstormConnection.objects.create(
+            canvas=first.canvas,
+            node_a=first,
+            node_b=second,
+            creation_idempotency_key="completed-lock",
+        )
         self.prd.status = PrdStatus.COMPLETED
         self.prd.save(update_fields=["status", "updated_at"])
         detail = self.client.get(self.url("canvas"))
-        blocked = self.json_request(
-            "post",
-            "node-create",
-            {"content": "완료 후", "color": "yellow", "x": 0, "y": 0},
+        blocked_requests = (
+            self.json_request(
+                "post",
+                "node-create",
+                {"content": "완료 후", "color": "yellow", "x": 0, "y": 0},
+            ),
+            self.json_request(
+                "patch",
+                "node-content",
+                {"content": "수정", "version": 1},
+                node_id=first.pk,
+            ),
+            self.json_request(
+                "patch",
+                "node-assignee",
+                {"assignee_id": 8, "version": 1},
+                node_id=first.pk,
+            ),
+            self.json_request(
+                "patch",
+                "node-status",
+                {"status": "accepted", "version": 1},
+                node_id=first.pk,
+            ),
+            self.json_request(
+                "patch",
+                "node-position",
+                {"section_id": self.section_a.id, "x": 1, "y": 2, "version": 1},
+                node_id=first.pk,
+            ),
+            self.json_request("delete", "node-delete", {"version": 1}, node_id=first.pk),
+            self.json_request(
+                "post",
+                "connection-create",
+                {
+                    "node_a_id": str(first.pk),
+                    "node_b_id": str(second.pk),
+                    "node_a_version": 1,
+                    "node_b_version": 1,
+                },
+                headers={"HTTP_IDEMPOTENCY_KEY": "completed-new-connection"},
+            ),
+            self.json_request(
+                "delete",
+                "connection-delete",
+                {"version": 1},
+                connection_id=connection.pk,
+            ),
         )
         self.client.logout()
         anonymous = self.client.get(self.url("canvas"))
         self.assertFalse(detail.json()["data"]["permissions"]["can_edit"])
-        self.assertEqual(blocked.status_code, 403)
+        self.assertTrue(all(response.status_code == 403 for response in blocked_requests))
         self.assertEqual(anonymous.status_code, 401)
 
     def test_auto_layout_updates_all_eligible_notes_as_one_operation(self):

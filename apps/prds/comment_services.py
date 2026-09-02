@@ -22,14 +22,28 @@ class CommentStatePolicy(Protocol):
     def enforce_modify(self, *, access: PrdAccess, comment: PrdComment): ...
 
 
-class DeferredCompletionCommentStatePolicy:
-    """Extension point for the later completed-PRD locking step."""
+class CompletionCommentStatePolicy:
+    """Completed PRDs accept only tutor post-completion review comments."""
 
     def enforce_create(self, *, access: PrdAccess, comment_type: str):
-        return None
+        if access.prd.status != "completed":
+            if comment_type == PrdCommentType.POST_COMPLETION_REVIEW:
+                raise PermissionDenied("Post-completion review comments require a completed PRD.")
+            return
+        if (
+            access.role != PrdParticipantRole.TUTOR
+            or comment_type != PrdCommentType.POST_COMPLETION_REVIEW
+        ):
+            raise PermissionDenied("Completed PRDs only accept tutor review comments.")
 
     def enforce_modify(self, *, access: PrdAccess, comment: PrdComment):
-        return None
+        if access.prd.status != "completed":
+            return
+        if (
+            access.role != PrdParticipantRole.TUTOR
+            or comment.comment_type != PrdCommentType.POST_COMPLETION_REVIEW
+        ):
+            raise PermissionDenied("Comments are locked while the PRD is completed.")
 
 
 class CommentRolePolicy:
@@ -41,7 +55,11 @@ class CommentRolePolicy:
             return comment_type
         if role == PrdParticipantRole.TUTOR:
             comment_type = requested_type or PrdCommentType.GUIDANCE
-            if comment_type not in {PrdCommentType.GUIDANCE, PrdCommentType.REVIEW}:
+            if comment_type not in {
+                PrdCommentType.GUIDANCE,
+                PrdCommentType.REVIEW,
+                PrdCommentType.POST_COMPLETION_REVIEW,
+            }:
                 raise PermissionDenied("Tutors create guidance or review comments.")
             return comment_type
         raise PermissionDenied("The current PRD role cannot comment.")
@@ -61,7 +79,7 @@ class PrdCommentService:
         state_policy: CommentStatePolicy | None = None,
     ):
         self.role_policy = role_policy or CommentRolePolicy()
-        self.state_policy = state_policy or DeferredCompletionCommentStatePolicy()
+        self.state_policy = state_policy or CompletionCommentStatePolicy()
 
     @transaction.atomic
     def create(

@@ -172,6 +172,20 @@ PRD Context만 전달합니다.
 `ai_prd_apply_records`와 `ai_prd_apply_items`에 실행 사용자, 모델·프롬프트 버전, 기존·통합 답변,
 질문 version, 근거 노드와 노드 version을 보존합니다.
 
+## PRD 완료와 재개
+
+- 완료: `POST /api/v1/prds/<prd_id>/complete/`
+- 재개: `POST /api/v1/prds/<prd_id>/reopen/` body `{ "reason": "재개 이유" }`
+
+완료는 owner만 수행합니다. 미완료 질문이 있으면 먼저 경고하며, 사용자가 확인한 재요청에
+`{ "confirm_incomplete": true }`를 보내야 합니다. 완료된 PRD는 답변, 브레인스토밍 데이터,
+연결선, AI PRD 반영과 일반 코멘트를 서버에서 잠급니다. tutor만
+`post_completion_review` 코멘트를 작성할 수 있으며 이 코멘트는 기여도에서 제외됩니다.
+
+재개는 owner 또는 IntegrationContext의 staff/superuser 관리자만 수행할 수 있습니다. 재개 이유,
+실행 사용자와 이전 완료 시각은 `prd_status_audit_logs`에 보존하고 일반 변경 이력에도 상태 전환을
+남깁니다.
+
 ## UI와 부모 이관 지점
 
 - `templates/base.html`은 Bootstrap `5.3.2`와 `extra_head`, `breadcrumb`, `content`, `modals`, `extra_js` block을 사용합니다.
