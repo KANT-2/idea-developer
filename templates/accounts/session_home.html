@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block title %}로그인 완료 | Idea Developer{% endblock %}
+
+{% block content %}
+  <div class="alert alert-success" role="status">로그인되었습니다.</div>
+  <p>제품 홈 화면은 후속 구현 단계에서 이 경로에 연결됩니다.</p>
+  <form method="post" action="{% url 'accounts:logout' %}">
+    {% csrf_token %}
+    <button class="btn btn-outline-secondary" type="submit">로그아웃</button>
+  </form>
+{% endblock %}

@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from django.conf import settings
-from django.db import DatabaseError
+from django.db import DatabaseError, connections
+from django.db.models import Q
 
 from .exceptions import (
     IntegrationConfigurationError,
@@ -17,13 +18,45 @@ from .models import AxUserTeamLoginView, UserRoundTeamView
 logger = logging.getLogger(__name__)
 
 
+def escape_like_pattern(value: str) -> str:
+    return value.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+
+
 @dataclass(frozen=True, slots=True)
 class ParentUser:
     user_id: int
     parent_role: str | None
+    approval_status: str | None
     is_active: bool
     is_staff: bool
     is_superuser: bool
+    user_email: str | None
+    primary_email: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class LoginIdentity:
+    user_id: int
+    email: str
+
+
+@dataclass(frozen=True, slots=True)
+class UserSearchResult:
+    user_id: int
+    participant_id: int
+    display_name: str
+    email: str | None
+    team_id: int
+    team_name: str
+    has_duplicate_name: bool
+
+
+@dataclass(frozen=True, slots=True)
+class SearchPage:
+    results: tuple
+    page: int
+    page_size: int
+    has_next: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +79,14 @@ class IntegrationRepository(Protocol):
 
     def list_active_memberships(self, user_id: int) -> tuple[RoundMembership, ...]: ...
 
+    def find_login_identity(self, normalized_email: str) -> LoginIdentity | None: ...
+
+    def get_login_identity(self, user_id: int) -> LoginIdentity | None: ...
+
+    def search_round_users(
+        self, *, query: str, round_id: int, team_id: int | None, page: int, page_size: int
+    ) -> SearchPage: ...
+
 
 class DjangoViewIntegrationRepository:
     """Reads only the two parent-owned PostgreSQL VIEWs."""
@@ -64,7 +105,16 @@ class DjangoViewIntegrationRepository:
             row = (
                 AxUserTeamLoginView.objects.using(self.database_alias)
                 .filter(user_id=user_id)
-                .values("user_id", "role", "is_active", "is_staff", "is_superuser")
+                .values(
+                    "user_id",
+                    "role",
+                    "approval_status",
+                    "is_active",
+                    "is_staff",
+                    "is_superuser",
+                    "user_email",
+                    "primary_email",
+                )
                 .first()
             )
         except DatabaseError as exc:
@@ -74,9 +124,12 @@ class DjangoViewIntegrationRepository:
         return ParentUser(
             user_id=row["user_id"],
             parent_role=row["role"],
+            approval_status=row["approval_status"],
             is_active=row["is_active"],
             is_staff=row["is_staff"],
             is_superuser=row["is_superuser"],
+            user_email=row["user_email"],
+            primary_email=row["primary_email"],
         )
 
     def get_membership(self, user_id: int, round_id: int) -> RoundMembership | None:
@@ -123,6 +176,164 @@ class DjangoViewIntegrationRepository:
             )
         return memberships
 
+    def find_login_identity(self, normalized_email: str) -> LoginIdentity | None:
+        try:
+            rows = list(
+                AxUserTeamLoginView.objects.using(self.database_alias)
+                .filter(
+                    Q(user_email__iexact=normalized_email)
+                    | Q(primary_email__iexact=normalized_email),
+                    is_active=True,
+                    approval_status=settings.INTEGRATION_APPROVED_USER_STATUS,
+                )
+                .values("user_id", "user_email", "primary_email")[:2]
+            )
+        except DatabaseError as exc:
+            self._raise_unavailable(exc)
+        if not rows:
+            return None
+        if len(rows) != 1:
+            raise IntegrationDataIntegrityError("The login email maps to multiple users.")
+        return self._to_login_identity(rows[0], fallback_email=normalized_email)
+
+    def get_login_identity(self, user_id: int) -> LoginIdentity | None:
+        try:
+            row = (
+                AxUserTeamLoginView.objects.using(self.database_alias)
+                .filter(
+                    user_id=user_id,
+                    is_active=True,
+                    approval_status=settings.INTEGRATION_APPROVED_USER_STATUS,
+                )
+                .values("user_id", "user_email", "primary_email")
+                .first()
+            )
+        except DatabaseError as exc:
+            self._raise_unavailable(exc)
+        if row is None:
+            return None
+        return self._to_login_identity(row)
+
+    def search_round_users(
+        self,
+        *,
+        query: str,
+        round_id: int,
+        team_id: int | None,
+        page: int,
+        page_size: int,
+    ) -> SearchPage:
+        offset = (page - 1) * page_size
+        effective_name = """
+            COALESCE(
+                NULLIF(BTRIM(urt.display_name_snapshot), ''),
+                NULLIF(BTRIM(CONCAT_WS(' ', aut.first_name, aut.last_name)), ''),
+                aut.primary_email,
+                aut.user_email
+            )
+        """
+        team_clause = "AND urt.team_id = %s" if team_id is not None else ""
+        sql = f"""
+            WITH candidates AS (
+                SELECT
+                    urt.user_id,
+                    urt.participant_id,
+                    {effective_name} AS display_name,
+                    COALESCE(aut.primary_email, aut.user_email) AS email,
+                    urt.team_id,
+                    urt.team_name,
+                    COUNT(*) OVER (
+                        PARTITION BY LOWER({effective_name})
+                    ) AS duplicate_name_count
+                FROM public.user_round_team_view AS urt
+                INNER JOIN public.ax_user_team_login_view AS aut
+                    ON aut.user_id = urt.user_id
+                WHERE urt.round_id = %s
+                  {team_clause}
+                  AND aut.is_active = TRUE
+                  AND aut.approval_status = %s
+                  AND {effective_name} ILIKE %s ESCAPE '!'
+            )
+            SELECT
+                user_id,
+                participant_id,
+                display_name,
+                email,
+                team_id,
+                team_name,
+                duplicate_name_count
+            FROM candidates
+            ORDER BY LOWER(display_name), user_id
+            LIMIT %s OFFSET %s
+        """
+        params = [round_id]
+        if team_id is not None:
+            params.append(team_id)
+        params.extend(
+            [
+                settings.INTEGRATION_APPROVED_USER_STATUS,
+                f"%{escape_like_pattern(query)}%",
+                page_size + 1,
+                offset,
+            ]
+        )
+        try:
+            with connections[self.database_alias].cursor() as cursor:
+                cursor.execute(sql, params)
+                columns = [column[0] for column in cursor.description]
+                rows = [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
+        except DatabaseError as exc:
+            self._raise_unavailable(exc)
+
+        has_next = len(rows) > page_size
+        results = tuple(
+            UserSearchResult(
+                user_id=row["user_id"],
+                participant_id=row["participant_id"],
+                display_name=row["display_name"],
+                email=row["email"],
+                team_id=row["team_id"],
+                team_name=row["team_name"],
+                has_duplicate_name=row["duplicate_name_count"] > 1,
+            )
+            for row in rows[:page_size]
+        )
+        return SearchPage(results=results, page=page, page_size=page_size, has_next=has_next)
+
+    def search_login_users(self, *, query: str, page: int, page_size: int) -> SearchPage:
+        offset = (page - 1) * page_size
+        try:
+            queryset = (
+                AxUserTeamLoginView.objects.using(self.database_alias)
+                .filter(
+                    Q(user_email__icontains=query)
+                    | Q(primary_email__icontains=query)
+                    | Q(first_name__icontains=query)
+                    | Q(last_name__icontains=query)
+                    | Q(display_name_snapshot__icontains=query),
+                    is_active=True,
+                    approval_status=settings.INTEGRATION_APPROVED_USER_STATUS,
+                )
+                .order_by("user_id")
+                .values(
+                    "user_id",
+                    "user_email",
+                    "primary_email",
+                    "first_name",
+                    "last_name",
+                    "display_name_snapshot",
+                )
+            )
+            rows = list(queryset[offset : offset + page_size + 1])
+        except DatabaseError as exc:
+            self._raise_unavailable(exc)
+        return SearchPage(
+            results=tuple(rows[:page_size]),
+            page=page,
+            page_size=page_size,
+            has_next=len(rows) > page_size,
+        )
+
     @staticmethod
     def _membership_fields():
         return (
@@ -140,6 +351,13 @@ class DjangoViewIntegrationRepository:
         return RoundMembership(**row)
 
     @staticmethod
+    def _to_login_identity(row, fallback_email="") -> LoginIdentity:
+        return LoginIdentity(
+            user_id=row["user_id"],
+            email=row.get("primary_email") or row.get("user_email") or fallback_email,
+        )
+
+    @staticmethod
     def _raise_unavailable(exc: DatabaseError):
         logger.exception("Parent integration VIEW query failed")
         raise IntegrationUnavailableError("Parent integration VIEW is unavailable.") from exc
@@ -155,6 +373,10 @@ class FixtureIntegrationRepository:
     """In-memory fixture with the same fields used from the parent VIEWs."""
 
     def __init__(self, *, users=(), memberships=(), active_statuses=()):
+        self.user_rows = tuple(dict(user) if isinstance(user, dict) else user for user in users)
+        self.membership_rows = tuple(
+            dict(row) if isinstance(row, dict) else row for row in memberships
+        )
         normalized_users = tuple(self._to_parent_user(user) for user in users)
         self.users = {user.user_id: user for user in normalized_users}
         self.memberships = tuple(self._to_round_membership(row) for row in memberships)
@@ -197,6 +419,130 @@ class FixtureIntegrationRepository:
             )
         return matches
 
+    def find_login_identity(self, normalized_email: str) -> LoginIdentity | None:
+        matches = [
+            row
+            for row in self.user_rows
+            if isinstance(row, dict)
+            and row["is_active"]
+            and row.get("approval_status") == settings.INTEGRATION_APPROVED_USER_STATUS
+            and normalized_email
+            in {
+                (row.get("user_email") or "").lower(),
+                (row.get("primary_email") or "").lower(),
+            }
+        ]
+        if not matches:
+            return None
+        if len(matches) != 1:
+            raise IntegrationDataIntegrityError("The login email maps to multiple users.")
+        return self._to_login_identity(matches[0], fallback_email=normalized_email)
+
+    def get_login_identity(self, user_id: int) -> LoginIdentity | None:
+        for row in self.user_rows:
+            if (
+                isinstance(row, dict)
+                and row["user_id"] == user_id
+                and row["is_active"]
+                and row.get("approval_status") == settings.INTEGRATION_APPROVED_USER_STATUS
+            ):
+                return self._to_login_identity(row)
+        return None
+
+    def search_round_users(
+        self,
+        *,
+        query: str,
+        round_id: int,
+        team_id: int | None,
+        page: int,
+        page_size: int,
+    ) -> SearchPage:
+        users_by_id = {
+            row["user_id"]: row
+            for row in self.user_rows
+            if isinstance(row, dict)
+            and row["is_active"]
+            and row.get("approval_status") == settings.INTEGRATION_APPROVED_USER_STATUS
+        }
+        candidates = []
+        for row in self.membership_rows:
+            if not isinstance(row, dict) or row["round_id"] != round_id:
+                continue
+            if team_id is not None and row["team_id"] != team_id:
+                continue
+            user = users_by_id.get(row["user_id"])
+            if user is None:
+                continue
+            full_name = " ".join(
+                part for part in (user.get("first_name"), user.get("last_name")) if part
+            )
+            display_name = (
+                row.get("display_name_snapshot")
+                or full_name
+                or user.get("primary_email")
+                or user.get("user_email")
+            )
+            if query.casefold() not in display_name.casefold():
+                continue
+            candidates.append((row, user, display_name))
+
+        name_counts = {}
+        for _, _, display_name in candidates:
+            key = display_name.casefold()
+            name_counts[key] = name_counts.get(key, 0) + 1
+        candidates.sort(key=lambda item: (item[2].casefold(), item[0]["user_id"]))
+        offset = (page - 1) * page_size
+        page_rows = candidates[offset : offset + page_size + 1]
+        return SearchPage(
+            results=tuple(
+                UserSearchResult(
+                    user_id=row["user_id"],
+                    participant_id=row["participant_id"],
+                    display_name=display_name,
+                    email=user.get("primary_email") or user.get("user_email"),
+                    team_id=row["team_id"],
+                    team_name=row["team_name"],
+                    has_duplicate_name=name_counts[display_name.casefold()] > 1,
+                )
+                for row, user, display_name in page_rows[:page_size]
+            ),
+            page=page,
+            page_size=page_size,
+            has_next=len(page_rows) > page_size,
+        )
+
+    def search_login_users(self, *, query: str, page: int, page_size: int) -> SearchPage:
+        matching = []
+        for row in self.user_rows:
+            if not isinstance(row, dict):
+                continue
+            if not row["is_active"] or (
+                row.get("approval_status") != settings.INTEGRATION_APPROVED_USER_STATUS
+            ):
+                continue
+            searchable = " ".join(
+                str(row.get(field) or "")
+                for field in (
+                    "user_email",
+                    "primary_email",
+                    "first_name",
+                    "last_name",
+                    "display_name_snapshot",
+                )
+            )
+            if query.casefold() in searchable.casefold():
+                matching.append(row)
+        matching.sort(key=lambda row: row["user_id"])
+        offset = (page - 1) * page_size
+        page_rows = matching[offset : offset + page_size + 1]
+        return SearchPage(
+            results=tuple(page_rows[:page_size]),
+            page=page,
+            page_size=page_size,
+            has_next=len(page_rows) > page_size,
+        )
+
     @staticmethod
     def _to_parent_user(row) -> ParentUser:
         if isinstance(row, ParentUser):
@@ -204,9 +550,12 @@ class FixtureIntegrationRepository:
         return ParentUser(
             user_id=row["user_id"],
             parent_role=row.get("role"),
+            approval_status=row.get("approval_status"),
             is_active=row["is_active"],
             is_staff=row["is_staff"],
             is_superuser=row["is_superuser"],
+            user_email=row.get("user_email"),
+            primary_email=row.get("primary_email"),
         )
 
     @staticmethod
@@ -221,4 +570,11 @@ class FixtureIntegrationRepository:
             participant_id=row["participant_id"],
             team_id=row["team_id"],
             team_name=row["team_name"],
+        )
+
+    @staticmethod
+    def _to_login_identity(row, fallback_email="") -> LoginIdentity:
+        return LoginIdentity(
+            user_id=row["user_id"],
+            email=row.get("primary_email") or row.get("user_email") or fallback_email,
         )

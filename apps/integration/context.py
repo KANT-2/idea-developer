@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest
 
@@ -60,7 +61,11 @@ class StandaloneSessionContextResolver:
             raise PermissionDenied("External user mapping is required.")
 
         parent_user = self.repository.get_user(external_user_id)
-        if parent_user is None or not parent_user.is_active:
+        if (
+            parent_user is None
+            or not parent_user.is_active
+            or parent_user.approval_status != settings.INTEGRATION_APPROVED_USER_STATUS
+        ):
             raise PermissionDenied("The mapped parent user is not active.")
 
         if round_id is None:

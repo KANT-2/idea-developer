@@ -5,7 +5,7 @@ from django.test import SimpleTestCase
 
 from apps.integration.exceptions import IntegrationUnavailableError
 from apps.integration.models import AxUserTeamLoginView, UserRoundTeamView
-from apps.integration.repository import DjangoViewIntegrationRepository
+from apps.integration.repository import DjangoViewIntegrationRepository, escape_like_pattern
 
 
 class DjangoViewIntegrationRepositoryTests(SimpleTestCase):
@@ -43,3 +43,6 @@ class DjangoViewIntegrationRepositoryTests(SimpleTestCase):
 
         with self.assertRaises(IntegrationUnavailableError):
             self.repository.get_user(7)
+
+    def test_search_wildcards_are_escaped_as_literal_characters(self):
+        self.assertEqual(escape_like_pattern("100%_done!"), "100!%!_done!!")

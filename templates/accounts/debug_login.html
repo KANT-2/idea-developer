@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}개발 전용 로그인 | Idea Developer{% endblock %}
+
+{% block content %}
+  <div class="alert alert-warning" role="alert">
+    <strong>개발 전용 로그인</strong> — 운영 환경에서는 이 URL이 등록되지 않습니다.
+  </div>
+
+  <form method="get" class="row g-2 mb-4" role="search">
+    <div class="col">
+      <label class="visually-hidden" for="debug-user-query">사용자 검색</label>
+      <input id="debug-user-query" class="form-control" name="q" value="{{ query }}" placeholder="이름 또는 이메일을 2자 이상 입력" required>
+    </div>
+    <div class="col-auto"><button class="btn btn-primary" type="submit">검색</button></div>
+  </form>
+
+  {% if result_page %}
+    <div class="list-group mb-3">
+      {% for row in result_page.results %}
+        <form method="post" class="list-group-item d-flex align-items-center justify-content-between gap-3">
+          {% csrf_token %}
+          <input type="hidden" name="external_user_id" value="{{ row.user_id }}">
+          <span>
+            <strong>{% firstof row.display_name_snapshot row.first_name row.primary_email row.user_email %}</strong>
+            <small class="d-block text-body-secondary">{% firstof row.primary_email row.user_email %}</small>
+          </span>
+          <button class="btn btn-sm btn-outline-primary" type="submit">이 사용자로 로그인</button>
+        </form>
+      {% empty %}
+        <div class="alert alert-info">검색 결과가 없습니다.</div>
+      {% endfor %}
+    </div>
+    <nav aria-label="검색 결과 페이지">
+      {% if result_page.page > 1 %}
+        <a class="btn btn-outline-secondary" href="?q={{ query|urlencode }}&page={{ result_page.page|add:'-1' }}">이전</a>
+      {% endif %}
+      {% if result_page.has_next %}
+        <a class="btn btn-outline-secondary" href="?q={{ query|urlencode }}&page={{ result_page.page|add:'1' }}">다음</a>
+      {% endif %}
+    </nav>
+  {% endif %}
+{% endblock %}

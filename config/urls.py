@@ -1,10 +1,18 @@
+from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("accounts/", include("apps.accounts.urls")),
+    path("api/v1/auth/", include("apps.accounts.api_urls")),
+    path("api/v1/users/", include("apps.accounts.user_api_urls")),
     path("api/v1/", include("apps.common.urls")),
     path("integration/", include("apps.integration.urls")),
+    path("ideas/", include("apps.common.ideas_urls")),
 ]
+
+if settings.DEBUG:
+    urlpatterns.append(path("accounts/dev/", include("apps.accounts.debug_urls")))
 
 handler404 = "apps.common.views.api_not_found"

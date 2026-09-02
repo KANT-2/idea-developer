@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -28,6 +29,7 @@ CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
 CSRF_FAILURE_VIEW = "apps.common.views.csrf_failure"
 
 INSTALLED_APPS = [
+    "apps.accounts",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -39,6 +41,28 @@ INSTALLED_APPS = [
     "apps.jobs",
     "apps.brainstorm",
 ]
+
+AUTH_USER_MODEL = "accounts.LocalUserMapping"
+LOGIN_URL = "accounts:login"
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "no-reply@example.test")
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+EMAIL_HOST = os.getenv("EMAIL_HOST", "localhost")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
+OTP_EXPIRY_SECONDS = 600
+OTP_MAX_FAILED_ATTEMPTS = 5
+OTP_RESEND_COOLDOWN_SECONDS = 60
+OTP_RATE_LIMIT_WINDOW_SECONDS = int(os.getenv("OTP_RATE_LIMIT_WINDOW_SECONDS", "900"))
+OTP_EMAIL_REQUEST_LIMIT = int(os.getenv("OTP_EMAIL_REQUEST_LIMIT", "5"))
+OTP_IP_REQUEST_LIMIT = int(os.getenv("OTP_IP_REQUEST_LIMIT", "20"))
+USER_SEARCH_MIN_LENGTH = int(os.getenv("USER_SEARCH_MIN_LENGTH", "2"))
+USER_SEARCH_PAGE_SIZE = int(os.getenv("USER_SEARCH_PAGE_SIZE", "20"))
+USER_SEARCH_MAX_PAGE_SIZE = int(os.getenv("USER_SEARCH_MAX_PAGE_SIZE", "50"))
+PARENT_ROLE_PARTICIPANT_MAP = json.loads(os.getenv("PARENT_ROLE_PARTICIPANT_MAP", "{}"))
+PARENT_STAFF_PARTICIPANT_ROLE = os.getenv("PARENT_STAFF_PARTICIPANT_ROLE", "")
+PARENT_SUPERUSER_PARTICIPANT_ROLE = os.getenv("PARENT_SUPERUSER_PARTICIPANT_ROLE", "")
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -116,6 +140,7 @@ INTEGRATION_DB_ALIAS = requested_integration_alias or (
 if INTEGRATION_DB_ALIAS not in DATABASES:
     raise RuntimeError(f"Unknown INTEGRATION_DB_ALIAS: {INTEGRATION_DB_ALIAS}")
 INTEGRATION_ACTIVE_ROUND_STATUSES = frozenset(env_list("INTEGRATION_ACTIVE_ROUND_STATUSES"))
+INTEGRATION_APPROVED_USER_STATUS = os.getenv("INTEGRATION_APPROVED_USER_STATUS", "approved")
 INTEGRATION_CONTEXT_RESOLVER_CLASS = os.getenv(
     "INTEGRATION_CONTEXT_RESOLVER_CLASS",
     "apps.integration.context.StandaloneSessionContextResolver",

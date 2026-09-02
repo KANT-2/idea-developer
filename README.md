@@ -68,7 +68,7 @@ Invoke-RestMethod http://127.0.0.1:8000/api/v1/health/
 
 ## 테스트와 코드 품질
 
-테스트 설정은 외부 DB 쿼리가 없는 단위 테스트에 PostgreSQL 접속을 요구하지 않습니다.
+테스트 설정은 자식 소유 인증 테이블에 메모리 SQLite를 사용하고 부모 VIEW는 fixture repository로 대체하므로 PostgreSQL 접속을 요구하지 않습니다. 운영 스택과 실제 migration 대상은 PostgreSQL입니다.
 
 ```powershell
 python manage.py check --settings=config.settings.test
@@ -115,6 +115,40 @@ INTEGRATION_ACTIVE_ROUND_STATUSES=<부모가 확인한 실제 상태값>
 `apps/integration/migrations/0001_initial.py`는 unmanaged Django model state만 기록합니다. `RunSQL`이나 VIEW 생성·수정 SQL은 포함하지 않으며 부모 VIEW의 생명주기를 소유하지 않습니다.
 
 협업 polling 간격은 `.env`에서 설정합니다. 실제 polling endpoint와 version 충돌 응답은 제품 리소스·version 필드 정책이 승인된 뒤 추가합니다.
+
+## 이메일 인증 로그인
+
+독립 로그인은 회원가입과 비밀번호 없이 6자리 일회용 인증번호를 사용합니다.
+
+- 로그인 화면: `/accounts/login/`
+- 인증번호 요청: `POST /api/v1/auth/otp/request/`
+- 인증번호 검증: `POST /api/v1/auth/otp/verify/`
+- 로그아웃: `POST /accounts/logout/`
+- 회차 참가자 검색: `GET /api/v1/users/search/`
+
+인증번호는 해시만 저장하며 기본 10분 만료, 1회 사용, 5회 실패 제한, 60초 재전송 제한을 적용합니다. 이메일·IP 요청 제한 값은 `OTP_*` 환경변수에서 조정합니다. 미등록·비활성·미승인 이메일에도 동일한 요청 성공 문구를 반환합니다.
+
+`LocalUserMapping`은 Django session을 위한 최소 매핑입니다. `external_user_id`, 이메일 snapshot, 로컬 차단 상태와 마지막 검증 시각만 사용자 연동 정보로 가지며 비밀번호는 항상 unusable입니다. 이름·역할·팀·회차·프로필은 계속 부모 VIEW를 진실의 원천으로 사용합니다. 로그인 성공·실패와 로그아웃은 부모 VIEW의 `last_login`을 수정하지 않고 자식 `LoginAuditLog`에 기록합니다.
+
+운영에서는 실제 메일 발송 backend와 SMTP 비밀값을 환경변수로 설정해야 합니다. console·메모리·dummy backend가 `DEBUG=false`에서 설정되면 배포 검사 `accounts.E002`가 실패합니다.
+
+`DEBUG=true`에서만 `/accounts/dev/login/`이 URL에 등록됩니다. 이 화면은 검색어 입력 후 활성·승인 사용자 일부만 페이지 단위로 조회합니다. 운영 배포 검사 `accounts.E001`은 `DEBUG=false`에서 해당 URL이 잘못 등록되면 실패합니다.
+
+## 역할 권한 정책
+
+`apps/accounts/permissions.py`가 `owner`, `editor`, `tutor`, `viewer`의 서버 권한 행렬을 한 곳에서 관리합니다. 완료 상태에서는 owner의 재개와 tutor의 리뷰 코멘트만 상태 변경 예외로 허용합니다. 실제 PRD 참여 관계는 PRD 구현 단계에서 외부 `user_id`, `round_id`, `participant_id`, `team_id`와 함께 저장합니다.
+
+부모 `role`, `is_staff`, `is_superuser` 자동 매핑은 아직 확정되지 않았으므로 기본값이 없습니다. 확정 후 아래 환경변수만 설정합니다.
+
+```text
+PARENT_ROLE_PARTICIPANT_MAP={"student":"editor","tutor":"tutor"}
+PARENT_STAFF_PARTICIPANT_ROLE=tutor
+PARENT_SUPERUSER_PARTICIPANT_ROLE=owner
+```
+
+위 값은 예시이며 승인된 정책 없이 운영 설정에 사용하지 않습니다.
+
+> 기존 프로젝트 뼈대에서 이미 `migrate`를 실행한 로컬 DB가 있다면 주의하세요. 이번 단계에서 최초 custom user model이 도입되었으므로 기존 기본 `auth.User` migration 이력이 있는 DB는 그대로 전환하지 않습니다. 필요한 데이터를 백업하고 새 개발 DB/schema를 준비한 뒤 migration해야 하며, 자동 삭제는 수행하지 않습니다.
 
 ## 설정 구분
 
