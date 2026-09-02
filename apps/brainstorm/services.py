@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -115,10 +116,21 @@ class BrainstormMutationService:
             raise ValidationError({"section_id": "현재 PRD의 활성 섹션이 아닙니다."}) from exc
 
     @staticmethod
-    def _record(*, canvas, actor_user_id, action, target_type, target_id, before, after) -> None:
+    def _record(
+        *,
+        canvas,
+        actor_user_id,
+        action,
+        target_type,
+        target_id,
+        before,
+        after,
+        operation_id=None,
+    ) -> None:
         BrainstormChangeLog.objects.create(
             canvas=canvas,
             actor_user_id=actor_user_id,
+            operation_id=operation_id or uuid.uuid4(),
             action=action,
             target_type=target_type,
             target_id=str(target_id),
@@ -155,6 +167,89 @@ class BrainstormMutationService:
         if node.version != expected:
             raise VersionConflict(node)
         return node
+
+    @transaction.atomic
+    def auto_layout(self, *, canvas, access, actor_user_id, payload):
+        """Apply one complete layout operation or roll the whole batch back."""
+        BrainstormAccessService.enforce_write(access)
+        canvas = self._lock_canvas(canvas)
+        items = payload.get("nodes")
+        if not isinstance(items, list) or not items:
+            raise ValidationError({"nodes": "자동 정렬할 메모 배열이 필요합니다."})
+
+        eligible_nodes = list(
+            BrainstormNode.objects.select_for_update()
+            .filter(
+                canvas=canvas,
+                node_type=BrainstormNodeType.NOTE,
+                is_deleted=False,
+            )
+            .exclude(status=BrainstormNodeStatus.HELD)
+            .order_by("id")
+        )
+        eligible_by_id = {str(node.pk): node for node in eligible_nodes}
+        submitted_ids = [str(item.get("id")) for item in items if isinstance(item, dict)]
+        if len(submitted_ids) != len(items) or len(set(submitted_ids)) != len(items):
+            raise ValidationError({"nodes": "메모 ID가 누락되었거나 중복되었습니다."})
+        if set(submitted_ids) != set(eligible_by_id):
+            raise ValidationError(
+                {"nodes": "삭제·보류·제목 카드를 제외한 활성 일반 메모 전체가 필요합니다."}
+            )
+
+        before_nodes = []
+        after_nodes = []
+        changed_at = timezone.now()
+        for item in items:
+            node = eligible_by_id[str(item["id"])]
+            expected_version = self._validate_version(item.get("version"))
+            if node.version != expected_version:
+                raise VersionConflict(node)
+            submitted_section_id = item.get("section_id")
+            if submitted_section_id != node.section_id:
+                raise ValidationError(
+                    {"section_id": "자동 정렬은 메모의 기존 섹션 분류를 변경할 수 없습니다."}
+                )
+            x = self._validate_coordinate(item.get("x"), "x")
+            y = self._validate_coordinate(item.get("y"), "y")
+            before_nodes.append(
+                {
+                    "id": str(node.pk),
+                    "x": str(node.position_x),
+                    "y": str(node.position_y),
+                    "section_id": node.section_id,
+                    "version": node.version,
+                }
+            )
+            node.position_x = x
+            node.position_y = y
+            node.version += 1
+            node.updated_at = changed_at
+            after_nodes.append(
+                {
+                    "id": str(node.pk),
+                    "x": str(x),
+                    "y": str(y),
+                    "section_id": node.section_id,
+                    "version": node.version,
+                }
+            )
+
+        BrainstormNode.objects.bulk_update(
+            eligible_nodes,
+            ["position_x", "position_y", "version", "updated_at"],
+        )
+        operation_id = uuid.uuid4()
+        self._record(
+            canvas=canvas,
+            actor_user_id=actor_user_id,
+            action="auto_layout_applied",
+            target_type=BrainstormChangeTarget.CANVAS,
+            target_id=canvas.pk,
+            before={"nodes": before_nodes},
+            after={"nodes": after_nodes},
+            operation_id=operation_id,
+        )
+        return operation_id, eligible_nodes
 
     @transaction.atomic
     def create_note(self, *, canvas, access, context, payload):
@@ -487,3 +582,19 @@ class BrainstormMutationService:
         )
         viewport.full_clean()
         return viewport
+
+
+class BrainstormEventPublisher:
+    """Handoff point for later PRD-apply code without coupling it to polling views."""
+
+    @staticmethod
+    def prd_apply_completed(*, canvas, actor_user_id, application_id, details=None):
+        return BrainstormChangeLog.objects.create(
+            canvas=canvas,
+            actor_user_id=actor_user_id,
+            action="prd_apply_completed",
+            target_type=BrainstormChangeTarget.CANVAS,
+            target_id=str(canvas.pk),
+            before_data={},
+            after_data={**(details or {}), "application_id": str(application_id)},
+        )

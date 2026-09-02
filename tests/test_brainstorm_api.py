@@ -11,12 +11,14 @@ from apps.accounts.models import LocalUserMapping
 from apps.brainstorm.models import (
     AuditLog,
     BrainstormCanvas,
+    BrainstormChangeLog,
     BrainstormConnection,
     BrainstormNode,
     BrainstormNodeStatus,
     BrainstormNodeType,
     UserCanvasViewport,
 )
+from apps.brainstorm.services import BrainstormEventPublisher
 from apps.integration.context import IntegrationContext
 from apps.integration.repository import FixtureIntegrationRepository
 from apps.prds.models import (
@@ -507,3 +509,195 @@ class BrainstormApiTests(TestCase):
         self.assertFalse(detail.json()["data"]["permissions"]["can_edit"])
         self.assertEqual(blocked.status_code, 403)
         self.assertEqual(anonymous.status_code, 401)
+
+    def test_auto_layout_updates_all_eligible_notes_as_one_operation(self):
+        first = self.create_note(section=self.section_a)
+        second = self.create_note(content="미분류", section=None)
+        held = self.create_note(content="보류", status=BrainstormNodeStatus.HELD)
+        title = BrainstormNode.objects.create(
+            canvas=first.canvas,
+            node_type=BrainstormNodeType.TITLE,
+            content="제목",
+            color="gray",
+            position_x=900,
+            position_y=900,
+            status=None,
+            author_id=None,
+            assignee_id=None,
+        )
+        response = self.json_request(
+            "post",
+            "auto-layout",
+            {
+                "nodes": [
+                    {
+                        "id": str(first.pk),
+                        "version": 1,
+                        "x": 100,
+                        "y": 120,
+                        "section_id": self.section_a.id,
+                    },
+                    {
+                        "id": str(second.pk),
+                        "version": 1,
+                        "x": 40,
+                        "y": 50,
+                        "section_id": None,
+                    },
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        first.refresh_from_db()
+        second.refresh_from_db()
+        held.refresh_from_db()
+        title.refresh_from_db()
+        self.assertEqual((first.position_x, first.position_y, first.version), (100, 120, 2))
+        self.assertEqual((second.position_x, second.position_y, second.version), (40, 50, 2))
+        self.assertEqual(held.version, 1)
+        self.assertEqual(title.version, 1)
+        log = BrainstormChangeLog.objects.get(action="auto_layout_applied")
+        self.assertEqual(str(log.operation_id), response.json()["data"]["operation_id"])
+        self.assertEqual(len(log.before_data["nodes"]), 2)
+        self.assertEqual(len(log.after_data["nodes"]), 2)
+
+    def test_auto_layout_conflict_rolls_back_every_node(self):
+        first = self.create_note()
+        second = self.create_note(content="두 번째")
+        second.version = 2
+        second.save(update_fields=["version", "updated_at"])
+        response = self.json_request(
+            "post",
+            "auto-layout",
+            {
+                "nodes": [
+                    {
+                        "id": str(first.pk),
+                        "version": 1,
+                        "x": 500,
+                        "y": 500,
+                        "section_id": None,
+                    },
+                    {
+                        "id": str(second.pk),
+                        "version": 1,
+                        "x": 600,
+                        "y": 600,
+                        "section_id": None,
+                    },
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 409)
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual((first.position_x, first.position_y, first.version), (10, 20, 1))
+        self.assertEqual((second.position_x, second.position_y, second.version), (10, 20, 2))
+        self.assertFalse(BrainstormChangeLog.objects.exists())
+
+    def test_auto_layout_requires_exact_eligible_set_and_preserves_sections(self):
+        first = self.create_note(section=self.section_a)
+        second = self.create_note(content="두 번째")
+        missing = self.json_request(
+            "post",
+            "auto-layout",
+            {
+                "nodes": [
+                    {
+                        "id": str(first.pk),
+                        "version": 1,
+                        "x": 1,
+                        "y": 1,
+                        "section_id": self.section_a.id,
+                    }
+                ]
+            },
+        )
+        changed_section = self.json_request(
+            "post",
+            "auto-layout",
+            {
+                "nodes": [
+                    {
+                        "id": str(first.pk),
+                        "version": 1,
+                        "x": 1,
+                        "y": 1,
+                        "section_id": self.section_b.id,
+                    },
+                    {
+                        "id": str(second.pk),
+                        "version": 1,
+                        "x": 2,
+                        "y": 2,
+                        "section_id": None,
+                    },
+                ]
+            },
+        )
+        self.assertEqual(missing.status_code, 400)
+        self.assertEqual(changed_section.status_code, 400)
+
+    def test_polling_returns_incremental_events_snapshots_and_counts(self):
+        self.initialize_canvas()
+        initial = self.client.get(self.url("canvas")).json()["data"]
+        created = self.json_request(
+            "post",
+            "node-create",
+            {"content": "polling 메모", "color": "blue", "x": 1, "y": 2},
+        )
+        response = self.client.get(self.url("events"), {"cursor": initial["cursor"]})
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertFalse(data["reset_required"])
+        self.assertEqual(len(data["events"]), 1)
+        event = data["events"][0]
+        self.assertEqual(event["action"], "node_created")
+        self.assertEqual(event["snapshot"]["id"], created.json()["data"]["id"])
+        self.assertEqual(data["counts"]["total"], 1)
+        self.assertGreater(data["cursor"], initial["cursor"])
+
+    def test_invalid_or_missing_cursor_requires_full_state_reload(self):
+        self.initialize_canvas()
+        for query in ({}, {"cursor": "not-a-number"}, {"cursor": 999999}):
+            with self.subTest(query=query):
+                response = self.client.get(self.url("events"), query)
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response.json()["data"]["reset_required"])
+
+    def test_change_history_uses_operation_units_and_excludes_audit_log(self):
+        canvas = self.initialize_canvas()
+        BrainstormEventPublisher.prd_apply_completed(
+            canvas=canvas,
+            actor_user_id=7,
+            application_id="apply-1",
+        )
+        AuditLog.objects.create(
+            canvas=canvas,
+            actor_user_id=7,
+            action="security_check",
+            target_type="canvas",
+            target_id=str(canvas.pk),
+            reason="audit_only",
+        )
+        response = self.client.get(self.url("change-history"))
+        items = response.json()["data"]["items"]
+        polling = self.client.get(self.url("events"), {"cursor": 0}).json()["data"]
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["action"], "prd_apply_completed")
+        self.assertTrue(items[0]["operation_id"])
+        self.assertEqual(polling["events"][0]["action"], "prd_apply_completed")
+
+    def test_brainstorm_page_provides_api_base_for_react_polling(self):
+        response = self.client.get(reverse("brainstorm-page", kwargs={"prd_id": self.prd.id}))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'data-prd-id="{self.prd.id}"')
+        self.assertContains(
+            response,
+            f'data-api-base="/api/v1/prds/{self.prd.id}/brainstorm/"',
+        )
+        self.assertContains(response, 'data-polling-interval-ms="3000"')

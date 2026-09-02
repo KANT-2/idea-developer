@@ -20,4 +20,7 @@ urlpatterns = [
         name="connection-delete",
     ),
     path("viewport/", views.viewport, name="viewport"),
+    path("auto-layout/", views.auto_layout, name="auto-layout"),
+    path("events/", views.events, name="events"),
+    path("changes/", views.change_history, name="change-history"),
 ]

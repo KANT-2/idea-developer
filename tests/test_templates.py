@@ -19,3 +19,15 @@ class TemplateContractTests(SimpleTestCase):
         self.assertIn('id="brainstorm-root"', rendered)
         self.assertNotIn("babel", rendered.lower())
         self.assertNotIn('type="text/babel"', rendered.lower())
+
+    def test_brainstorm_app_polls_incrementally_and_full_syncs_on_reconnect(self):
+        source = (Path(settings.BASE_DIR) / "static" / "brainstorm" / "js" / "app.js").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('"events/?cursor="', source)
+        self.assertIn('apiBase + "canvas/"', source)
+        self.assertIn('addEventListener("online", reconnect)', source)
+        self.assertIn("Math.min(5000, Math.max(2000", source)
+        self.assertNotIn("WebSocket", source)
+        self.assertNotIn("drag", source.lower())

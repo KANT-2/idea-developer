@@ -2,6 +2,8 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 
+from apps.brainstorm import views as brainstorm_views
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("accounts/", include("apps.accounts.urls")),
@@ -15,6 +17,11 @@ urlpatterns = [
     path("api/v1/home/", include("apps.prds.home_urls")),
     path("api/v1/", include("apps.common.urls")),
     path("integration/", include("apps.integration.urls")),
+    path(
+        "ideas/prds/<int:prd_id>/brainstorm/",
+        brainstorm_views.brainstorm_page,
+        name="brainstorm-page",
+    ),
     path("ideas/", include("apps.common.ideas_urls")),
 ]
 

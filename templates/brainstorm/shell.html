@@ -16,6 +16,8 @@
 {% block content %}
   <div
     id="brainstorm-root"
+    data-prd-id="{{ prd_id }}"
+    data-api-base="{{ api_base }}"
     data-polling-interval-ms="{{ polling_interval_ms }}"
     aria-live="polite"
   >
@@ -24,6 +26,7 @@
       <span class="visually-hidden">브레인스토밍 화면을 불러오는 중입니다.</span>
     </div>
   </div>
+  <form class="d-none" aria-hidden="true">{% csrf_token %}</form>
   <noscript>
     <div class="alert alert-warning">브레인스토밍 화면을 사용하려면 JavaScript를 켜 주세요.</div>
   </noscript>
