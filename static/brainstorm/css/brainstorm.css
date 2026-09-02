@@ -10,3 +10,17 @@
   max-height: 24rem;
   overflow-y: auto;
 }
+
+.brainstorm-ai-scope {
+  width: auto;
+  min-width: 8rem;
+}
+
+.brainstorm-answer-compare {
+  min-height: 6rem;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+  background: var(--bs-light);
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
+}

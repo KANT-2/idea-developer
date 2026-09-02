@@ -154,6 +154,24 @@ PRD Context만 전달합니다.
 트랜잭션으로 반영합니다. 하나라도 충돌하면 전체 반영을 취소하고 `409 Conflict`와 최신 노드를
 반환합니다. 요청과 반영 API는 각각 `Idempotency-Key` 헤더를 사용합니다.
 
+## AI PRD 반영
+
+브레인스토밍 화면에서 전체 PRD 또는 한 섹션을 선택해 통합 답변 미리보기를 만들 수 있습니다.
+채택 메모는 자동 포함하고, 섹션이 지정된 기본 메모는 사용자가 체크한 경우에만 추가합니다.
+보류·삭제 메모와 미분류 채택 메모는 자동 반영하지 않습니다.
+
+- 미리보기: `POST /api/v1/prds/<prd_id>/brainstorm/ai/prd-apply/preview/`
+- 질문별 승인 반영: `POST /api/v1/prds/<prd_id>/brainstorm/ai/prd-apply/apply/`
+
+미리보기는 기존 답변, 통합 초안, 근거 메모, 유지·추가된 내용, 미사용 메모, 경고와 신뢰도를
+반환하며 기존 답변을 변경하지 않습니다. 반영 요청은 `preview_request_id`, 전체 노드별 version,
+승인할 질문 ID와 version을 보내야 합니다. 한 항목이라도 미리보기 이후 바뀌면 전체 트랜잭션을
+취소하고 `409 Conflict`를 반환합니다.
+
+승인된 질문만 저장하고 같은 `Idempotency-Key` 요청은 최초 결과를 다시 반환합니다. 적용 기록은
+`ai_prd_apply_records`와 `ai_prd_apply_items`에 실행 사용자, 모델·프롬프트 버전, 기존·통합 답변,
+질문 version, 근거 노드와 노드 version을 보존합니다.
+
 ## UI와 부모 이관 지점
 
 - `templates/base.html`은 Bootstrap `5.3.2`와 `extra_head`, `breadcrumb`, `content`, `modals`, `extra_js` block을 사용합니다.

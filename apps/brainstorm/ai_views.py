@@ -17,6 +17,12 @@ from apps.ai.exceptions import (
     AiUsageLimitExceeded,
 )
 from apps.ai.models import AiJob
+from apps.ai.prd_apply import (
+    PrdApplyConflict,
+    PrdApplyRequestService,
+    PrdApplyService,
+    serialize_apply_record,
+)
 from apps.ai.services import AiJobService
 from apps.common.responses import api_error, api_success
 from apps.integration.exceptions import IntegrationError
@@ -42,6 +48,24 @@ def _enforce_ai(access):
 
 
 def _ai_error(request, exc):
+    if isinstance(exc, PrdApplyConflict):
+        return api_error(
+            code="version_conflict",
+            message="미리보기 이후 메모 또는 PRD 질문이 변경되었습니다.",
+            status=409,
+            details={
+                "latest_nodes": [_serialize_node(node, include_deleted=True) for node in exc.nodes],
+                "latest_questions": [
+                    {
+                        "id": question.pk,
+                        "version": question.version,
+                        "is_deleted": question.is_deleted,
+                    }
+                    for question in exc.questions
+                ],
+            },
+            request_id=_request_id(request),
+        )
     if isinstance(exc, AiClassificationConflict):
         return api_error(
             code="version_conflict",
@@ -86,6 +110,74 @@ def request_analysis(request, prd_id):
 @require_POST
 def request_classification(request, prd_id):
     return _request_feature(request, prd_id, feature="classification")
+
+
+@require_POST
+def request_prd_apply_preview(request, prd_id):
+    if response := _authentication_error(request):
+        return response
+    try:
+        context, access, canvas, _ = _access(request, prd_id, create_canvas=True)
+        _enforce_ai(access)
+        payload = _parse_json(request)
+        job, created = PrdApplyRequestService().request_preview(
+            canvas=canvas,
+            user_id=context.user_id,
+            idempotency_key=request.headers.get("Idempotency-Key", ""),
+            section_id=payload.get("section_id"),
+            selected_default_nodes=payload.get("selected_default_nodes"),
+        )
+        return api_success(
+            _serialize_job(job),
+            status=202 if created else 200,
+            request_id=_request_id(request),
+        )
+    except EmptyBrainstormInput as exc:
+        return api_success({"job": None, "message": exc.message}, request_id=_request_id(request))
+    except (
+        PrdNotFound,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+        AiPromptNotConfigured,
+        AiUsageLimitExceeded,
+    ) as exc:
+        return _ai_error(request, exc)
+
+
+@require_POST
+def apply_prd_preview(request, prd_id):
+    if response := _authentication_error(request):
+        return response
+    try:
+        context, access, canvas, _ = _access(request, prd_id, create_canvas=True)
+        payload = _parse_json(request)
+        job = _owned_job(
+            access=access,
+            user_id=context.user_id,
+            job_id=payload.get("preview_request_id"),
+        )
+        record, applied = PrdApplyService().apply(
+            canvas=canvas,
+            access=access,
+            job=job,
+            actor_user_id=context.user_id,
+            approved_questions=payload.get("approved_questions"),
+            node_versions=payload.get("node_versions"),
+            idempotency_key=request.headers.get("Idempotency-Key", ""),
+        )
+        return api_success(
+            {"applied": applied, "record": serialize_apply_record(record)},
+            request_id=_request_id(request),
+        )
+    except (
+        PrdNotFound,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+        PrdApplyConflict,
+    ) as exc:
+        return _ai_error(request, exc)
 
 
 def _request_feature(request, prd_id, *, feature):
@@ -256,4 +348,16 @@ def _serialize_job(job):
     }
     if job.input_data.get("kind") == "brainstorm_analysis":
         data["statistics"] = job.input_data.get("server_statistics")
+    if job.input_data.get("kind") == "brainstorm_prd_apply":
+        data["preview"] = {
+            "scope": job.input_data.get("scope"),
+            "section_id": job.input_data.get("section_id"),
+            "node_versions": [
+                {"node_id": row["id"], "version": row["version"]}
+                for row in job.input_data.get("nodes", [])
+            ],
+            "excluded_unclassified_accepted_node_ids": job.input_data.get(
+                "excluded_unclassified_accepted_node_ids", []
+            ),
+        }
     return data

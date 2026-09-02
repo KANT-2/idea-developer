@@ -59,6 +59,7 @@ class PrdPermissionPresenter:
             "can_complete": self._allows(role, ParticipantAction.COMPLETE),
             "can_reopen": self._allows(role, ParticipantAction.REOPEN),
             "can_request_ai": self._allows(role, ParticipantAction.REQUEST_AI),
+            "can_apply_ai": self._allows(role, ParticipantAction.APPLY_AI),
             "is_completed": access.prd.status == PrdStatus.COMPLETED,
         }
 

@@ -313,6 +313,114 @@ class AiJob(models.Model):
         ]
 
 
+class AiPrdApplyScope(models.TextChoices):
+    SECTION = "section", "섹션"
+    ALL = "all", "전체 PRD"
+
+
+class AiPrdApplyRecord(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    prd = models.ForeignKey(
+        "prds.Prd", on_delete=models.CASCADE, related_name="ai_prd_apply_records"
+    )
+    canvas = models.ForeignKey(
+        "brainstorm.BrainstormCanvas",
+        on_delete=models.CASCADE,
+        related_name="prd_apply_records",
+    )
+    preview_job = models.OneToOneField(
+        AiJob, on_delete=models.PROTECT, related_name="prd_apply_record"
+    )
+    section = models.ForeignKey(
+        "prds.PrdSection",
+        on_delete=models.PROTECT,
+        related_name="ai_prd_apply_records",
+        null=True,
+        blank=True,
+    )
+    scope = models.CharField(max_length=16, choices=AiPrdApplyScope.choices)
+    actor_user_id = models.PositiveBigIntegerField()
+    idempotency_key = models.CharField(max_length=128)
+    model = models.CharField(max_length=128)
+    prompt_version = models.PositiveIntegerField()
+    unused_node_ids = models.JSONField(default=list)
+    warnings = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "ai_prd_apply_records"
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["prd", "-created_at"], name="ai_apply_prd_created_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["prd", "actor_user_id", "idempotency_key"],
+                name="uniq_ai_prd_apply_request",
+            ),
+            models.CheckConstraint(
+                condition=Q(scope__in=AiPrdApplyScope.values),
+                name="ai_prd_apply_scope_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(scope=AiPrdApplyScope.SECTION, section__isnull=False)
+                    | Q(scope=AiPrdApplyScope.ALL, section__isnull=True)
+                ),
+                name="ai_prd_apply_scope_section_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(actor_user_id__gt=0), name="ai_prd_apply_actor_positive"
+            ),
+            models.CheckConstraint(
+                condition=Q(prompt_version__gte=1),
+                name="ai_prd_apply_prompt_version_positive",
+            ),
+            models.CheckConstraint(
+                condition=~Q(idempotency_key=""), name="ai_prd_apply_key_not_blank"
+            ),
+            models.CheckConstraint(condition=~Q(model=""), name="ai_prd_apply_model_not_blank"),
+        ]
+
+
+class AiPrdApplyItem(models.Model):
+    record = models.ForeignKey(AiPrdApplyRecord, on_delete=models.CASCADE, related_name="items")
+    question = models.ForeignKey(
+        "prds.PrdQuestion", on_delete=models.PROTECT, related_name="ai_prd_apply_items"
+    )
+    question_version_before = models.PositiveBigIntegerField()
+    question_prompt = models.TextField()
+    existing_answer = models.TextField(blank=True)
+    integrated_answer = models.TextField()
+    source_nodes = models.JSONField(default=list)
+    preserved_existing_points = models.JSONField(default=list)
+    added_points = models.JSONField(default=list)
+    confidence = models.DecimalField(max_digits=5, decimal_places=4)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "ai_prd_apply_items"
+        ordering = ["question_id", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["record", "question"], name="uniq_ai_prd_apply_item_question"
+            ),
+            models.CheckConstraint(
+                condition=Q(question_version_before__gte=1),
+                name="ai_prd_apply_question_version_positive",
+            ),
+            models.CheckConstraint(
+                condition=~Q(question_prompt=""), name="ai_prd_apply_question_not_blank"
+            ),
+            models.CheckConstraint(
+                condition=Q(confidence__gte=Decimal("0")) & Q(confidence__lte=Decimal("1")),
+                name="ai_prd_apply_confidence_range",
+            ),
+            models.CheckConstraint(
+                condition=~Q(integrated_answer=""),
+                name="ai_prd_apply_answer_not_blank",
+            ),
+        ]
+
+
 class AiChatHistory(models.Model):
     prd = models.ForeignKey(
         "prds.Prd",

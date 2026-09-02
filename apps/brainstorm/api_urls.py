@@ -30,6 +30,16 @@ urlpatterns = [
         ai_views.apply_classification,
         name="ai-classification-apply",
     ),
+    path(
+        "ai/prd-apply/preview/",
+        ai_views.request_prd_apply_preview,
+        name="ai-prd-apply-preview",
+    ),
+    path(
+        "ai/prd-apply/apply/",
+        ai_views.apply_prd_preview,
+        name="ai-prd-apply-apply",
+    ),
     path("ai/jobs/<uuid:job_id>/", ai_views.job_status, name="ai-job"),
     path("ai/jobs/<uuid:job_id>/cancel/", ai_views.cancel_job, name="ai-job-cancel"),
     path("ai/jobs/<uuid:job_id>/retry/", ai_views.retry_job, name="ai-job-retry"),

@@ -124,6 +124,18 @@
     var aiStatusPair = window.React.useState({ busy: false, jobId: null, error: null });
     var aiStatus = aiStatusPair[0];
     var setAiStatus = aiStatusPair[1];
+    var prdPreviewPair = window.React.useState(null);
+    var prdPreview = prdPreviewPair[0];
+    var setPrdPreview = prdPreviewPair[1];
+    var prdApprovedPair = window.React.useState({});
+    var prdApproved = prdApprovedPair[0];
+    var setPrdApproved = prdApprovedPair[1];
+    var prdDefaultsPair = window.React.useState({});
+    var prdDefaults = prdDefaultsPair[0];
+    var setPrdDefaults = prdDefaultsPair[1];
+    var prdScopePair = window.React.useState("all");
+    var prdScope = prdScopePair[0];
+    var setPrdScope = prdScopePair[1];
 
     function schedule(delay) {
       window.clearTimeout(timerRef.current);
@@ -249,7 +261,7 @@
         pollAiJob(job.id, function (completed) {
           if (completed.feature_type === "BRAINSTORM_ANALYSIS") {
             setAnalysis({ statistics: completed.statistics, output: completed.output, message: null });
-          } else {
+          } else if (completed.feature_type === "BRAINSTORM_CLASSIFICATION") {
             var defaults = {};
             (completed.output.recommendations || []).forEach(function (row) {
               defaults[row.node_id] = true;
@@ -258,6 +270,21 @@
             setClassification({
               jobId: completed.id,
               recommendations: completed.output.recommendations || [],
+            });
+          } else if (completed.feature_type === "BRAINSTORM_PRD_APPLY") {
+            var approvals = {};
+            (completed.output.answers || []).forEach(function (row) {
+              approvals[String(row.question_id)] = true;
+            });
+            setPrdApproved(approvals);
+            setPrdPreview({
+              jobId: completed.id,
+              answers: completed.output.answers || [],
+              warnings: completed.output.warnings || [],
+              unusedNodeIds: completed.output.unused_node_ids || [],
+              excludedUnclassifiedIds:
+                completed.preview.excluded_unclassified_accepted_node_ids || [],
+              preview: completed.preview,
             });
           }
         });
@@ -293,6 +320,77 @@
       });
     }
 
+    function requestPrdPreview() {
+      var payload = {
+        selected_default_nodes: state.nodes.filter(function (node) {
+          return node.node_type === "note" && node.status === "default" &&
+            !!prdDefaults[node.id] &&
+            (prdScope === "all" || String(node.section_id) === prdScope);
+        }).map(function (node) {
+          return { node_id: node.id, version: node.version };
+        }),
+      };
+      if (prdScope !== "all") payload.section_id = Number(prdScope);
+      setAiStatus({ busy: true, jobId: null, error: null });
+      requestJson(apiBase + "ai/prd-apply/preview/", {
+        method: "POST",
+        headers: { "Idempotency-Key": requestKey() },
+        body: JSON.stringify(payload),
+      }).then(function (result) {
+        if (result.job === null) {
+          setAiStatus({ busy: false, jobId: null, error: result.message });
+          return;
+        }
+        setAiStatus({ busy: true, jobId: result.id, error: null });
+        pollAiJob(result.id, function (job) {
+          var approvals = {};
+          (job.output.answers || []).forEach(function (row) {
+            approvals[String(row.question_id)] = true;
+          });
+          setPrdApproved(approvals);
+          setPrdPreview({
+            jobId: job.id,
+            answers: job.output.answers || [],
+            warnings: job.output.warnings || [],
+            unusedNodeIds: job.output.unused_node_ids || [],
+            excludedUnclassifiedIds:
+              job.preview.excluded_unclassified_accepted_node_ids || [],
+            preview: job.preview,
+          });
+        });
+      }).catch(function (error) {
+        setAiStatus({ busy: false, jobId: null, error: error.message });
+      });
+    }
+
+    function applyPrdPreview() {
+      if (!prdPreview) return;
+      var approved = prdPreview.answers.filter(function (row) {
+        return prdApproved[String(row.question_id)];
+      }).map(function (row) {
+        return { question_id: row.question_id, version: row.question_version };
+      });
+      setAiStatus({ busy: true, jobId: null, error: null });
+      requestJson(apiBase + "ai/prd-apply/apply/", {
+        method: "POST",
+        headers: { "Idempotency-Key": requestKey() },
+        body: JSON.stringify({
+          preview_request_id: prdPreview.jobId,
+          node_versions: prdPreview.preview.node_versions,
+          approved_questions: approved,
+        }),
+      }).then(function () {
+        setPrdPreview(null);
+        setPrdApproved({});
+        setPrdDefaults({});
+        setAiStatus({ busy: false, jobId: null, error: null });
+        cursorRef.current = null;
+        fullSync();
+      }).catch(function (error) {
+        setAiStatus({ busy: false, jobId: null, error: error.message });
+      });
+    }
+
     window.React.useEffect(function () {
       function reconnect() {
         cursorRef.current = null;
@@ -317,6 +415,7 @@
     }
     var statusClass = syncStatus === "connected" ? "text-success" : "text-warning";
     var canRequestAi = state.permissions.can_request_ai && !state.permissions.is_completed;
+    var canApplyAi = state.permissions.can_apply_ai && !state.permissions.is_completed;
     return h("div", { className: "brainstorm-app" },
       h("div", { className: "d-flex justify-content-between align-items-center mb-3" },
         h("h1", { className: "h4 mb-0" }, "브레인스토밍"),
@@ -329,6 +428,19 @@
             type: "button", className: "btn btn-outline-primary btn-sm",
             disabled: aiStatus.busy, onClick: function () { requestAi("classification"); },
           }, "AI로 분류") : null,
+          canApplyAi ? h("select", {
+            className: "form-select form-select-sm brainstorm-ai-scope",
+            value: prdScope, disabled: aiStatus.busy,
+            onChange: function (event) { setPrdScope(event.target.value); },
+            "aria-label": "PRD 반영 범위",
+          }, [h("option", { value: "all", key: "all" }, "전체 PRD")].concat(
+            state.sections.map(function (section) {
+              return h("option", { value: String(section.id), key: section.id }, section.title);
+            }))) : null,
+          canApplyAi ? h("button", {
+            type: "button", className: "btn btn-primary btn-sm",
+            disabled: aiStatus.busy, onClick: requestPrdPreview,
+          }, "PRD 반영 미리보기") : null,
           aiStatus.busy && aiStatus.jobId ? h("button", {
             type: "button", className: "btn btn-outline-secondary btn-sm", onClick: cancelAi,
           }, "취소") : null,
@@ -393,8 +505,72 @@
             type: "button", className: "btn btn-primary btn-sm", disabled: aiStatus.busy,
             onClick: applyClassification,
           }, "선택한 추천 반영"))) : null,
+      prdPreview ? h("section", { className: "card mb-3", "aria-label": "AI PRD 반영 미리보기" },
+        h("div", { className: "card-header" }, "AI PRD 반영 미리보기"),
+        h("div", { className: "card-body brainstorm-ai-scroll" },
+          prdPreview.warnings.length ? h("div", { className: "alert alert-warning" },
+            prdPreview.warnings.join(" · ")) : null,
+          prdPreview.excludedUnclassifiedIds.length ? h("div", {
+            className: "alert alert-info",
+          }, "미분류 채택 메모 " + prdPreview.excludedUnclassifiedIds.length +
+            "개는 섹션 지정 전 자동 반영하지 않습니다.") : null,
+          prdPreview.answers.map(function (row) {
+            var evidence = row.source_node_ids.map(function (nodeId) {
+              var node = state.nodes.find(function (item) { return item.id === nodeId; });
+              return node ? node.content : nodeId;
+            });
+            return h("article", { className: "border rounded p-3 mb-3", key: row.question_id },
+              h("label", { className: "d-flex gap-2 align-items-center mb-2" },
+                h("input", {
+                  type: "checkbox", className: "form-check-input",
+                  checked: !!prdApproved[String(row.question_id)],
+                  onChange: function (event) {
+                    var changed = {}; changed[String(row.question_id)] = event.target.checked;
+                    setPrdApproved(function (previous) {
+                      return Object.assign({}, previous, changed);
+                    });
+                  },
+                }),
+                h("strong", null, row.question_prompt || ("질문 " + row.question_id))),
+              h("div", { className: "row g-2" },
+                h("div", { className: "col-md-6" },
+                  h("h3", { className: "h6 text-muted" }, "기존 답변"),
+                  h("div", { className: "brainstorm-answer-compare" },
+                    row.existing_answer || "작성된 답변 없음")),
+                h("div", { className: "col-md-6" },
+                  h("h3", { className: "h6 text-primary" }, "AI 통합 결과"),
+                  h("div", { className: "brainstorm-answer-compare" }, row.draft))),
+              h("p", { className: "small mt-2 mb-1" },
+                "근거 메모: " + (evidence.length ? evidence.join(" · ") : "없음")),
+              h("p", { className: "small text-muted mb-0" },
+                "유지: " + row.preserved_existing_points.join(" · ") +
+                " / 추가: " + row.added_points.join(" · ")+
+                " / 신뢰도: " + row.confidence));
+          }),
+          prdPreview.unusedNodeIds.length ? h("p", { className: "small text-muted" },
+            "사용되지 않은 메모: " + prdPreview.unusedNodeIds.join(", ")) : null),
+        h("div", { className: "card-footer text-end" },
+          h("button", {
+            type: "button", className: "btn btn-primary btn-sm",
+            disabled: aiStatus.busy || !Object.keys(prdApproved).some(function (key) {
+              return prdApproved[key];
+            }),
+            onClick: applyPrdPreview,
+          }, "승인한 질문만 PRD에 저장"))) : null,
       h("div", { className: "list-group" }, state.nodes.map(function (node) {
         return h("div", { className: "list-group-item", key: node.id },
+          canApplyAi && node.node_type === "note" && node.status === "default" && node.section_id ?
+            h("label", { className: "float-end small" },
+              h("input", {
+                type: "checkbox", className: "form-check-input me-1",
+                checked: !!prdDefaults[node.id],
+                onChange: function (event) {
+                  var changed = {}; changed[node.id] = event.target.checked;
+                  setPrdDefaults(function (previous) {
+                    return Object.assign({}, previous, changed);
+                  });
+                },
+              }), "PRD 반영에 추가") : null,
           h("strong", null, node.content),
           h("small", { className: "d-block text-muted" },
             "version " + node.version + (node.section_id ? " · section " + node.section_id : " · 미분류")));
