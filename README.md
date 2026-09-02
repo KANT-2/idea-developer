@@ -39,7 +39,10 @@
 
 ## 현재 상태
 
-백엔드 프로젝트 뼈대가 준비되어 있습니다. 제품 테이블, 제품 API, 실제 AI 호출은 아직 구현하지 않았습니다. 기준 정책은 `docs/specs/home-backend-scenario.md`와 `docs/specs/brainstorm-backend-scenario.md`입니다.
+독립 Django 시스템의 PRD·홈·브레인스토밍·AI 작업 기반이 구현되어 있습니다. 실제 외부 AI
+제공자와 운영 프롬프트는 승인된 모델·프롬프트를 환경과 DB에 등록하기 전까지 비활성 상태입니다.
+기준 정책은 `docs/specs/home-backend-scenario.md`와
+`docs/specs/brainstorm-backend-scenario.md`입니다.
 
 ## 로컬 실행
 
@@ -119,6 +122,27 @@ PRD Context만 전달합니다.
 
 초안 생성 당시 질문 version과 현재 version이 다르면 반영 API는 `409 Conflict`를 반환합니다.
 대화 만료 시각은 메시지를 저장할 때마다 30일 뒤로 갱신되며 worker가 만료 대화를 삭제합니다.
+
+## 브레인스토밍 AI 분석과 항목 분류
+
+브레인스토밍 화면에서 분석과 분류 요청도 PostgreSQL AI 작업으로 등록합니다. 분석의 전체·채택·
+보류·미분류 및 섹션별 개수는 서버가 요청 시점의 데이터로 계산하며 AI 응답의 개수는 저장하거나
+표시하지 않습니다. 활성 일반 메모가 없는 캔버스는 AI를 호출하지 않습니다.
+
+- 분석 요청: `POST /api/v1/prds/<prd_id>/brainstorm/ai/analysis/`
+- 분류 요청: `POST /api/v1/prds/<prd_id>/brainstorm/ai/classification/`
+- 작업 조회·취소·재시도: `/api/v1/prds/<prd_id>/brainstorm/ai/jobs/<job_id>/...`
+- 선택 분류 반영: `POST /api/v1/prds/<prd_id>/brainstorm/ai/classification/apply/`
+
+활성 `BRAINSTORM_ANALYSIS` 프롬프트는 `summary`, `section_findings[]`, `missing_topics[]`,
+`source_node_ids[]`를 요구하는 JSON Schema를 사용합니다. 활성 `BRAINSTORM_CLASSIFICATION`
+프롬프트는 `recommendations[]` 안에 `node_id`, `section_id`, `reason`을 요구하는 JSON Schema를
+사용합니다. AI가 반환한 노드·섹션 ID는 요청 snapshot 및 현재 DB와 다시 대조합니다.
+
+분류 요청에는 삭제되지 않고 보류되지 않은 미분류 일반 메모와 현재 PRD 섹션만 전달됩니다.
+추천은 미리보기일 뿐 데이터를 변경하지 않으며, 사용자가 선택한 항목만 version 검사를 거쳐 한
+트랜잭션으로 반영합니다. 하나라도 충돌하면 전체 반영을 취소하고 `409 Conflict`와 최신 노드를
+반환합니다. 요청과 반영 API는 각각 `Idempotency-Key` 헤더를 사용합니다.
 
 ## UI와 부모 이관 지점
 

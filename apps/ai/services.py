@@ -186,15 +186,18 @@ class AiReferenceValidator:
         if isinstance(value, dict):
             for key, item in value.items():
                 if key in self.NODE_SINGLE_KEYS:
-                    collected["node"].add(str(item))
+                    if item is not None:
+                        collected["node"].add(str(item))
                 elif key in self.NODE_LIST_KEYS:
                     self._collect_id_list(item, collected["node"], stringify=True)
                 elif key in self.SECTION_SINGLE_KEYS:
-                    collected["section"].add(self._positive_int(item, key))
+                    if item is not None:
+                        collected["section"].add(self._positive_int(item, key))
                 elif key in self.SECTION_LIST_KEYS:
                     self._collect_id_list(item, collected["section"], stringify=False)
                 elif key in self.QUESTION_SINGLE_KEYS:
-                    collected["question"].add(self._positive_int(item, key))
+                    if item is not None:
+                        collected["question"].add(self._positive_int(item, key))
                 elif key in self.QUESTION_LIST_KEYS:
                     self._collect_id_list(item, collected["question"], stringify=False)
                 self._collect(item, collected)

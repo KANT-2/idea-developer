@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import ai_views, views
 
 app_name = "brainstorm_api"
 
@@ -23,4 +23,14 @@ urlpatterns = [
     path("auto-layout/", views.auto_layout, name="auto-layout"),
     path("events/", views.events, name="events"),
     path("changes/", views.change_history, name="change-history"),
+    path("ai/analysis/", ai_views.request_analysis, name="ai-analysis"),
+    path("ai/classification/", ai_views.request_classification, name="ai-classification"),
+    path(
+        "ai/classification/apply/",
+        ai_views.apply_classification,
+        name="ai-classification-apply",
+    ),
+    path("ai/jobs/<uuid:job_id>/", ai_views.job_status, name="ai-job"),
+    path("ai/jobs/<uuid:job_id>/cancel/", ai_views.cancel_job, name="ai-job-cancel"),
+    path("ai/jobs/<uuid:job_id>/retry/", ai_views.retry_job, name="ai-job-retry"),
 ]

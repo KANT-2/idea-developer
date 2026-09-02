@@ -201,7 +201,7 @@ AI_PROVIDER_CLASS = os.getenv(
 )
 AI_RESULT_PROCESSOR_CLASS = os.getenv(
     "AI_RESULT_PROCESSOR_CLASS",
-    "apps.ai.coaching.AiResultProcessor",
+    "apps.ai.brainstorm.BrainstormAiResultRouter",
 )
 AI_MODEL_API_KEY = os.getenv("AI_MODEL_API_KEY", "")
 AI_JOB_TIMEOUT_SECONDS = int(os.getenv("AI_JOB_TIMEOUT_SECONDS", "30"))
@@ -216,6 +216,8 @@ AI_RESPONSE_MAX_LENGTH = int(os.getenv("AI_RESPONSE_MAX_LENGTH", "12000"))
 AI_DRAFT_MAX_LENGTH = int(os.getenv("AI_DRAFT_MAX_LENGTH", "12000"))
 AI_CHAT_RECENT_TURNS = 3
 AI_TTL_DELETE_BATCH_SIZE = int(os.getenv("AI_TTL_DELETE_BATCH_SIZE", "500"))
+AI_BRAINSTORM_MAX_NODES = int(os.getenv("AI_BRAINSTORM_MAX_NODES", "500"))
+AI_BRAINSTORM_MAX_CHARS = int(os.getenv("AI_BRAINSTORM_MAX_CHARS", "50000"))
 
 REACT_VERSION = "18.3.1"
 REACT_CDN_URL = f"https://cdn.jsdelivr.net/npm/react@{REACT_VERSION}/umd/react.production.min.js"
