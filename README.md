@@ -92,10 +92,20 @@ python manage.py run_job_worker
 python manage.py run_job_worker --once
 ```
 
-기본 `AI_PROVIDER_CLASS`는 외부 요청을 하지 않는 안전한 구현입니다. 개별 AI 기능과 제공자
-어댑터가 승인된 뒤 클래스 경로를 바꾸고 `AI_MODEL_API_KEY`를 실행 환경의 비밀값으로만
-주입합니다. timeout, 최대 재시도, 재시도 간격과 일일 요청·토큰·비용 제한은 `.env.example`의
-`AI_*` 설정으로 관리합니다.
+기본 `AI_PROVIDER_CLASS`는 Gemini Developer API 어댑터입니다. Google AI Studio에서 발급한
+키를 개인 `.env` 또는 배포 비밀 저장소의 `GEMINI_API_KEY`에만 주입합니다. 키가 비어 있으면
+worker는 외부 요청 없이 작업을 안전하게 실패 처리합니다. 사용할 Gemini 모델명은 기능별 활성
+`AI_Prompts.model`에 저장하므로 코드에 고정하지 않습니다. timeout, 최대 재시도, 재시도 간격과
+일일 요청·토큰·비용 제한은 `.env.example`의 `AI_*` 설정으로 관리합니다.
+
+Gemini 요청은 API 키를 URL이 아닌 `x-goog-api-key` 헤더로 전송하고, 시스템 지시와 신뢰하지
+않는 사용자 JSON을 서로 다른 영역으로 전달합니다. 구조화 출력은 Gemini에 JSON Schema로
+요청한 뒤 자식 시스템의 전체 Schema와 DB 식별자 검증을 다시 통과해야 성공합니다. 무료 등급의
+모델·요청 한도는 계정과 시점에 따라 달라질 수 있으므로 수치를 코드에 고정하지 않으며,
+`429 RESOURCE_EXHAUSTED`는 제한된 횟수 안에서 재시도합니다.
+
+Google의 현재 안내상 Gemini 무료 등급에 전송한 콘텐츠는 제품 개선에 사용될 수 있습니다.
+민감정보나 비공개 고객 데이터를 보내기 전에는 팀의 데이터 처리 정책을 먼저 확정해야 합니다.
 
 작업은 `queued`, `running`, `retry_wait`, `cancel_requested`, `succeeded`, `failed`,
 `cancelled`, `timed_out` 상태를 사용합니다. worker 중단으로 lease가 만료된 작업은 다음 worker가

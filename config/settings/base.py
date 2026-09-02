@@ -197,13 +197,13 @@ JOB_RUNNER_CLASS = os.getenv(
 # provider pluggable and deliberately defaults to a provider that performs no network call.
 AI_PROVIDER_CLASS = os.getenv(
     "AI_PROVIDER_CLASS",
-    "apps.ai.providers.UnconfiguredAiProvider",
+    "apps.ai.gemini.GeminiAiProvider",
 )
 AI_RESULT_PROCESSOR_CLASS = os.getenv(
     "AI_RESULT_PROCESSOR_CLASS",
     "apps.ai.brainstorm.BrainstormAiResultRouter",
 )
-AI_MODEL_API_KEY = os.getenv("AI_MODEL_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 AI_JOB_TIMEOUT_SECONDS = int(os.getenv("AI_JOB_TIMEOUT_SECONDS", "30"))
 AI_JOB_MAX_ATTEMPTS = int(os.getenv("AI_JOB_MAX_ATTEMPTS", "3"))
 AI_JOB_RETRY_BASE_SECONDS = int(os.getenv("AI_JOB_RETRY_BASE_SECONDS", "5"))
