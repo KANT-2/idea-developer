@@ -353,6 +353,11 @@ class BrainstormConnection(models.Model):
         on_delete=models.CASCADE,
         related_name="connections_as_b",
     )
+    creation_idempotency_key = models.CharField(
+        max_length=128,
+        default=uuid.uuid4,
+        editable=False,
+    )
     version = models.PositiveBigIntegerField(default=1)
     is_deleted = models.BooleanField(default=False)
     deleted_at = models.DateTimeField(null=True, blank=True)
@@ -373,7 +378,12 @@ class BrainstormConnection(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["canvas", "node_a", "node_b"],
+                condition=Q(is_deleted=False),
                 name="uniq_brain_connection_nodes",
+            ),
+            models.UniqueConstraint(
+                fields=["canvas", "creation_idempotency_key"],
+                name="uniq_brain_connection_request",
             ),
             models.CheckConstraint(
                 condition=~Q(node_a=F("node_b")),
@@ -382,6 +392,10 @@ class BrainstormConnection(models.Model):
             models.CheckConstraint(
                 condition=Q(version__gte=1),
                 name="brain_connection_version_positive",
+            ),
+            models.CheckConstraint(
+                condition=~Q(creation_idempotency_key=""),
+                name="brain_connection_key_not_blank",
             ),
             models.CheckConstraint(
                 condition=(

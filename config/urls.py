@@ -8,6 +8,10 @@ urlpatterns = [
     path("api/v1/auth/", include("apps.accounts.api_urls")),
     path("api/v1/users/", include("apps.accounts.user_api_urls")),
     path("api/v1/prds/", include("apps.prds.api_urls")),
+    path(
+        "api/v1/prds/<int:prd_id>/brainstorm/",
+        include("apps.brainstorm.api_urls"),
+    ),
     path("api/v1/home/", include("apps.prds.home_urls")),
     path("api/v1/", include("apps.common.urls")),
     path("integration/", include("apps.integration.urls")),
