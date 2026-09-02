@@ -42,6 +42,11 @@ class AiJobStatus(models.TextChoices):
     TIMED_OUT = "timed_out", "시간 초과"
 
 
+class AiConversationMessageRole(models.TextChoices):
+    USER = "user", "사용자"
+    ASSISTANT = "assistant", "AI 코치"
+
+
 class AiPrompt(models.Model):
     feature_type = models.CharField(max_length=32, choices=AiFeatureType.choices)
     version = models.PositiveIntegerField()
@@ -328,4 +333,94 @@ class AiChatHistory(models.Model):
                 condition=Q(user_id__gt=0),
                 name="ai_chat_user_id_positive",
             )
+        ]
+
+
+class AiCoachConversation(models.Model):
+    prd = models.ForeignKey(
+        "prds.Prd",
+        on_delete=models.CASCADE,
+        related_name="ai_coach_conversations",
+    )
+    section = models.ForeignKey(
+        "prds.PrdSection",
+        on_delete=models.CASCADE,
+        related_name="ai_coach_conversations",
+        null=True,
+        blank=True,
+    )
+    user_id = models.PositiveBigIntegerField()
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "ai_coach_conversations"
+        ordering = ["created_at", "id"]
+        indexes = [
+            models.Index(fields=["expires_at"], name="ai_coach_expiry_idx"),
+            models.Index(fields=["prd", "user_id"], name="ai_coach_prd_user_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["prd", "section", "user_id"],
+                condition=Q(section__isnull=False),
+                name="uniq_ai_coach_section_user",
+            ),
+            models.UniqueConstraint(
+                fields=["prd", "user_id"],
+                condition=Q(section__isnull=True),
+                name="uniq_ai_coach_whole_user",
+            ),
+            models.CheckConstraint(
+                condition=Q(user_id__gt=0),
+                name="ai_coach_user_positive",
+            ),
+        ]
+
+
+class AiCoachMessage(models.Model):
+    conversation = models.ForeignKey(
+        AiCoachConversation,
+        on_delete=models.CASCADE,
+        related_name="messages",
+    )
+    job = models.ForeignKey(
+        AiJob,
+        on_delete=models.SET_NULL,
+        related_name="coach_messages",
+        null=True,
+        blank=True,
+    )
+    sequence = models.PositiveBigIntegerField()
+    role = models.CharField(max_length=16, choices=AiConversationMessageRole.choices)
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "ai_coach_messages"
+        ordering = ["sequence", "id"]
+        indexes = [
+            models.Index(
+                fields=["conversation", "role", "-sequence"],
+                name="ai_coach_recent_idx",
+            )
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["conversation", "sequence"],
+                name="uniq_ai_coach_message_sequence",
+            ),
+            models.CheckConstraint(
+                condition=Q(sequence__gte=1),
+                name="ai_coach_message_sequence_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(role__in=AiConversationMessageRole.values),
+                name="ai_coach_message_role_valid",
+            ),
+            models.CheckConstraint(
+                condition=~Q(content=""),
+                name="ai_coach_message_content_not_blank",
+            ),
         ]

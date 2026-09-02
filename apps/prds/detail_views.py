@@ -162,6 +162,7 @@ def _serialize_question(question):
         "prompt": question.prompt,
         "position": question.position,
         "is_completed": question.is_completed,
+        "version": question.version,
         "answer": (
             {
                 "id": answer.id,

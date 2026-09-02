@@ -99,6 +99,27 @@ python manage.py run_job_worker --once
 재시도하거나 최종 시간 초과로 닫습니다. 성공·실패·취소된 실제 실행은 `ai_usage_logs`에 별도로
 기록하며 프롬프트 정의 행은 사용 횟수로 집계하지 않습니다.
 
+## PRD AI 코치와 질문 초안
+
+PRD 작성 화면은 `/ideas/prds/<prd_id>/`입니다. AI 코치 대화는 PRD·섹션·사용자별로
+분리되며 전체 PRD 대화는 section 없이 저장합니다. 화면에서는 범위를 바꿀 때 해당 대화를
+다시 불러오고, 저장된 전체 메시지를 보여 줍니다. 모델에는 완료된 최근 3턴과 크기가 제한된
+PRD Context만 전달합니다.
+
+코치와 초안 요청은 PostgreSQL AI 작업으로 등록되므로 별도 worker가 실행 중이어야 합니다.
+활성 `COACHING` 프롬프트의 JSON Schema는 코치 결과 `{ "message": "..." }`와 질문 초안 결과
+`{ "question_id": 1, "draft": "..." }`를 허용해야 합니다. 질문 초안은 작업 결과로만 반환되며,
+미리보기에서 수정하고 반영 API를 호출하기 전에는 PRD 답변을 변경하지 않습니다.
+
+- 대화: `GET /api/v1/prds/<prd_id>/ai/conversation/`
+- 코치 요청: `POST /api/v1/prds/<prd_id>/ai/chat/`
+- 초안 요청: `POST /api/v1/prds/<prd_id>/ai/drafts/`
+- 작업 조회·취소·재시도: `/api/v1/prds/<prd_id>/ai/jobs/<job_id>/...`
+- 초안 반영: `POST /api/v1/prds/<prd_id>/ai/drafts/<job_id>/apply/`
+
+초안 생성 당시 질문 version과 현재 version이 다르면 반영 API는 `409 Conflict`를 반환합니다.
+대화 만료 시각은 메시지를 저장할 때마다 30일 뒤로 갱신되며 worker가 만료 대화를 삭제합니다.
+
 ## UI와 부모 이관 지점
 
 - `templates/base.html`은 Bootstrap `5.3.2`와 `extra_head`, `breadcrumb`, `content`, `modals`, `extra_js` block을 사용합니다.

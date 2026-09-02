@@ -337,6 +337,7 @@ class PrdQuestion(models.Model):
     prompt = models.TextField()
     position = models.PositiveIntegerField()
     is_completed = models.BooleanField(default=False)
+    version = models.PositiveBigIntegerField(default=1)
     is_deleted = models.BooleanField(default=False)
     deleted_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -355,6 +356,10 @@ class PrdQuestion(models.Model):
                     | Q(is_deleted=True, deleted_at__isnull=False)
                 ),
                 name="prd_question_deleted_fields_consistent",
+            ),
+            models.CheckConstraint(
+                condition=Q(version__gte=1),
+                name="prd_question_version_positive",
             ),
         ]
         indexes = [

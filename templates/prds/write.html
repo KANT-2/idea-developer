@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{{ prd.title }} | Idea Developer{% endblock %}
+
+{% block extra_head %}
+  <link href="{% static 'prds/css/write.css' %}" rel="stylesheet">
+{% endblock %}
+
+{% block breadcrumb %}
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{% url 'ideas:home' %}">PRD</a></li>
+      <li class="breadcrumb-item active" aria-current="page">{{ prd.title }}</li>
+    </ol>
+  </nav>
+{% endblock %}
+
+{% block content %}
+  <div
+    id="prd-write-app"
+    data-prd-id="{{ prd.id }}"
+    data-detail-api="{{ detail_api_url }}"
+    data-ai-api-base="{{ ai_api_base }}"
+  >
+    <div id="prd-alert" class="alert d-none" role="alert"></div>
+    <div class="row g-4">
+      <section class="col-lg-7" aria-labelledby="prd-heading">
+        <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+          <div>
+            <h1 id="prd-heading" class="h3 mb-1">{{ prd.title }}</h1>
+            <p id="prd-description" class="text-secondary mb-0"></p>
+          </div>
+          <span id="prd-status" class="badge text-bg-light"></span>
+        </div>
+        <div id="prd-sections" class="vstack gap-3" aria-live="polite">
+          <div class="text-center py-5"><span class="spinner-border" aria-hidden="true"></span></div>
+        </div>
+      </section>
+
+      <aside class="col-lg-5" aria-labelledby="coach-heading">
+        <div class="card ai-coach-panel sticky-lg-top">
+          <div class="card-header bg-white">
+            <div class="d-flex justify-content-between align-items-center gap-2">
+              <h2 id="coach-heading" class="h5 mb-0">AI 코치</h2>
+              <select id="coach-scope" class="form-select form-select-sm w-auto" aria-label="AI 코치 범위">
+                <option value="">전체 PRD</option>
+              </select>
+            </div>
+          </div>
+          <div id="coach-messages" class="card-body ai-coach-messages" aria-live="polite"></div>
+          <div class="card-footer bg-white">
+            <form id="coach-form">
+              <label class="form-label" for="coach-input">질문</label>
+              <textarea id="coach-input" class="form-control" rows="3" maxlength="4000" required></textarea>
+              <div class="d-flex justify-content-between align-items-center mt-2">
+                <small class="text-secondary">최근 3턴만 AI에게 전달됩니다.</small>
+                <div class="d-flex gap-2">
+                  <button id="coach-cancel" type="button" class="btn btn-outline-secondary btn-sm d-none">취소</button>
+                  <button id="coach-submit" type="submit" class="btn btn-primary btn-sm">전송</button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+  <form class="d-none" aria-hidden="true">{% csrf_token %}</form>
+{% endblock %}
+
+{% block modals %}
+  <div class="modal fade" id="draft-modal" tabindex="-1" aria-labelledby="draft-title" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title fs-5" id="draft-title">AI 질문 초안 미리보기</h2>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+        </div>
+        <div class="modal-body">
+          <p id="draft-question" class="fw-semibold"></p>
+          <label class="form-label" for="draft-content">반영 전 자유롭게 수정해 주세요.</label>
+          <textarea id="draft-content" class="form-control" rows="12" maxlength="12000"></textarea>
+          <div id="draft-error" class="alert alert-danger mt-3 d-none" role="alert"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+          <button id="draft-apply" type="button" class="btn btn-primary">PRD에 반영</button>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'prds/js/write.js' %}"></script>
+{% endblock %}

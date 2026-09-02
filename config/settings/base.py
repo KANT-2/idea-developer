@@ -199,6 +199,10 @@ AI_PROVIDER_CLASS = os.getenv(
     "AI_PROVIDER_CLASS",
     "apps.ai.providers.UnconfiguredAiProvider",
 )
+AI_RESULT_PROCESSOR_CLASS = os.getenv(
+    "AI_RESULT_PROCESSOR_CLASS",
+    "apps.ai.coaching.AiResultProcessor",
+)
 AI_MODEL_API_KEY = os.getenv("AI_MODEL_API_KEY", "")
 AI_JOB_TIMEOUT_SECONDS = int(os.getenv("AI_JOB_TIMEOUT_SECONDS", "30"))
 AI_JOB_MAX_ATTEMPTS = int(os.getenv("AI_JOB_MAX_ATTEMPTS", "3"))
@@ -206,6 +210,12 @@ AI_JOB_RETRY_BASE_SECONDS = int(os.getenv("AI_JOB_RETRY_BASE_SECONDS", "5"))
 AI_DAILY_REQUEST_LIMIT = int(os.getenv("AI_DAILY_REQUEST_LIMIT", "50"))
 AI_DAILY_TOKEN_LIMIT = int(os.getenv("AI_DAILY_TOKEN_LIMIT", "200000"))
 AI_DAILY_COST_LIMIT_USD = Decimal(os.getenv("AI_DAILY_COST_LIMIT_USD", "20.00"))
+AI_CHAT_MESSAGE_MAX_LENGTH = int(os.getenv("AI_CHAT_MESSAGE_MAX_LENGTH", "4000"))
+AI_CONTEXT_MAX_CHARS = int(os.getenv("AI_CONTEXT_MAX_CHARS", "20000"))
+AI_RESPONSE_MAX_LENGTH = int(os.getenv("AI_RESPONSE_MAX_LENGTH", "12000"))
+AI_DRAFT_MAX_LENGTH = int(os.getenv("AI_DRAFT_MAX_LENGTH", "12000"))
+AI_CHAT_RECENT_TURNS = 3
+AI_TTL_DELETE_BATCH_SIZE = int(os.getenv("AI_TTL_DELETE_BATCH_SIZE", "500"))
 
 REACT_VERSION = "18.3.1"
 REACT_CDN_URL = f"https://cdn.jsdelivr.net/npm/react@{REACT_VERSION}/umd/react.production.min.js"

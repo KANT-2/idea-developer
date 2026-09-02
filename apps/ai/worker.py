@@ -31,9 +31,13 @@ class AiJobRunner:
     def __init__(self, provider=None, worker_id: str | None = None):
         provider_class = import_string(settings.AI_PROVIDER_CLASS)
         self.provider = provider or provider_class()
+        self.result_processor = import_string(settings.AI_RESULT_PROCESSOR_CLASS)()
         self.worker_id = worker_id or f"{socket.gethostname()}:{os.getpid()}"
 
     def run_once(self) -> bool:
+        from .coaching import delete_expired_conversations
+
+        delete_expired_conversations()
         if self._recover_one_expired_job():
             return True
         job = self._claim_one()
@@ -143,6 +147,7 @@ class AiJobRunner:
             return
         if job.status != AiJobStatus.RUNNING:
             return
+        output = self.result_processor.process(job=job, output=output)
         now = timezone.now()
         job.status = AiJobStatus.SUCCEEDED
         job.output_data = output
@@ -187,6 +192,15 @@ class AiJobRunner:
             return
         if job.status != AiJobStatus.RUNNING:
             return
+        logger.warning(
+            "AI job attempt failed",
+            extra={
+                "ai_job_id": str(job.pk),
+                "ai_error_code": error_code,
+                "ai_attempt_number": job.attempt_count,
+                "ai_retryable": retryable,
+            },
+        )
         self._create_usage(
             job,
             status=AiUsageStatus.FAILED,
