@@ -31,6 +31,54 @@ class CreatePrdCommand:
     team_id: int | None
     creator_user_id: int
     idempotency_key: str
+    participant_user_ids: tuple[int, ...] = ()
+
+
+class PrdParticipantService:
+    """Validates immediate participants against the parent VIEW boundary."""
+
+    def __init__(self, repository: IntegrationRepository | None = None):
+        self.repository = repository or DjangoViewIntegrationRepository()
+
+    def validate_memberships(self, *, user_ids: tuple[int, ...], round_id: int):
+        unique_user_ids = tuple(dict.fromkeys(user_ids))
+        memberships = self.repository.get_eligible_memberships(
+            user_ids=unique_user_ids,
+            round_id=round_id,
+        )
+        memberships_by_user_id = {membership.user_id: membership for membership in memberships}
+        invalid_user_ids = [
+            user_id for user_id in unique_user_ids if user_id not in memberships_by_user_id
+        ]
+        if invalid_user_ids:
+            raise ValidationError(
+                {
+                    "participant_user_ids": (
+                        "현재 회차의 활성 참여자가 아닌 사용자가 포함되어 있습니다: "
+                        + ", ".join(str(user_id) for user_id in invalid_user_ids)
+                    )
+                }
+            )
+        return tuple(memberships_by_user_id[user_id] for user_id in unique_user_ids)
+
+    def add_editors(self, *, prd: Prd, user_ids: tuple[int, ...]):
+        memberships = self.validate_memberships(user_ids=user_ids, round_id=prd.round_id)
+        existing_user_ids = set(
+            prd.participants.filter(user_id__in=user_ids).values_list("user_id", flat=True)
+        )
+        PrdParticipant.objects.bulk_create(
+            [
+                PrdParticipant(
+                    prd=prd,
+                    user_id=membership.user_id,
+                    participant_id=membership.participant_id,
+                    role=PrdParticipantRole.EDITOR,
+                )
+                for membership in memberships
+                if membership.user_id != prd.creator_user_id
+                and membership.user_id not in existing_user_ids
+            ]
+        )
 
 
 class PrdCreationService:
@@ -66,6 +114,13 @@ class PrdCreationService:
         if existing is not None:
             return existing, False
 
+        participant_user_ids = tuple(
+            user_id
+            for user_id in dict.fromkeys(command.participant_user_ids)
+            if user_id != command.creator_user_id
+        )
+        participant_service = PrdParticipantService(self.repository)
+
         try:
             template = PrdTemplate.objects.prefetch_related("sections__questions").get(
                 prd_type=command.prd_type
@@ -96,6 +151,7 @@ class PrdCreationService:
             participant_id=membership.participant_id,
             role=PrdParticipantRole.OWNER,
         )
+        participant_service.add_editors(prd=prd, user_ids=participant_user_ids)
         self._copy_template(prd=prd, template=template)
         return prd, True
 

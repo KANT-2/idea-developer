@@ -87,6 +87,12 @@ class IntegrationRepository(Protocol):
         self, *, query: str, round_id: int, team_id: int | None, page: int, page_size: int
     ) -> SearchPage: ...
 
+    def list_team_users(self, *, round_id: int, team_id: int) -> tuple[UserSearchResult, ...]: ...
+
+    def get_eligible_memberships(
+        self, *, user_ids: tuple[int, ...], round_id: int
+    ) -> tuple[RoundMembership, ...]: ...
+
 
 class DjangoViewIntegrationRepository:
     """Reads only the two parent-owned PostgreSQL VIEWs."""
@@ -334,6 +340,107 @@ class DjangoViewIntegrationRepository:
             has_next=len(rows) > page_size,
         )
 
+    def list_team_users(self, *, round_id: int, team_id: int) -> tuple[UserSearchResult, ...]:
+        effective_name = """
+            COALESCE(
+                NULLIF(BTRIM(urt.display_name_snapshot), ''),
+                NULLIF(BTRIM(CONCAT_WS(' ', aut.first_name, aut.last_name)), ''),
+                aut.primary_email,
+                aut.user_email
+            )
+        """
+        sql = f"""
+            WITH candidates AS (
+                SELECT
+                    urt.user_id,
+                    urt.participant_id,
+                    {effective_name} AS display_name,
+                    COALESCE(aut.primary_email, aut.user_email) AS email,
+                    urt.team_id,
+                    urt.team_name,
+                    COUNT(*) OVER (
+                        PARTITION BY LOWER({effective_name})
+                    ) AS duplicate_name_count
+                FROM public.user_round_team_view AS urt
+                INNER JOIN public.ax_user_team_login_view AS aut
+                    ON aut.user_id = urt.user_id
+                WHERE urt.round_id = %s
+                  AND urt.team_id = %s
+                  AND aut.is_active = TRUE
+                  AND aut.approval_status = %s
+            )
+            SELECT
+                user_id,
+                participant_id,
+                display_name,
+                email,
+                team_id,
+                team_name,
+                duplicate_name_count
+            FROM candidates
+            ORDER BY LOWER(display_name), user_id
+        """
+        try:
+            with connections[self.database_alias].cursor() as cursor:
+                cursor.execute(
+                    sql,
+                    [round_id, team_id, settings.INTEGRATION_APPROVED_USER_STATUS],
+                )
+                columns = [column[0] for column in cursor.description]
+                rows = [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
+        except DatabaseError as exc:
+            self._raise_unavailable(exc)
+        return tuple(
+            UserSearchResult(
+                user_id=row["user_id"],
+                participant_id=row["participant_id"],
+                display_name=row["display_name"],
+                email=row["email"],
+                team_id=row["team_id"],
+                team_name=row["team_name"],
+                has_duplicate_name=row["duplicate_name_count"] > 1,
+            )
+            for row in rows
+        )
+
+    def get_eligible_memberships(
+        self, *, user_ids: tuple[int, ...], round_id: int
+    ) -> tuple[RoundMembership, ...]:
+        self._require_active_statuses()
+        if not user_ids:
+            return ()
+        try:
+            active_user_ids = set(
+                AxUserTeamLoginView.objects.using(self.database_alias)
+                .filter(
+                    user_id__in=user_ids,
+                    is_active=True,
+                    approval_status=settings.INTEGRATION_APPROVED_USER_STATUS,
+                )
+                .values_list("user_id", flat=True)
+            )
+            rows = list(
+                UserRoundTeamView.objects.using(self.database_alias)
+                .filter(
+                    user_id__in=active_user_ids,
+                    round_id=round_id,
+                    round_status__in=self.active_statuses,
+                )
+                .values(*self._membership_fields())
+            )
+        except DatabaseError as exc:
+            self._raise_unavailable(exc)
+        memberships = tuple(self._to_membership(row) for row in rows)
+        found_user_ids = [membership.user_id for membership in memberships]
+        found_participant_ids = [membership.participant_id for membership in memberships]
+        if len(found_user_ids) != len(set(found_user_ids)) or len(found_participant_ids) != len(
+            set(found_participant_ids)
+        ):
+            raise IntegrationDataIntegrityError(
+                "Duplicate user or participant memberships exist in the selected round."
+            )
+        return memberships
+
     @staticmethod
     def _membership_fields():
         return (
@@ -542,6 +649,82 @@ class FixtureIntegrationRepository:
             page_size=page_size,
             has_next=len(page_rows) > page_size,
         )
+
+    def list_team_users(self, *, round_id: int, team_id: int) -> tuple[UserSearchResult, ...]:
+        users_by_id = {
+            row["user_id"]: row
+            for row in self.user_rows
+            if isinstance(row, dict)
+            and row["is_active"]
+            and row.get("approval_status") == settings.INTEGRATION_APPROVED_USER_STATUS
+        }
+        candidates = []
+        for row in self.membership_rows:
+            if (
+                not isinstance(row, dict)
+                or row["round_id"] != round_id
+                or row["team_id"] != team_id
+            ):
+                continue
+            user = users_by_id.get(row["user_id"])
+            if user is None:
+                continue
+            full_name = " ".join(
+                part for part in (user.get("first_name"), user.get("last_name")) if part
+            )
+            display_name = (
+                row.get("display_name_snapshot")
+                or full_name
+                or user.get("primary_email")
+                or user.get("user_email")
+            )
+            candidates.append((row, user, display_name))
+        name_counts = {}
+        for _, _, display_name in candidates:
+            key = display_name.casefold()
+            name_counts[key] = name_counts.get(key, 0) + 1
+        candidates.sort(key=lambda item: (item[2].casefold(), item[0]["user_id"]))
+        return tuple(
+            UserSearchResult(
+                user_id=row["user_id"],
+                participant_id=row["participant_id"],
+                display_name=display_name,
+                email=user.get("primary_email") or user.get("user_email"),
+                team_id=row["team_id"],
+                team_name=row["team_name"],
+                has_duplicate_name=name_counts[display_name.casefold()] > 1,
+            )
+            for row, user, display_name in candidates
+        )
+
+    def get_eligible_memberships(
+        self, *, user_ids: tuple[int, ...], round_id: int
+    ) -> tuple[RoundMembership, ...]:
+        if not self.active_statuses:
+            raise IntegrationConfigurationError("Fixture active statuses are required.")
+        eligible_users = {
+            user_id
+            for user_id in user_ids
+            if (user := self.users.get(user_id)) is not None
+            and user.is_active
+            and user.approval_status == settings.INTEGRATION_APPROVED_USER_STATUS
+        }
+        memberships = tuple(
+            row
+            for row in self.memberships
+            if row.user_id in eligible_users
+            and row.round_id == round_id
+            and row.round_status in self.active_statuses
+        )
+        found_user_ids = [membership.user_id for membership in memberships]
+        found_participant_ids = [membership.participant_id for membership in memberships]
+        if len(found_user_ids) != len(set(found_user_ids)) or len(found_participant_ids) != len(
+            set(found_participant_ids)
+        ):
+            raise IntegrationDataIntegrityError(
+                "Duplicate user or participant memberships exist in the selected round."
+            )
+        return memberships
 
     @staticmethod
     def _to_parent_user(row) -> ParentUser:
