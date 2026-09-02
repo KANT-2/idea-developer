@@ -8,7 +8,7 @@ from django.utils.module_loading import import_string
 
 
 class Command(BaseCommand):
-    help = "Run the PostgreSQL-backed background job worker seam."
+    help = "Run the PostgreSQL-backed AI job worker in a separate process."
 
     def add_arguments(self, parser):
         parser.add_argument("--once", action="store_true")

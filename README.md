@@ -81,14 +81,23 @@ ruff check .
 
 ## 백그라운드 worker
 
-작업 테이블 상태 계약이 기준 문서에서 확정되기 전까지 worker는 등록된 작업 없이 안전하게 대기하는 구조만 제공합니다.
+AI 요청은 웹 프로세스가 PostgreSQL `ai_jobs` 테이블에 등록하고, 별도 management command
+프로세스가 행 잠금과 lease를 사용해 하나씩 처리합니다. Redis와 Celery는 사용하지 않습니다.
 
 ```powershell
 python manage.py run_job_worker
 python manage.py run_job_worker --once
 ```
 
-향후 승인된 PostgreSQL 작업 테이블 구현은 `JOB_RUNNER_CLASS` 설정으로 연결합니다. Redis, Celery, Django Channels는 필수 의존성이 아닙니다.
+기본 `AI_PROVIDER_CLASS`는 외부 요청을 하지 않는 안전한 구현입니다. 개별 AI 기능과 제공자
+어댑터가 승인된 뒤 클래스 경로를 바꾸고 `AI_MODEL_API_KEY`를 실행 환경의 비밀값으로만
+주입합니다. timeout, 최대 재시도, 재시도 간격과 일일 요청·토큰·비용 제한은 `.env.example`의
+`AI_*` 설정으로 관리합니다.
+
+작업은 `queued`, `running`, `retry_wait`, `cancel_requested`, `succeeded`, `failed`,
+`cancelled`, `timed_out` 상태를 사용합니다. worker 중단으로 lease가 만료된 작업은 다음 worker가
+재시도하거나 최종 시간 초과로 닫습니다. 성공·실패·취소된 실제 실행은 `ai_usage_logs`에 별도로
+기록하며 프롬프트 정의 행은 사용 횟수로 집계하지 않습니다.
 
 ## UI와 부모 이관 지점
 

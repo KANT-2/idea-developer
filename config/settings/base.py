@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from decimal import Decimal
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -189,8 +190,22 @@ POLLING_MAX_INTERVAL_MS = int(os.getenv("POLLING_MAX_INTERVAL_MS", "5000"))
 JOB_WORKER_POLL_SECONDS = float(os.getenv("JOB_WORKER_POLL_SECONDS", "5"))
 JOB_RUNNER_CLASS = os.getenv(
     "JOB_RUNNER_CLASS",
-    "apps.jobs.runners.NoopJobRunner",
+    "apps.ai.worker.AiJobRunner",
 )
+
+# AI providers must read their secret from the environment. The common layer keeps the
+# provider pluggable and deliberately defaults to a provider that performs no network call.
+AI_PROVIDER_CLASS = os.getenv(
+    "AI_PROVIDER_CLASS",
+    "apps.ai.providers.UnconfiguredAiProvider",
+)
+AI_MODEL_API_KEY = os.getenv("AI_MODEL_API_KEY", "")
+AI_JOB_TIMEOUT_SECONDS = int(os.getenv("AI_JOB_TIMEOUT_SECONDS", "30"))
+AI_JOB_MAX_ATTEMPTS = int(os.getenv("AI_JOB_MAX_ATTEMPTS", "3"))
+AI_JOB_RETRY_BASE_SECONDS = int(os.getenv("AI_JOB_RETRY_BASE_SECONDS", "5"))
+AI_DAILY_REQUEST_LIMIT = int(os.getenv("AI_DAILY_REQUEST_LIMIT", "50"))
+AI_DAILY_TOKEN_LIMIT = int(os.getenv("AI_DAILY_TOKEN_LIMIT", "200000"))
+AI_DAILY_COST_LIMIT_USD = Decimal(os.getenv("AI_DAILY_COST_LIMIT_USD", "20.00"))
 
 REACT_VERSION = "18.3.1"
 REACT_CDN_URL = f"https://cdn.jsdelivr.net/npm/react@{REACT_VERSION}/umd/react.production.min.js"
