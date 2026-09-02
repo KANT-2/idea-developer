@@ -56,3 +56,26 @@ class AiUsageLog(models.Model):
                 name="ai_usage_status_valid",
             ),
         ]
+
+
+class AiChatHistory(models.Model):
+    prd = models.ForeignKey(
+        "prds.Prd",
+        on_delete=models.CASCADE,
+        related_name="ai_chat_history",
+    )
+    user_id = models.PositiveBigIntegerField()
+    prompt = models.TextField()
+    response = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "ai_chat_histories"
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["prd", "-created_at"], name="ai_chat_prd_created_idx")]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(user_id__gt=0),
+                name="ai_chat_user_id_positive",
+            )
+        ]

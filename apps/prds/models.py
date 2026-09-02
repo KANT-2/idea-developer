@@ -392,3 +392,72 @@ class PrdChangeHistory(models.Model):
         db_table = "prd_change_history"
         ordering = ["-created_at", "-id"]
         indexes = [models.Index(fields=["prd", "-created_at"], name="prd_history_created_idx")]
+
+
+class PrdCommentType(models.TextChoices):
+    GENERAL = "general", "일반"
+    GUIDANCE = "guidance", "지도"
+    REVIEW = "review", "리뷰"
+    POST_COMPLETION_REVIEW = "post_completion_review", "완료 후 리뷰"
+
+
+class PrdComment(models.Model):
+    prd = models.ForeignKey(Prd, on_delete=models.CASCADE, related_name="comments")
+    section_question = models.ForeignKey(
+        PrdQuestion,
+        on_delete=models.SET_NULL,
+        related_name="comments",
+        null=True,
+        blank=True,
+    )
+    author_user_id = models.PositiveBigIntegerField()
+    author_role_at_created = models.CharField(
+        max_length=16,
+        choices=PrdParticipantRole.choices,
+    )
+    comment_type = models.CharField(max_length=32, choices=PrdCommentType.choices)
+    content = models.TextField()
+    is_contribution_eligible = models.BooleanField()
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "prd_comments"
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(
+                fields=["prd", "is_deleted", "-created_at"],
+                name="prd_comment_list_idx",
+            ),
+            models.Index(
+                fields=["prd", "section_question", "is_deleted"],
+                name="prd_comment_question_idx",
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(author_user_id__gt=0),
+                name="prd_comment_author_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(author_role_at_created__in=PrdParticipantRole.values),
+                name="prd_comment_author_role_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(comment_type__in=PrdCommentType.values),
+                name="prd_comment_type_valid",
+            ),
+            models.CheckConstraint(
+                condition=~Q(content=""),
+                name="prd_comment_content_not_blank",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(is_deleted=False, deleted_at__isnull=True)
+                    | Q(is_deleted=True, deleted_at__isnull=False)
+                ),
+                name="prd_comment_deleted_consistent",
+            ),
+        ]

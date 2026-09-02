@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import detail_views, views
 
 app_name = "prd_api"
 
@@ -8,4 +8,18 @@ urlpatterns = [
     path("", views.create_prd, name="create"),
     path("participants/team/", views.current_team_participants, name="current-team"),
     path("participants/search/", views.search_participants, name="participant-search"),
+    path("<int:prd_id>/", detail_views.prd_detail, name="detail"),
+    path("<int:prd_id>/comments/", detail_views.comments, name="comments"),
+    path(
+        "<int:prd_id>/comments/<int:comment_id>/",
+        detail_views.comment_item,
+        name="comment-item",
+    ),
+    path("<int:prd_id>/ai-usage/", detail_views.ai_usage_history, name="ai-usage"),
+    path("<int:prd_id>/ai-chats/", detail_views.ai_chat_history, name="ai-chats"),
+    path(
+        "<int:prd_id>/change-history/",
+        detail_views.change_history,
+        name="change-history",
+    ),
 ]
