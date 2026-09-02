@@ -186,6 +186,34 @@ PRD Context만 전달합니다.
 실행 사용자와 이전 완료 시각은 `prd_status_audit_logs`에 보존하고 일반 변경 이력에도 상태 전환을
 남깁니다.
 
+## 완료 후 팀원 기여도
+
+PRD 완료 트랜잭션이 커밋되면 `CONTRIBUTION_EVALUATION` 작업을 PostgreSQL 작업 테이블에
+등록합니다. 부모 VIEW에서 완료 PRD의 `round_id` 참가와 활성·승인 상태를 다시 검증한 PRD
+참여자만 계산합니다. 코멘트가 한 건도 없으면 AI를 호출하지 않고 메모 기여도와 0점 코멘트
+기여도를 즉시 저장합니다.
+
+- 결과 조회: `GET /api/v1/prds/<prd_id>/contributions/`
+- 동일 입력 재평가: `POST /api/v1/prds/<prd_id>/contributions/<calculation_version>/retry/`
+
+재평가는 staff/superuser 관리자만 실패한 계산에 수행할 수 있으며 저장된 입력 snapshot과
+fingerprint를 그대로 사용합니다. 관리자 직접 점수 수정과 이의 제기 기능은 구현하지 않았습니다.
+
+메모 점수에는 삭제되지 않은 `accepted` 일반 메모만 포함하고 완료 시점의 최종 담당자를
+사용합니다. 코멘트 AI 입력에는 `general`이면서 `is_contribution_eligible=true`인 owner/editor
+코멘트만 포함합니다. tutor 지도·리뷰, 삭제 코멘트와 다른 회차·비활성 사용자는 제외합니다.
+
+```text
+memo_contribution = 사용자 담당 채택 메모 수 / 전체 담당자 지정 채택 메모 수 * 100
+comment_contribution = 사용자 코멘트 반영 점수 합 / 전체 사용자 반영 점수 합 * 100
+total_score = 0.5 * comment_contribution + 0.5 * memo_contribution
+```
+
+`contribution_evaluations`에는 PRD version, 계산 version, 완료 시점 입력 snapshot과 fingerprint,
+대상 메모·코멘트 ID, 모델·프롬프트 version 및 계산 시각을 보존합니다. 사용자별 점수와 코멘트별
+근거는 별도 테이블에 저장하며 재개 후 재완료하면 새 계산 version을 추가합니다. AI가 실패해도
+PRD는 `completed` 상태를 유지하고 `contribution_status=failed`로 표시합니다.
+
 ## UI와 부모 이관 지점
 
 - `templates/base.html`은 Bootstrap `5.3.2`와 `extra_head`, `breadcrumb`, `content`, `modals`, `extra_js` block을 사용합니다.

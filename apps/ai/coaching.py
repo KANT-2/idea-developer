@@ -9,7 +9,7 @@ from typing import Any
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Max
+from django.db.models import F, Max
 from django.utils import timezone
 
 from apps.prds.models import (
@@ -338,7 +338,10 @@ class AiDraftService:
         question.version += 1
         question.save(update_fields=["version", "updated_at"])
         now = timezone.now()
-        Prd.objects.filter(pk=job.prd_id).update(updated_at=now)
+        Prd.objects.filter(pk=job.prd_id).update(
+            version=F("version") + 1,
+            updated_at=now,
+        )
         PrdChangeHistory.objects.create(
             prd=job.prd,
             actor_user_id=user_id,

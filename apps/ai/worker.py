@@ -175,6 +175,9 @@ class AiJobRunner:
             cost_usd=max(0, result.cost_usd),
             model=result.model or job.prompt.model,
         )
+        from .contribution import update_contribution_model
+
+        update_contribution_model(job, result.model or job.prompt.model)
 
     @transaction.atomic
     def _finish_failure(
@@ -219,6 +222,10 @@ class AiJobRunner:
             job.status = AiJobStatus.TIMED_OUT if timed_out else AiJobStatus.FAILED
             job.finished_at = timezone.now()
         job.save()
+        if job.status in {AiJobStatus.FAILED, AiJobStatus.TIMED_OUT}:
+            from .contribution import mark_contribution_job_failed
+
+            mark_contribution_job_failed(job)
 
     @transaction.atomic
     def _recover_one_expired_job(self) -> bool:
@@ -255,6 +262,10 @@ class AiJobRunner:
             job.status = AiJobStatus.TIMED_OUT
             job.finished_at = now
         job.save()
+        if job.status == AiJobStatus.TIMED_OUT:
+            from .contribution import mark_contribution_job_failed
+
+            mark_contribution_job_failed(job)
         return True
 
     def _mark_cancelled(self, job: AiJob) -> None:
@@ -277,6 +288,9 @@ class AiJobRunner:
             error_code="cancelled",
             error_message="AI job was cancelled.",
         )
+        from .contribution import mark_contribution_job_failed
+
+        mark_contribution_job_failed(job)
 
     @staticmethod
     def _create_usage(

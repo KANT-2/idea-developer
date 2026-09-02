@@ -377,16 +377,19 @@ class BrainstormAiResultProcessor:
 class BrainstormAiResultRouter:
     def __init__(self):
         from .coaching import AiResultProcessor
+        from .contribution import ContributionResultProcessor
         from .prd_apply import PrdApplyResultProcessor
 
         self.coaching = AiResultProcessor()
         self.brainstorm = BrainstormAiResultProcessor()
         self.prd_apply = PrdApplyResultProcessor()
+        self.contribution = ContributionResultProcessor()
 
     def process(self, *, job, output):
         output = self.coaching.process(job=job, output=output)
         output = self.brainstorm.process(job=job, output=output)
-        return self.prd_apply.process(job=job, output=output)
+        output = self.prd_apply.process(job=job, output=output)
+        return self.contribution.process(job=job, output=output)
 
 
 class BrainstormClassificationApplyService:

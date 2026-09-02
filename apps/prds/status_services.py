@@ -10,6 +10,7 @@ from .detail import PrdAccess
 from .models import (
     Prd,
     PrdChangeHistory,
+    PrdContributionStatus,
     PrdParticipantRole,
     PrdStatus,
     PrdStatusAuditAction,
@@ -56,8 +57,9 @@ class PrdStatusService:
         previous_status = prd.status
         prd.status = PrdStatus.COMPLETED
         prd.completed_at = completed_at
-        prd.save(update_fields=["status", "completed_at", "updated_at"])
-        self._record(
+        prd.contribution_status = PrdContributionStatus.PENDING
+        prd.save(update_fields=["status", "completed_at", "contribution_status", "updated_at"])
+        audit = self._record(
             prd=prd,
             actor_user_id=actor_user_id,
             action=PrdStatusAuditAction.COMPLETED,
@@ -65,6 +67,13 @@ class PrdStatusService:
             new_status=prd.status,
             reason="",
             previous_completed_at=None,
+        )
+        transaction.on_commit(
+            lambda: self._schedule_contribution(
+                prd_id=prd.pk,
+                completion_audit_id=audit.pk,
+                actor_user_id=actor_user_id,
+            )
         )
         return prd
 
@@ -81,7 +90,8 @@ class PrdStatusService:
         previous_completed_at = prd.completed_at
         prd.status = PrdStatus.IN_PROGRESS
         prd.completed_at = None
-        prd.save(update_fields=["status", "completed_at", "updated_at"])
+        prd.contribution_status = PrdContributionStatus.NOT_STARTED
+        prd.save(update_fields=["status", "completed_at", "contribution_status", "updated_at"])
         self._record(
             prd=prd,
             actor_user_id=actor_user_id,
@@ -113,7 +123,7 @@ class PrdStatusService:
         reason,
         previous_completed_at,
     ):
-        PrdStatusAuditLog.objects.create(
+        audit = PrdStatusAuditLog.objects.create(
             prd=prd,
             actor_user_id=actor_user_id,
             action=action,
@@ -136,4 +146,15 @@ class PrdStatusService:
                 "status": new_status,
                 "reason": reason,
             },
+        )
+        return audit
+
+    @staticmethod
+    def _schedule_contribution(*, prd_id, completion_audit_id, actor_user_id):
+        from apps.ai.contribution import ContributionEvaluationService
+
+        ContributionEvaluationService().schedule_for_completion(
+            prd_id=prd_id,
+            completion_audit_id=completion_audit_id,
+            actor_user_id=actor_user_id,
         )

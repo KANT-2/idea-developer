@@ -262,11 +262,13 @@ class AiCoachingApiTests(TestCase):
             job_id=job.pk,
         )
         self.question.refresh_from_db()
+        self.prd.refresh_from_db()
         self.assertEqual(applied.status_code, 200)
         self.assertEqual(
             PrdAnswer.objects.get(question=self.question).content, "사용자가 수정한 최종 답변"
         )
         self.assertEqual(self.question.version, 2)
+        self.assertEqual(self.prd.version, 2)
 
     def test_changed_question_rejects_stale_draft_with_409(self):
         response = self.post(

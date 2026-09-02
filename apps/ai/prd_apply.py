@@ -8,6 +8,7 @@ from typing import Any
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from apps.accounts.permissions import ParticipantAction, role_permission_policy
@@ -23,6 +24,7 @@ from apps.brainstorm.models import (
 )
 from apps.prds.detail import PrdAccess
 from apps.prds.models import (
+    Prd,
     PrdAnswer,
     PrdChangeHistory,
     PrdQuestion,
@@ -563,6 +565,10 @@ class PrdApplyService:
                 }
             )
         now = timezone.now()
+        Prd.objects.filter(pk=canvas.prd_id).update(
+            version=F("version") + 1,
+            updated_at=now,
+        )
         PrdChangeHistory.objects.create(
             prd=canvas.prd,
             actor_user_id=actor_user_id,

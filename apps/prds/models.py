@@ -40,6 +40,13 @@ class PrdParticipantRole(models.TextChoices):
     VIEWER = "viewer", "열람자"
 
 
+class PrdContributionStatus(models.TextChoices):
+    NOT_STARTED = "not_started", "미시작"
+    PENDING = "pending", "계산 중"
+    SUCCEEDED = "succeeded", "완료"
+    FAILED = "failed", "실패"
+
+
 class PrdQuerySet(models.QuerySet):
     def active(self):
         return self.filter(is_deleted=False)
@@ -185,6 +192,12 @@ class Prd(models.Model):
         default=PrdStatus.IN_PROGRESS,
     )
     completed_at = models.DateTimeField(null=True, blank=True)
+    version = models.PositiveBigIntegerField(default=1)
+    contribution_status = models.CharField(
+        max_length=16,
+        choices=PrdContributionStatus.choices,
+        default=PrdContributionStatus.NOT_STARTED,
+    )
     round_id = models.PositiveBigIntegerField()
     team_id = models.PositiveBigIntegerField(null=True, blank=True)
     is_team_shared = models.BooleanField(default=False)
@@ -217,6 +230,14 @@ class Prd(models.Model):
             models.CheckConstraint(
                 condition=Q(status__in=PrdStatus.values),
                 name="prd_status_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(version__gte=1),
+                name="prd_version_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(contribution_status__in=PrdContributionStatus.values),
+                name="prd_contribution_status_valid",
             ),
             models.CheckConstraint(
                 condition=Q(round_id__gt=0),

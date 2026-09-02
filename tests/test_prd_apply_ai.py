@@ -294,7 +294,9 @@ class PrdApplyAiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["data"]["applied"])
         self.question_a1.refresh_from_db()
+        self.prd.refresh_from_db()
         self.assertEqual(self.question_a1.version, 2)
+        self.assertEqual(self.prd.version, 2)
         self.assertEqual(
             PrdAnswer.objects.get(question=self.question_a1).content,
             f"기존 내용과 메모를 통합한 답변 {self.question_a1.pk}",

@@ -8,7 +8,9 @@ from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, Validat
 from django.db.models import Prefetch
 from django.views.decorators.http import require_GET, require_http_methods
 
-from apps.ai.models import AiChatHistory, AiUsageLog
+from apps.ai.contribution import ContributionEvaluationService
+from apps.ai.exceptions import AiJobNotRetryable, AiPromptNotConfigured, AiUsageLimitExceeded
+from apps.ai.models import AiChatHistory, AiUsageLog, ContributionEvaluation
 from apps.common.responses import api_error, api_success
 from apps.integration.exceptions import IntegrationError
 
@@ -57,6 +59,20 @@ def _error_response(request, exc):
             message="현재 PRD 상태에서는 요청한 상태 변경을 수행할 수 없습니다.",
             status=409,
             details={"current_status": exc.current_status},
+            request_id=_request_id(request),
+        )
+    if isinstance(exc, AiJobNotRetryable | AiPromptNotConfigured):
+        return api_error(
+            code="contribution_retry_unavailable",
+            message="현재 기여도 계산은 재평가할 수 없습니다.",
+            status=409,
+            request_id=_request_id(request),
+        )
+    if isinstance(exc, AiUsageLimitExceeded):
+        return api_error(
+            code="ai_usage_limit_exceeded",
+            message="AI 사용 한도에 도달했습니다.",
+            status=429,
             request_id=_request_id(request),
         )
     return _context_error(request, exc)
@@ -139,6 +155,8 @@ def prd_detail(request, prd_id):
                 "completed_at": (
                     access.prd.completed_at.isoformat() if access.prd.completed_at else None
                 ),
+                "version": access.prd.version,
+                "contribution_status": access.prd.contribution_status,
                 "deadline": (access.prd.deadline.isoformat() if access.prd.deadline else None),
                 "round_id": access.prd.round_id,
                 "team_id": access.prd.team_id,
@@ -174,6 +192,7 @@ def complete_prd(request, prd_id):
                 "id": prd.id,
                 "status": prd.status,
                 "completed_at": prd.completed_at.isoformat(),
+                "contribution_status": prd.contribution_status,
             },
             request_id=_request_id(request),
         )
@@ -200,7 +219,12 @@ def reopen_prd(request, prd_id):
             reason=payload.get("reason", ""),
         )
         return api_success(
-            {"id": prd.id, "status": prd.status, "completed_at": None},
+            {
+                "id": prd.id,
+                "status": prd.status,
+                "completed_at": None,
+                "contribution_status": prd.contribution_status,
+            },
             request_id=_request_id(request),
         )
     except (
@@ -444,6 +468,105 @@ def change_history(request, prd_id):
             "created_at": row.created_at.isoformat(),
         },
     )
+
+
+@require_GET
+def contribution_results(request, prd_id):
+    if response := _require_authentication(request):
+        return response
+    try:
+        _, access = _get_access(request, prd_id)
+        evaluations = (
+            ContributionEvaluation.objects.filter(prd=access.prd)
+            .select_related("job")
+            .prefetch_related("user_scores", "comment_scores")
+            .order_by("-calculation_version")
+        )
+        return api_success(
+            {"items": [_serialize_contribution(row) for row in evaluations]},
+            request_id=_request_id(request),
+        )
+    except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
+        return _error_response(request, exc)
+
+
+@require_http_methods(["POST"])
+def retry_contribution(request, prd_id, calculation_version):
+    if response := _require_authentication(request):
+        return response
+    try:
+        _, access = _get_access(request, prd_id)
+        try:
+            evaluation = ContributionEvaluation.objects.get(
+                prd=access.prd,
+                calculation_version=calculation_version,
+            )
+        except ContributionEvaluation.DoesNotExist as exc:
+            raise PrdNotFound from exc
+        evaluation = ContributionEvaluationService().retry_same_input(
+            evaluation=evaluation,
+            access=access,
+        )
+        return api_success(
+            _serialize_contribution(evaluation),
+            status=202,
+            request_id=_request_id(request),
+        )
+    except (
+        PrdNotFound,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+        AiJobNotRetryable,
+        AiPromptNotConfigured,
+        AiUsageLimitExceeded,
+    ) as exc:
+        return _error_response(request, exc)
+
+
+def _serialize_contribution(evaluation):
+    return {
+        "calculation_version": evaluation.calculation_version,
+        "prd_version": evaluation.prd_version,
+        "status": evaluation.status,
+        "input_fingerprint": evaluation.input_fingerprint,
+        "model": evaluation.model or None,
+        "prompt_version": evaluation.prompt_version,
+        "target_node_ids": evaluation.target_node_ids,
+        "target_comment_ids": evaluation.target_comment_ids,
+        "evidence": evaluation.evidence,
+        "failure_code": evaluation.failure_code or None,
+        "calculated_at": (
+            evaluation.calculated_at.isoformat() if evaluation.calculated_at else None
+        ),
+        "scores": [
+            {
+                "user_id": score.user_id,
+                "participant_id": score.participant_id,
+                "memo_raw": score.memo_raw,
+                "memo_contribution": float(score.memo_contribution),
+                "comment_raw": float(score.comment_raw),
+                "comment_contribution": float(score.comment_contribution),
+                "total_score": float(score.total_score),
+                "node_ids": score.node_ids,
+                "comment_ids": score.comment_ids,
+                "evidence": score.evidence,
+            }
+            for score in evaluation.user_scores.all()
+        ],
+        "comment_scores": [
+            {
+                "comment_id": score.comment_id,
+                "author_user_id": score.author_user_id,
+                "reflection_score": float(score.reflection_score),
+                "matched_question_ids": score.matched_question_ids,
+                "evidence": score.evidence,
+                "reason": score.reason,
+                "confidence": float(score.confidence),
+            }
+            for score in evaluation.comment_scores.all()
+        ],
+    }
 
 
 def _paginated_detail_endpoint(request, prd_id, queryset_factory, serializer):

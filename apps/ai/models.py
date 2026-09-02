@@ -42,6 +42,12 @@ class AiJobStatus(models.TextChoices):
     TIMED_OUT = "timed_out", "시간 초과"
 
 
+class ContributionEvaluationStatus(models.TextChoices):
+    PENDING = "pending", "계산 중"
+    SUCCEEDED = "succeeded", "완료"
+    FAILED = "failed", "실패"
+
+
 class AiConversationMessageRole(models.TextChoices):
     USER = "user", "사용자"
     ASSISTANT = "assistant", "AI 코치"
@@ -253,10 +259,7 @@ class AiJob(models.Model):
                 fields=["user_id", "prd", "feature_type", "idempotency_key"],
                 name="uniq_ai_job_request",
             ),
-            models.CheckConstraint(
-                condition=Q(user_id__gt=0),
-                name="ai_job_user_positive",
-            ),
+            models.CheckConstraint(condition=Q(user_id__gt=0), name="ai_job_user_positive"),
             models.CheckConstraint(
                 condition=Q(feature_type__in=AiFeatureType.values),
                 name="ai_job_feature_valid",
@@ -291,24 +294,160 @@ class AiJob(models.Model):
                 name="ai_job_feature_action_valid",
             ),
             models.CheckConstraint(
-                condition=Q(status__in=AiJobStatus.values),
-                name="ai_job_status_valid",
+                condition=Q(status__in=AiJobStatus.values), name="ai_job_status_valid"
             ),
+            models.CheckConstraint(condition=~Q(idempotency_key=""), name="ai_job_key_not_blank"),
             models.CheckConstraint(
-                condition=~Q(idempotency_key=""),
-                name="ai_job_key_not_blank",
-            ),
-            models.CheckConstraint(
-                condition=Q(max_attempts__gte=1),
-                name="ai_job_max_attempts_positive",
+                condition=Q(max_attempts__gte=1), name="ai_job_max_attempts_positive"
             ),
             models.CheckConstraint(
                 condition=Q(attempt_count__lte=F("max_attempts")),
                 name="ai_job_attempts_within_limit",
             ),
             models.CheckConstraint(
-                condition=Q(timeout_seconds__gte=1),
-                name="ai_job_timeout_positive",
+                condition=Q(timeout_seconds__gte=1), name="ai_job_timeout_positive"
+            ),
+        ]
+
+
+class ContributionEvaluation(models.Model):
+    prd = models.ForeignKey(
+        "prds.Prd", on_delete=models.CASCADE, related_name="contribution_evaluations"
+    )
+    completion_audit = models.OneToOneField(
+        "prds.PrdStatusAuditLog",
+        on_delete=models.PROTECT,
+        related_name="contribution_evaluation",
+    )
+    job = models.OneToOneField(
+        AiJob,
+        on_delete=models.SET_NULL,
+        related_name="contribution_evaluation",
+        null=True,
+        blank=True,
+    )
+    calculation_version = models.PositiveIntegerField()
+    prd_version = models.PositiveBigIntegerField()
+    status = models.CharField(
+        max_length=16,
+        choices=ContributionEvaluationStatus.choices,
+        default=ContributionEvaluationStatus.PENDING,
+    )
+    input_fingerprint = models.CharField(max_length=64)
+    input_snapshot = models.JSONField(default=dict)
+    model = models.CharField(max_length=128, blank=True)
+    prompt_version = models.PositiveIntegerField(null=True, blank=True)
+    target_node_ids = models.JSONField(default=list)
+    target_comment_ids = models.JSONField(default=list)
+    evidence = models.JSONField(default=dict)
+    failure_code = models.CharField(max_length=64, blank=True)
+    failure_message = models.TextField(blank=True)
+    calculated_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "contribution_evaluations"
+        ordering = ["prd", "calculation_version"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["prd", "calculation_version"],
+                name="uniq_contribution_calculation_version",
+            ),
+            models.CheckConstraint(
+                condition=Q(calculation_version__gte=1),
+                name="contribution_calculation_version_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(prd_version__gte=1),
+                name="contribution_prd_version_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=ContributionEvaluationStatus.values),
+                name="contribution_status_valid",
+            ),
+            models.CheckConstraint(
+                condition=~Q(input_fingerprint=""),
+                name="contribution_fingerprint_not_blank",
+            ),
+        ]
+
+
+class ContributionUserScore(models.Model):
+    evaluation = models.ForeignKey(
+        ContributionEvaluation, on_delete=models.CASCADE, related_name="user_scores"
+    )
+    user_id = models.PositiveBigIntegerField()
+    participant_id = models.PositiveBigIntegerField()
+    memo_raw = models.PositiveIntegerField(default=0)
+    memo_contribution = models.DecimalField(max_digits=7, decimal_places=4)
+    comment_raw = models.DecimalField(max_digits=12, decimal_places=4)
+    comment_contribution = models.DecimalField(max_digits=7, decimal_places=4)
+    total_score = models.DecimalField(max_digits=7, decimal_places=4)
+    node_ids = models.JSONField(default=list)
+    comment_ids = models.JSONField(default=list)
+    evidence = models.JSONField(default=dict)
+
+    class Meta:
+        db_table = "contribution_user_scores"
+        ordering = ["evaluation", "user_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["evaluation", "user_id"],
+                name="uniq_contribution_user_score",
+            ),
+            models.CheckConstraint(condition=Q(user_id__gt=0), name="contribution_user_positive"),
+            models.CheckConstraint(
+                condition=Q(participant_id__gt=0),
+                name="contribution_participant_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(memo_contribution__gte=0, memo_contribution__lte=100),
+                name="contribution_memo_score_range",
+            ),
+            models.CheckConstraint(
+                condition=Q(comment_contribution__gte=0, comment_contribution__lte=100),
+                name="contribution_comment_score_range",
+            ),
+            models.CheckConstraint(
+                condition=Q(total_score__gte=0, total_score__lte=100),
+                name="contribution_total_score_range",
+            ),
+        ]
+
+
+class ContributionCommentScore(models.Model):
+    evaluation = models.ForeignKey(
+        ContributionEvaluation, on_delete=models.CASCADE, related_name="comment_scores"
+    )
+    comment = models.ForeignKey(
+        "prds.PrdComment", on_delete=models.PROTECT, related_name="contribution_scores"
+    )
+    author_user_id = models.PositiveBigIntegerField()
+    reflection_score = models.DecimalField(max_digits=7, decimal_places=4)
+    matched_question_ids = models.JSONField(default=list)
+    evidence = models.JSONField(default=list)
+    reason = models.TextField()
+    confidence = models.DecimalField(max_digits=5, decimal_places=4)
+
+    class Meta:
+        db_table = "contribution_comment_scores"
+        ordering = ["evaluation", "comment_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["evaluation", "comment"],
+                name="uniq_contribution_comment_score",
+            ),
+            models.CheckConstraint(
+                condition=Q(author_user_id__gt=0),
+                name="contribution_comment_author_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(reflection_score__gte=0, reflection_score__lte=100),
+                name="contribution_reflection_score_range",
+            ),
+            models.CheckConstraint(
+                condition=Q(confidence__gte=0, confidence__lte=1),
+                name="contribution_confidence_range",
             ),
         ]
 

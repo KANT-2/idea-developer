@@ -11,6 +11,16 @@ urlpatterns = [
     path("<int:prd_id>/", detail_views.prd_detail, name="detail"),
     path("<int:prd_id>/complete/", detail_views.complete_prd, name="complete"),
     path("<int:prd_id>/reopen/", detail_views.reopen_prd, name="reopen"),
+    path(
+        "<int:prd_id>/contributions/",
+        detail_views.contribution_results,
+        name="contributions",
+    ),
+    path(
+        "<int:prd_id>/contributions/<int:calculation_version>/retry/",
+        detail_views.retry_contribution,
+        name="contribution-retry",
+    ),
     path("<int:prd_id>/comments/", detail_views.comments, name="comments"),
     path(
         "<int:prd_id>/comments/<int:comment_id>/",
