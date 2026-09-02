@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "apps.integration",
     "apps.jobs",
     "apps.brainstorm",
+    "apps.prds",
 ]
 
 AUTH_USER_MODEL = "accounts.LocalUserMapping"
