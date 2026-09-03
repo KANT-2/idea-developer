@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}로그인 | Idea Developer{% endblock %}
+
+{% block content %}
+  <div class="row justify-content-center">
+    <div class="col-12 col-md-7 col-lg-5">
+      <div class="card shadow-sm">
+        <div class="card-body p-4">
+          <h1 class="h3 mb-2">이메일 인증 로그인</h1>
+          <p class="text-body-secondary">회원가입이나 비밀번호 없이 인증번호로 로그인합니다.</p>
+
+          <div id="login-message" class="alert d-none" role="alert" aria-live="assertive"></div>
+
+          <form id="email-step" novalidate>
+            {% csrf_token %}
+            <div class="mb-3">
+              <label for="login-email" class="form-label">이메일</label>
+              <input
+                id="login-email"
+                name="email"
+                type="email"
+                class="form-control"
+                autocomplete="email"
+                required
+                aria-describedby="email-help"
+              >
+              <div id="email-help" class="form-text">부모 시스템에 등록된 이메일을 입력해 주세요.</div>
+            </div>
+            <button id="request-code-button" type="submit" class="btn btn-primary w-100">
+              <span class="button-label">인증번호 받기</span>
+              <span class="spinner-border spinner-border-sm d-none" aria-hidden="true"></span>
+            </button>
+          </form>
+
+          <form id="code-step" class="d-none" novalidate>
+            <p><strong id="masked-email"></strong> 주소로 인증번호 발송을 처리했습니다.</p>
+            <div class="mb-3">
+              <label for="login-code" class="form-label">6자리 인증번호</label>
+              <input
+                id="login-code"
+                name="code"
+                type="text"
+                class="form-control"
+                autocomplete="one-time-code"
+                inputmode="numeric"
+                pattern="[0-9]{6}"
+                maxlength="6"
+                required
+                aria-describedby="code-timer login-message"
+              >
+              <div id="code-timer" class="form-text" aria-live="polite"></div>
+            </div>
+            <button id="verify-code-button" type="submit" class="btn btn-primary w-100 mb-2">
+              <span class="button-label">로그인</span>
+              <span class="spinner-border spinner-border-sm d-none" aria-hidden="true"></span>
+            </button>
+            <button id="resend-code-button" type="button" class="btn btn-outline-secondary w-100" disabled>
+              <span class="button-label">인증번호 재전송</span>
+              <span class="spinner-border spinner-border-sm d-none" aria-hidden="true"></span>
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block extra_js %}
+  <script
+    src="{% static 'accounts/js/login.js' %}"
+    data-request-url="{% url 'accounts_api:request-otp' %}"
+    data-verify-url="{% url 'accounts_api:verify-otp' %}"
+  ></script>
+{% endblock %}

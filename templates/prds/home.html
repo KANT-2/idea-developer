@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block title %}PRD 홈 | 아이디어 디벨로퍼{% endblock %}
+
+{% block content %}
+  <div class="card border-0 shadow-sm">
+    <div class="card-body p-5 text-center">
+      <h1 class="h4">아이디어 디벨로퍼</h1>
+      <p class="text-secondary mb-4">홈 대시보드 화면은 팀원 PR에서 연결됩니다.</p>
+      <a class="btn btn-primary" href="{% url 'ideas:new-prd' %}">새 PRD 만들기</a>
+    </div>
+  </div>
+{% endblock %}

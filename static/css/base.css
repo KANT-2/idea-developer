@@ -1,0 +1,25 @@
+:root {
+  --idea-page-background: #f8f9fa;
+  --idea-primary: #4f46e5;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--idea-page-background);
+}
+
+.idea-logo {
+  align-items: center;
+  background: var(--idea-primary);
+  border-radius: .5rem;
+  color: #fff;
+  display: inline-flex;
+  font-size: .8rem;
+  height: 1.75rem;
+  justify-content: center;
+  width: 1.75rem;
+}
+
+.idea-clickable { cursor: pointer; }
+.idea-card-hover { transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease; }
+.idea-card-hover:hover { border-color: #a5b4fc !important; box-shadow: 0 .5rem 1.25rem rgba(79, 70, 229, .08); transform: translateY(-1px); }

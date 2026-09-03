@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}브레인스토밍 | Idea Developer{% endblock %}
+
+{% block extra_head %}
+  <link href="{% static 'brainstorm/css/brainstorm.css' %}" rel="stylesheet">
+{% endblock %}
+
+{% block breadcrumb %}
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb"><li class="breadcrumb-item active">브레인스토밍</li></ol>
+  </nav>
+{% endblock %}
+
+{% block content %}
+  <div
+    id="brainstorm-root"
+    data-prd-id="{{ prd_id }}"
+    data-api-base="{{ api_base }}"
+    data-polling-interval-ms="{{ polling_interval_ms }}"
+    aria-live="polite"
+  >
+    <div class="d-flex justify-content-center py-5" role="status">
+      <span class="spinner-border text-primary" aria-hidden="true"></span>
+      <span class="visually-hidden">브레인스토밍 화면을 불러오는 중입니다.</span>
+    </div>
+  </div>
+  <form class="d-none" aria-hidden="true">{% csrf_token %}</form>
+  <noscript>
+    <div class="alert alert-warning">브레인스토밍 화면을 사용하려면 JavaScript를 켜 주세요.</div>
+  </noscript>
+{% endblock %}
+
+{% block extra_js %}
+  {# 부모 CSP 이관 지점: jsdelivr.net을 script-src에 허용해야 합니다. #}
+  <script src="{{ react_cdn_url }}" crossorigin="anonymous"></script>
+  <script src="{{ react_dom_cdn_url }}" crossorigin="anonymous"></script>
+  <script src="{% static 'brainstorm/js/app.js' %}"></script>
+{% endblock %}

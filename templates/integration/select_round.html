@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block title %}회차 선택 | Idea Developer{% endblock %}
+
+{% block content %}
+  <h1 class="h3 mb-3">회차 선택</h1>
+  <p>참여할 진행 중 회차를 선택해 주세요.</p>
+  <form method="post" action="{% url 'integration:round-context' %}">
+    {% csrf_token %}
+    <div class="list-group mb-3">
+      {% for round in rounds %}
+        <label class="list-group-item">
+          <input class="form-check-input me-2" type="radio" name="round_id" value="{{ round.round_id }}" required>
+          {{ round.round_title }}
+        </label>
+      {% endfor %}
+    </div>
+    <button class="btn btn-primary" type="submit">선택</button>
+  </form>
+{% endblock %}
