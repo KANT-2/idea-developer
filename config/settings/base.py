@@ -133,6 +133,7 @@ if os.getenv("INTEGRATION_DB_NAME"):
         "PORT": os.getenv("INTEGRATION_DB_PORT", "5432"),
         "CONN_MAX_AGE": int(os.getenv("INTEGRATION_DB_CONN_MAX_AGE", "0")),
         "OPTIONS": {
+            "connect_timeout": int(os.getenv("INTEGRATION_DB_CONNECT_TIMEOUT", "2")),
             "options": os.getenv(
                 "INTEGRATION_DB_OPTIONS",
                 "-c default_transaction_read_only=on -c search_path=public",

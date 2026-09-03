@@ -72,8 +72,21 @@ class DebugLoginFlowTests(TestCase):
     def test_debug_page_warns_and_does_not_list_users_without_search(self):
         response = self.client.get(reverse("accounts_debug:login"))
 
-        self.assertContains(response, "개발 전용 로그인")
+        self.assertContains(response, "사용자 선택 로그인")
         self.assertNotContains(response, "member@example.test")
+
+    def test_normal_login_uses_name_picker_in_debug(self):
+        response = self.client.get(
+            reverse("accounts:login"),
+            {"next": "/ideas/prds/1/brainstorm/"},
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("accounts_debug:login")
+            + "?next=%2Fideas%2Fprds%2F1%2Fbrainstorm%2F",
+            fetch_redirect_response=False,
+        )
 
     def test_debug_search_is_paginated(self):
         response = self.client.get(reverse("accounts_debug:login"), {"q": "테스트"})
@@ -96,6 +109,32 @@ class DebugLoginFlowTests(TestCase):
                 external_user_id=7,
             ).exists()
         )
+
+    def test_selected_user_returns_to_safe_next_page(self):
+        response = self.client.post(
+            reverse("accounts_debug:login"),
+            {
+                "external_user_id": "7",
+                "next": "/ideas/prds/1/brainstorm/",
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            "/ideas/prds/1/brainstorm/",
+            fetch_redirect_response=False,
+        )
+
+    def test_external_next_is_rejected(self):
+        response = self.client.post(
+            reverse("accounts_debug:login"),
+            {
+                "external_user_id": "7",
+                "next": "https://evil.example/phish",
+            },
+        )
+
+        self.assertRedirects(response, reverse("ideas:home"))
 
     def test_unknown_selected_user_is_denied(self):
         response = self.client.post(

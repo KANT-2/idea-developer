@@ -242,6 +242,7 @@ class ContributionEvaluationTests(TestCase):
             color="yellow",
             position_x=0,
             position_y=0,
+            section=self.section if status == BrainstormNodeStatus.ACCEPTED else None,
             author_id=author,
             assignee_id=assignee,
             status=status,

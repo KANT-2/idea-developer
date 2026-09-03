@@ -229,10 +229,7 @@ class BrainstormAiApiTests(TestCase):
         )
         self.canvas = BrainstormCanvas.objects.create(prd=self.prd)
         self.unclassified = self.note("미분류 메모")
-        self.unclassified_accepted = self.note(
-            "미분류 채택 메모",
-            status=BrainstormNodeStatus.ACCEPTED,
-        )
+        self.second_unclassified = self.note("두 번째 미분류 메모")
         self.classified = self.note(
             "분류된 채택 메모",
             section=self.section_a,
@@ -307,7 +304,7 @@ class BrainstormAiApiTests(TestCase):
             data["server_statistics"],
             {
                 "total": 3,
-                "accepted": 2,
+                "accepted": 1,
                 "held": 1,
                 "unclassified": 2,
                 "sections": [
@@ -331,7 +328,7 @@ class BrainstormAiApiTests(TestCase):
             {row["id"] for row in data["nodes"]},
             {
                 str(self.unclassified.pk),
-                str(self.unclassified_accepted.pk),
+                str(self.second_unclassified.pk),
                 str(self.classified.pk),
                 str(self.held.pk),
             },
@@ -362,7 +359,7 @@ class BrainstormAiApiTests(TestCase):
 
         self.assertEqual(
             {row["id"] for row in job.input_data["nodes"]},
-            {str(self.unclassified.pk), str(self.unclassified_accepted.pk)},
+            {str(self.unclassified.pk), str(self.second_unclassified.pk)},
         )
         self.assertEqual(
             {row["id"] for row in job.input_data["sections"]},
@@ -375,9 +372,9 @@ class BrainstormAiApiTests(TestCase):
         self.run_job()
         job = AiJob.objects.get(pk=job_id)
         self.unclassified.refresh_from_db()
-        self.unclassified_accepted.refresh_from_db()
+        self.second_unclassified.refresh_from_db()
         self.assertIsNone(self.unclassified.section_id)
-        self.assertIsNone(self.unclassified_accepted.section_id)
+        self.assertIsNone(self.second_unclassified.section_id)
 
         recommendation = job.output_data["recommendations"][0]
         applied = self.post(
@@ -398,13 +395,16 @@ class BrainstormAiApiTests(TestCase):
         self.assertEqual(applied.status_code, 200)
         moved = BrainstormNode.objects.get(pk=recommendation["node_id"])
         untouched_id = (
-            self.unclassified_accepted.pk
+            self.second_unclassified.pk
             if moved.pk == self.unclassified.pk
             else self.unclassified.pk
         )
         self.assertEqual(moved.section_id, self.section_a.pk)
+        self.assertEqual(moved.status, BrainstormNodeStatus.ACCEPTED)
         self.assertEqual(moved.version, 2)
-        self.assertIsNone(BrainstormNode.objects.get(pk=untouched_id).section_id)
+        untouched = BrainstormNode.objects.get(pk=untouched_id)
+        self.assertIsNone(untouched.section_id)
+        self.assertEqual(untouched.status, BrainstormNodeStatus.DEFAULT)
         log = BrainstormChangeLog.objects.get(action="ai_classification_applied")
         self.assertEqual(str(log.operation_id), applied.json()["data"]["operation_id"])
 

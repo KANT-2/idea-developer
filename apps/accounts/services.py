@@ -16,7 +16,10 @@ from django.core.validators import validate_email
 from django.db import transaction
 from django.utils import timezone
 
-from apps.integration.repository import DjangoViewIntegrationRepository, LoginIdentity
+from apps.integration.repository import (
+    LoginIdentity,
+    get_default_integration_repository,
+)
 
 from .exceptions import (
     InvalidEmail,
@@ -86,7 +89,7 @@ def record_audit(request, event, *, external_user_id=None, details=None):
 
 class OtpAuthenticationService:
     def __init__(self, repository=None):
-        self.repository = repository or DjangoViewIntegrationRepository()
+        self.repository = repository or get_default_integration_repository()
 
     def request_code(self, request, email: str) -> OtpRequestResult:
         normalized_email = normalize_email(email)

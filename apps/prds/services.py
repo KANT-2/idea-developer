@@ -9,7 +9,7 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
-from apps.integration.repository import DjangoViewIntegrationRepository, IntegrationRepository
+from apps.integration.repository import IntegrationRepository, get_default_integration_repository
 
 from .models import (
     Prd,
@@ -41,7 +41,7 @@ class PrdParticipantService:
     """Validates immediate participants against the parent VIEW boundary."""
 
     def __init__(self, repository: IntegrationRepository | None = None):
-        self.repository = repository or DjangoViewIntegrationRepository()
+        self.repository = repository or get_default_integration_repository()
 
     def validate_memberships(self, *, user_ids: tuple[int, ...], round_id: int | None):
         unique_user_ids = tuple(dict.fromkeys(user_ids))
@@ -229,7 +229,7 @@ class PrdParticipantService:
 
 class PrdCreationService:
     def __init__(self, repository: IntegrationRepository | None = None):
-        self.repository = repository or DjangoViewIntegrationRepository()
+        self.repository = repository or get_default_integration_repository()
 
     @transaction.atomic
     def create(self, command: CreatePrdCommand) -> tuple[Prd, bool]:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import urlencode
 
 from django.conf import settings
 from django.contrib.auth import logout
@@ -14,7 +15,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from apps.common.responses import api_error, api_success
 from apps.integration.context import StandaloneSessionContextResolver
 from apps.integration.exceptions import IntegrationError
-from apps.integration.repository import DjangoViewIntegrationRepository
+from apps.integration.repository import get_default_integration_repository
 
 from .exceptions import AuthenticationFlowError
 from .models import LoginAuditLog
@@ -26,11 +27,11 @@ def get_authentication_service():
 
 
 def get_integration_repository():
-    return DjangoViewIntegrationRepository()
+    return get_default_integration_repository()
 
 
 def get_context_resolver():
-    return StandaloneSessionContextResolver()
+    return StandaloneSessionContextResolver(get_default_integration_repository())
 
 
 def _safe_next(request, candidate):
@@ -65,6 +66,10 @@ def login_page(request):
     if request.user.is_authenticated:
         return redirect(_safe_next(request, request.GET.get("next")) or _default_success_url())
     safe_next = _safe_next(request, request.GET.get("next"))
+    if settings.DEBUG:
+        query = urlencode({"next": safe_next}) if safe_next else ""
+        debug_login_url = reverse("accounts_debug:login")
+        return redirect(f"{debug_login_url}?{query}" if query else debug_login_url)
     if safe_next:
         request.session["authentication_next"] = safe_next
     else:
@@ -264,6 +269,7 @@ def debug_login(request):
         raise Http404
 
     repository = get_integration_repository()
+    next_url = _safe_next(request, request.POST.get("next") or request.GET.get("next"))
     if request.method == "POST":
         try:
             external_user_id = int(request.POST.get("external_user_id", ""))
@@ -276,7 +282,7 @@ def debug_login(request):
         if identity is None:
             raise PermissionDenied
         get_authentication_service().create_debug_session(request, identity)
-        return redirect(_safe_next(request, request.POST.get("next")) or _default_success_url())
+        return redirect(next_url or _default_success_url())
 
     query = request.GET.get("q", "").strip()
     try:
@@ -296,5 +302,5 @@ def debug_login(request):
     return render(
         request,
         "accounts/debug_login.html",
-        {"query": query, "result_page": result_page},
+        {"query": query, "result_page": result_page, "next_url": next_url},
     )

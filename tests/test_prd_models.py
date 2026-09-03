@@ -1,11 +1,19 @@
 from datetime import date
+from importlib import import_module
 
+from django.apps import apps as django_apps
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
 from apps.integration.repository import FixtureIntegrationRepository
+from apps.brainstorm.models import (
+    BrainstormCanvas,
+    BrainstormNode,
+    BrainstormNodeStatus,
+    BrainstormNodeType,
+)
 from apps.prds.models import (
     Prd,
     PrdAnswer,
@@ -240,6 +248,7 @@ class PrdCompletionTests(TestCase):
 
 class PrdCreationServiceTests(TestCase):
     def setUp(self):
+        PrdTemplate.objects.all().delete()
         template = PrdTemplate.objects.create(
             prd_type=PrdType.NEW_PRODUCT,
             name="신규 프로젝트 템플릿",
@@ -354,3 +363,125 @@ class PrdCreationServiceTests(TestCase):
             self.service.create(make_command(title="  ", prd_type="pending"))
         self.assertIn("title", context.exception.message_dict)
         self.assertIn("prd_type", context.exception.message_dict)
+
+
+class ConfirmedPrdTemplateSeedTests(TestCase):
+    def test_three_confirmed_templates_are_seeded_with_sections_and_questions(self):
+        templates = {
+            template.prd_type: template
+            for template in PrdTemplate.objects.prefetch_related("sections__questions")
+        }
+
+        self.assertEqual(templates.keys(), set(PrdType.values))
+        self.assertEqual(
+            templates[PrdType.NEW_PRODUCT].name,
+            "신규 프로젝트 PRD 템플릿",
+        )
+        self.assertEqual(
+            templates[PrdType.NEW_FEATURE].name,
+            "기존 프로젝트 신규 기능 PRD 템플릿",
+        )
+        self.assertEqual(
+            templates[PrdType.IMPROVEMENT].name,
+            "기존 기능 개선 PRD 템플릿",
+        )
+        self.assertTrue(all(template.sections.count() == 7 for template in templates.values()))
+        self.assertTrue(
+            all(
+                section.questions.exists()
+                for template in templates.values()
+                for section in template.sections.all()
+            )
+        )
+        self.assertEqual(
+            list(
+                templates[PrdType.NEW_PRODUCT].sections.values_list("title", flat=True)
+            ),
+            [
+                "프로젝트 요약",
+                "서비스 목표 및 핵심 가치",
+                "추진 배경 및 기회",
+                "핵심 타겟 및 이용 상황",
+                "문제 정의 및 솔루션 가설",
+                "핵심 MVP 범위",
+                "성공 지표 및 검증 계획",
+            ],
+        )
+
+    def test_selected_template_is_copied_to_a_new_prd(self):
+        prd, created = PrdCreationService(fixture_repository()).create(
+            make_command(
+                prd_type=PrdType.NEW_FEATURE,
+                idempotency_key="seeded-new-feature-template",
+            )
+        )
+
+        self.assertTrue(created)
+        self.assertEqual(prd.sections.count(), 7)
+        self.assertEqual(
+            PrdQuestion.objects.filter(section__prd=prd).count(),
+            46,
+        )
+        self.assertEqual(
+            prd.sections.order_by("position").first().title,
+            "기능 요약",
+        )
+
+    def test_existing_prd_answers_and_brainstorm_links_are_preserved_during_backfill(self):
+        prd = Prd.objects.create(
+            title="기존 PRD",
+            description="기존 설명",
+            prd_type=PrdType.NEW_PRODUCT,
+            round_id=None,
+            team_id=None,
+            creator_user_id=7,
+            creation_idempotency_key="legacy-prd-backfill",
+        )
+        legacy_sections = [
+            PrdSection.objects.create(prd=prd, title=title, position=position)
+            for position, title in enumerate(
+                ("문제 정의", "목표와 성공 지표", "핵심 사용자 경험"),
+                start=1,
+            )
+        ]
+        legacy_question = PrdQuestion.objects.create(
+            section=legacy_sections[0],
+            prompt="기존 문제 질문",
+            position=1,
+            is_completed=True,
+        )
+        answer = PrdAnswer.objects.create(
+            question=legacy_question,
+            content="기존 답변은 유지됩니다.",
+            updated_by_user_id=7,
+        )
+        canvas = BrainstormCanvas.objects.create(prd=prd)
+        node = BrainstormNode.objects.create(
+            canvas=canvas,
+            node_type=BrainstormNodeType.NOTE,
+            content="기존 브레인스토밍 메모",
+            color="yellow",
+            position_x=10,
+            position_y=20,
+            section=legacy_sections[0],
+            author_id=7,
+            assignee_id=None,
+            status=BrainstormNodeStatus.ACCEPTED,
+        )
+
+        migration = import_module(
+            "apps.prds.migrations.0009_backfill_existing_prds_from_templates"
+        )
+        migration.backfill_existing_prds(django_apps, None)
+
+        prd.refresh_from_db()
+        legacy_question.refresh_from_db()
+        answer.refresh_from_db()
+        node.refresh_from_db()
+        self.assertEqual(prd.sections.filter(is_deleted=False).count(), 7)
+        self.assertEqual(legacy_sections[0].pk, node.section_id)
+        self.assertEqual(node.section.title, "문제 정의 및 솔루션 가설")
+        self.assertEqual(node.status, BrainstormNodeStatus.ACCEPTED)
+        self.assertEqual(answer.question_id, legacy_question.pk)
+        self.assertEqual(answer.content, "기존 답변은 유지됩니다.")
+        self.assertGreater(legacy_question.position, 6)

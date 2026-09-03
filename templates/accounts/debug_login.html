@@ -1,19 +1,21 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}개발 전용 로그인 | Idea Developer{% endblock %}
+{% block title %}사용자 선택 로그인 | Idea Developer{% endblock %}
 {% block extra_head %}<link href="{% static 'accounts/css/auth.css' %}" rel="stylesheet">{% endblock %}
 
 {% block content %}
-  <div class="debug-login-shell"><div class="debug-login-card"><div class="debug-heading"><span><i class="bi bi-tools"></i></span><div><h1>개발 전용 로그인</h1><p>이메일 발송 없이 테스트할 사용자를 선택하세요.</p></div></div>
+  <div class="debug-login-shell"><div class="debug-login-card"><div class="debug-heading"><span><i class="bi bi-person-check"></i></span><div><h1>사용자 선택 로그인</h1><p>DB에 등록된 이름을 검색해 로그인할 사용자를 선택하세요.</p></div></div>
   <div class="alert alert-warning" role="alert">
-    <strong>개발 전용 로그인</strong> — 운영 환경에서는 이 URL이 등록되지 않습니다.
+    <strong>개발 환경 전용</strong> — 가짜 이메일 대신 DB 사용자를 선택하며, 운영 환경에서는 이 화면이 열리지 않습니다.
   </div>
+  <p class="small text-body-secondary">부모 서버가 이동 중이면 임시 사용자 데이터로 자동 전환됩니다.</p>
 
   <form method="get" class="row g-2 mb-4" role="search">
+    {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
     <div class="col">
       <label class="visually-hidden" for="debug-user-query">사용자 검색</label>
-      <input id="debug-user-query" class="form-control" name="q" value="{{ query }}" placeholder="이름 또는 이메일을 2자 이상 입력" required>
+      <input id="debug-user-query" class="form-control" name="q" value="{{ query }}" placeholder="이름을 2자 이상 입력" autocomplete="off" required autofocus>
     </div>
     <div class="col-auto"><button class="btn btn-primary" type="submit">검색</button></div>
   </form>
@@ -24,6 +26,7 @@
         <form method="post" class="list-group-item d-flex align-items-center justify-content-between gap-3">
           {% csrf_token %}
           <input type="hidden" name="external_user_id" value="{{ row.user_id }}">
+          {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
           <span>
             <strong>{{ row.display_name }}</strong>
             <small class="d-block text-body-secondary">{{ row.email }}</small>
@@ -36,10 +39,10 @@
     </div>
     <nav aria-label="검색 결과 페이지">
       {% if result_page.page > 1 %}
-        <a class="btn btn-outline-secondary" href="?q={{ query|urlencode }}&page={{ result_page.page|add:'-1' }}">이전</a>
+        <a class="btn btn-outline-secondary" href="?q={{ query|urlencode }}&page={{ result_page.page|add:'-1' }}{% if next_url %}&next={{ next_url|urlencode }}{% endif %}">이전</a>
       {% endif %}
       {% if result_page.has_next %}
-        <a class="btn btn-outline-secondary" href="?q={{ query|urlencode }}&page={{ result_page.page|add:'1' }}">다음</a>
+        <a class="btn btn-outline-secondary" href="?q={{ query|urlencode }}&page={{ result_page.page|add:'1' }}{% if next_url %}&next={{ next_url|urlencode }}{% endif %}">다음</a>
       {% endif %}
     </nav>
   {% endif %}

@@ -1,6 +1,6 @@
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.template.loader import get_template
@@ -8,21 +8,27 @@ from django.test import SimpleTestCase
 from django.urls import resolve
 
 from apps.common.context_processors import session_identity
+from apps.integration.repository import ParentUser, UserDisplaySummary
 
 
 class TemplateContractTests(SimpleTestCase):
-    @patch("apps.common.context_processors.AxUserTeamLoginView.objects")
-    def test_session_identity_uses_parent_name_email_and_tutor_role(self, objects):
-        objects.using.return_value.filter.return_value.values.return_value.first.return_value = {
-            "display_name_snapshot": "김튜터",
-            "first_name": "",
-            "last_name": "",
-            "primary_email": "tutor@example.test",
-            "user_email": "backup@example.test",
-            "role": "tutor",
-            "is_staff": False,
-            "is_superuser": False,
+    @patch("apps.common.context_processors.get_default_integration_repository")
+    def test_session_identity_uses_parent_name_email_and_tutor_role(self, get_repository):
+        repository = MagicMock()
+        repository.get_user.return_value = ParentUser(
+            user_id=2,
+            parent_role="tutor",
+            approval_status="approved",
+            is_active=True,
+            is_staff=False,
+            is_superuser=False,
+            user_email="backup@example.test",
+            primary_email="tutor@example.test",
+        )
+        repository.get_user_summaries.return_value = {
+            2: UserDisplaySummary(user_id=2, display_name="김튜터")
         }
+        get_repository.return_value = repository
         request = SimpleNamespace(
             user=SimpleNamespace(
                 is_authenticated=True,
@@ -85,6 +91,22 @@ class TemplateContractTests(SimpleTestCase):
 
         self.assertIn('"events/?cursor="', source)
         self.assertIn('apiBase + "canvas/"', source)
+        self.assertIn("response.text()", source)
+        self.assertNotIn("response.json()", source)
+        self.assertIn('invalidResponse.code = "invalid_response"', source)
+        self.assertIn("fullSyncGenerationRef", source)
+        self.assertIn("heldNodes.push(updated)", source)
+        self.assertIn("function createConnection(nodeA, nodeB)", source)
+        self.assertIn("connections.push(connection)", source)
+        self.assertIn("function deleteConnection(connection)", source)
+        self.assertIn('optimisticId = "pending-"', source)
+        self.assertIn("window.ReactDOM.flushSync", source)
+        self.assertIn('connection.pending ? " pending"', source)
+        self.assertIn('request(apiBase + "canvas/"', source)
+        self.assertIn('" 분류 결과"', source)
+        self.assertNotIn('"✦ AI 분석"', source)
+        self.assertNotIn('"AI 항목 분류"', source)
+        self.assertNotIn('runAi("classification")', source)
         self.assertIn('addEventListener("online", reconnect)', source)
         self.assertIn("Math.min(5000, Math.max(2000", source)
         self.assertIn('"/assignee/"', source)
@@ -93,6 +115,19 @@ class TemplateContractTests(SimpleTestCase):
         self.assertIn('"섹션 보드"', source)
         self.assertIn('"자유 캔버스"', source)
         self.assertIn('"아이디어 목록"', source)
+        self.assertIn('className: "brain-assignee-menu"', source)
+        self.assertIn('"담당자 지정"', source)
+        self.assertNotIn('h("select", {value: String(node.assignee_id', source)
+        self.assertNotIn("PRD 반영 후보", source)
+        self.assertIn("var selectedDefaults = [];", source)
+        self.assertNotIn("채택 취소", source)
+        self.assertIn("function dropHeld(event)", source)
+        self.assertIn('closest(".brain-held")', source)
+        self.assertNotIn('export/markdown/', source)
+        self.assertIn('useState("canvas")', source)
+        self.assertIn("var CANVAS_W = 4800", source)
+        self.assertIn("Math.max(.3, Math.min(2", source)
+        self.assertIn("onWheel: wheelCanvas", source)
         self.assertNotIn("WebSocket", source)
         self.assertIn('onDragStart', source)
         self.assertIn('onDrop', source)

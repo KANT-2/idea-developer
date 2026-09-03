@@ -163,6 +163,27 @@ class BrainstormNode(models.Model):
                 name="brain_held_node_unclassified",
             ),
             models.CheckConstraint(
+                condition=(
+                    Q(node_type=BrainstormNodeType.TITLE)
+                    | Q(
+                        node_type=BrainstormNodeType.NOTE,
+                        status=BrainstormNodeStatus.HELD,
+                        section__isnull=True,
+                    )
+                    | Q(
+                        node_type=BrainstormNodeType.NOTE,
+                        status=BrainstormNodeStatus.DEFAULT,
+                        section__isnull=True,
+                    )
+                    | Q(
+                        node_type=BrainstormNodeType.NOTE,
+                        status=BrainstormNodeStatus.ACCEPTED,
+                        section__isnull=False,
+                    )
+                ),
+                name="brain_note_status_matches_section",
+            ),
+            models.CheckConstraint(
                 condition=~Q(content=""),
                 name="brain_node_content_not_blank",
             ),
@@ -185,6 +206,23 @@ class BrainstormNode(models.Model):
         errors: dict[str, str] = {}
         if self.section_id is not None and self.section.prd_id != self.canvas.prd_id:
             errors["section"] = "The section must belong to the canvas PRD."
+        if self.node_type == BrainstormNodeType.NOTE:
+            expected_status = (
+                BrainstormNodeStatus.HELD
+                if self.status == BrainstormNodeStatus.HELD
+                else (
+                    BrainstormNodeStatus.ACCEPTED
+                    if self.section_id is not None
+                    else BrainstormNodeStatus.DEFAULT
+                )
+            )
+            if self.status != expected_status or (
+                self.status == BrainstormNodeStatus.HELD and self.section_id is not None
+            ):
+                errors["status"] = (
+                    "Unclassified notes must be default, section notes accepted, "
+                    "and held notes unclassified."
+                )
         if (
             self.node_type == BrainstormNodeType.NOTE
             and self.assignee_id is not None
@@ -238,7 +276,11 @@ class BrainstormNode(models.Model):
             section=section,
             author_id=context.user_id,
             assignee_id=context.user_id,
-            status=BrainstormNodeStatus.DEFAULT,
+            status=(
+                BrainstormNodeStatus.ACCEPTED
+                if section is not None
+                else BrainstormNodeStatus.DEFAULT
+            ),
         )
         node.full_clean()
         node.save(force_insert=True)

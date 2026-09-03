@@ -514,9 +514,10 @@ class BrainstormClassificationApplyService:
         for row in selections:
             node = nodes_by_id[str(row["node_id"])]
             node.section = sections[row["section_id"]]
+            node.status = BrainstormNodeStatus.ACCEPTED
             node.version += 1
             node.updated_at = changed_at
-        BrainstormNode.objects.bulk_update(nodes, ["section", "version", "updated_at"])
+        BrainstormNode.objects.bulk_update(nodes, ["section", "status", "version", "updated_at"])
         operation_id = uuid.uuid4()
         after = [
             {"id": str(node.pk), "section_id": node.section_id, "version": node.version}

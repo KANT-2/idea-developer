@@ -171,11 +171,15 @@ class PrdApplyAiTests(TestCase):
         self.accepted_a = self.note(
             "채택 문제 메모", section=self.section_a, status=BrainstormNodeStatus.ACCEPTED
         )
-        self.default_a = self.note("선택 가능한 기본 메모", section=self.section_a)
+        self.accepted_a_extra = self.note(
+            "섹션 배치로 자동 채택되는 메모",
+            section=self.section_a,
+            status=BrainstormNodeStatus.ACCEPTED,
+        )
         self.accepted_b = self.note(
             "채택 해결 메모", section=self.section_b, status=BrainstormNodeStatus.ACCEPTED
         )
-        self.unclassified = self.note("미분류 채택 메모", status=BrainstormNodeStatus.ACCEPTED)
+        self.unclassified = self.note("미분류 기본 메모")
         self.held = self.note("보류 메모", status=BrainstormNodeStatus.HELD)
         self.deleted = self.note(
             "삭제 메모",
@@ -186,7 +190,7 @@ class PrdApplyAiTests(TestCase):
         BrainstormConnection.objects.create(
             canvas=self.canvas,
             node_a=self.accepted_a,
-            node_b=self.default_a,
+            node_b=self.accepted_a_extra,
         )
         AiPromptService().create_version(
             feature_type=AiFeatureType.BRAINSTORM_PRD_APPLY,
@@ -223,13 +227,13 @@ class PrdApplyAiTests(TestCase):
             HTTP_IDEMPOTENCY_KEY=key,
         )
 
-    def preview(self, *, section_id=None, selected=True, key="preview-key"):
+    def preview(self, *, section_id=None, selected=False, key="preview-key"):
         payload = {}
         if section_id is not None:
             payload["section_id"] = section_id
         if selected:
             payload["selected_default_nodes"] = [
-                {"node_id": str(self.default_a.pk), "version": self.default_a.version}
+                {"node_id": str(self.unclassified.pk), "version": self.unclassified.version}
             ]
         response = self.post("ai-prd-apply-preview", payload, key)
         return response, AiJob.objects.get(pk=response.json()["data"]["id"])
@@ -248,18 +252,18 @@ class PrdApplyAiTests(TestCase):
             ],
         }
 
-    def test_section_preview_uses_accepted_and_explicit_default_only(self):
+    def test_section_preview_uses_all_notes_in_section_as_accepted(self):
         response, job = self.preview(section_id=self.section_a.pk)
         node_ids = {row["id"] for row in job.input_data["nodes"]}
 
         self.assertEqual(response.status_code, 202)
-        self.assertEqual(node_ids, {str(self.accepted_a.pk), str(self.default_a.pk)})
+        self.assertEqual(node_ids, {str(self.accepted_a.pk), str(self.accepted_a_extra.pk)})
         self.assertEqual(job.input_data["scope"], "section")
         self.assertEqual(job.input_data["merge_strategy"], "ai_integrate")
         self.assertEqual(len(job.input_data["connections"]), 1)
         self.assertEqual(
             job.input_data["excluded_unclassified_accepted_node_ids"],
-            [str(self.unclassified.pk)],
+            [],
         )
         first = job.input_data["questions"][0]
         self.assertEqual(first["current_answer"], "기존 핵심 답변")
@@ -271,7 +275,11 @@ class PrdApplyAiTests(TestCase):
         self.assertEqual(job.input_data["scope"], "all")
         self.assertEqual(
             {row["id"] for row in job.input_data["nodes"]},
-            {str(self.accepted_a.pk), str(self.accepted_b.pk)},
+            {
+                str(self.accepted_a.pk),
+                str(self.accepted_a_extra.pk),
+                str(self.accepted_b.pk),
+            },
         )
         self.assertEqual(
             {row["id"] for row in job.input_data["questions"]},
@@ -309,7 +317,7 @@ class PrdApplyAiTests(TestCase):
         self.assertEqual(item.question_version_before, 1)
         self.assertEqual(
             {row["node_id"] for row in item.source_nodes},
-            {str(self.accepted_a.pk), str(self.default_a.pk)},
+            {str(self.accepted_a.pk), str(self.accepted_a_extra.pk)},
         )
         self.assertEqual(record.actor_user_id, 7)
         self.assertEqual(record.model, "gemini-free-test")
@@ -331,7 +339,7 @@ class PrdApplyAiTests(TestCase):
         _, job = self.preview(section_id=self.section_a.pk)
         self.run_job()
         job.refresh_from_db()
-        BrainstormNode.objects.filter(pk=self.default_a.pk).update(version=2)
+        BrainstormNode.objects.filter(pk=self.accepted_a_extra.pk).update(version=2)
 
         response = self.post(
             "ai-prd-apply-apply",

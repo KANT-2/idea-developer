@@ -160,6 +160,8 @@ class BrainstormApiTests(TestCase):
             "status": BrainstormNodeStatus.DEFAULT,
         }
         values.update(overrides)
+        if "status" not in overrides and values.get("section") is not None:
+            values["status"] = BrainstormNodeStatus.ACCEPTED
         return BrainstormNode.objects.create(**values)
 
     def test_canvas_is_created_once_and_returns_counts_filter_and_viewport(self):
@@ -235,6 +237,7 @@ class BrainstormApiTests(TestCase):
         node = BrainstormNode.objects.get()
         self.assertEqual((node.author_id, node.assignee_id), (7, 7))
         self.assertEqual(node.section_id, self.section_a.id)
+        self.assertEqual(node.status, BrainstormNodeStatus.ACCEPTED)
         self.assertEqual(node.version, 1)
 
     def test_canvas_and_note_creation_require_and_reuse_idempotency_keys(self):
@@ -349,6 +352,10 @@ class BrainstormApiTests(TestCase):
                 node_id=node.pk,
             )
             self.assertEqual(response.status_code, 200)
+            self.assertEqual(
+                response.json()["data"]["status"],
+                "accepted" if section_id is not None else "default",
+            )
         node.refresh_from_db()
         self.assertIsNone(node.section_id)
         self.assertEqual((node.position_x, node.position_y), (Decimal("7"), Decimal("8")))
@@ -528,7 +535,7 @@ class BrainstormApiTests(TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["error"]["code"], "connection_version_conflict")
         first.refresh_from_db()
-        self.assertEqual(first.status, BrainstormNodeStatus.DEFAULT)
+        self.assertEqual(first.status, BrainstormNodeStatus.ACCEPTED)
         self.assertEqual(first.section_id, self.section_a.id)
         self.assertTrue(BrainstormConnection.objects.filter(pk=connection.pk).exists())
         self.assertFalse(AuditLog.objects.exists())

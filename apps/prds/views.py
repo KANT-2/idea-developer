@@ -16,17 +16,17 @@ from apps.integration.exceptions import (
     NoActiveRound,
     RoundSelectionRequired,
 )
-from apps.integration.repository import DjangoViewIntegrationRepository
+from apps.integration.repository import get_default_integration_repository
 
 from .services import CreatePrdCommand, PrdCreationService
 
 
 def get_context_resolver():
-    return StandaloneSessionContextResolver()
+    return StandaloneSessionContextResolver(get_default_integration_repository())
 
 
 def get_integration_repository():
-    return DjangoViewIntegrationRepository()
+    return get_default_integration_repository()
 
 
 def _request_id(request):

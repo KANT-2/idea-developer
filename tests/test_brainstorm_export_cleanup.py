@@ -44,6 +44,8 @@ class BrainstormExportCleanupBase(TestCase):
         self.canvas = BrainstormCanvas.objects.create(prd=self.prd)
 
     def note(self, content, *, status=BrainstormNodeStatus.DEFAULT, section=None, deleted=False):
+        if section is not None and status == BrainstormNodeStatus.DEFAULT:
+            status = BrainstormNodeStatus.ACCEPTED
         return BrainstormNode.objects.create(
             canvas=self.canvas,
             node_type=BrainstormNodeType.NOTE,
@@ -131,8 +133,8 @@ class BrainstormMarkdownExportTests(BrainstormExportCleanupBase):
             status=BrainstormNodeStatus.ACCEPTED,
             section=self.section,
         )
-        self.note("기본·분류됨", section=self.section)
-        self.note("채택·미분류", status=BrainstormNodeStatus.ACCEPTED)
+        self.note("섹션 배치로 자동 채택", section=self.section)
+        self.note("미분류 기본 메모")
 
         response = self.client.get(
             self.url(),
@@ -147,7 +149,8 @@ class BrainstormMarkdownExportTests(BrainstormExportCleanupBase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("## 아이디어 목록", content)
         self.assertIn("채택·분류됨", content)
-        self.assertNotIn("기본·분류됨", content)
+        self.assertIn("섹션 배치로 자동 채택", content)
+        self.assertNotIn("미분류 기본 메모", content)
         self.assertNotIn("채택·미분류", content)
         filename = response["Content-Disposition"].split('filename="', 1)[1].split('"', 1)[0]
         self.assertNotRegex(filename, r"[/\\:*?<>|]")

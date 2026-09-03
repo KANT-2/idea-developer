@@ -5,7 +5,12 @@ from django.test import SimpleTestCase
 
 from apps.integration.exceptions import IntegrationUnavailableError
 from apps.integration.models import AxUserTeamLoginView, UserRoundTeamView
-from apps.integration.repository import DjangoViewIntegrationRepository, escape_like_pattern
+from apps.integration.repository import (
+    DjangoViewIntegrationRepository,
+    FailoverIntegrationRepository,
+    FixtureIntegrationRepository,
+    escape_like_pattern,
+)
 
 
 class DjangoViewIntegrationRepositoryTests(SimpleTestCase):
@@ -46,3 +51,43 @@ class DjangoViewIntegrationRepositoryTests(SimpleTestCase):
 
     def test_search_wildcards_are_escaped_as_literal_characters(self):
         self.assertEqual(escape_like_pattern("100%_done!"), "100!%!_done!!")
+
+
+class FailoverIntegrationRepositoryTests(SimpleTestCase):
+    def setUp(self):
+        self.primary = MagicMock()
+        self.fallback = FixtureIntegrationRepository(
+            users=[
+                {
+                    "user_id": 24,
+                    "user_email": "lionel.messi@example.com",
+                    "primary_email": "lionel.messi@example.com",
+                    "first_name": "리오넬",
+                    "last_name": "메시",
+                    "display_name_snapshot": "리오넬 메시",
+                    "role": "student",
+                    "approval_status": "fixture-approved",
+                    "is_active": True,
+                    "is_staff": False,
+                    "is_superuser": False,
+                }
+            ],
+            active_statuses={"fixture-running"},
+        )
+        self.repository = FailoverIntegrationRepository(self.primary, self.fallback)
+
+    def test_unavailable_primary_uses_development_fixture(self):
+        self.primary.search_login_users.side_effect = IntegrationUnavailableError("offline")
+
+        result = self.repository.search_login_users(
+            query="리오넬 메시", page=1, page_size=20
+        )
+
+        self.assertEqual(result.results[0].user_id, 24)
+        self.assertEqual(result.results[0].display_name, "리오넬 메시")
+
+    def test_successful_primary_is_preferred(self):
+        expected = object()
+        self.primary.get_user.return_value = expected
+
+        self.assertIs(self.repository.get_user(24), expected)
