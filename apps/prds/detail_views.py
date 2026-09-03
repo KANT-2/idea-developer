@@ -48,6 +48,27 @@ def _get_access(request, prd_id):
     return context, PrdAccessService().get(prd_id=prd_id, context=context)
 
 
+def _participant_summaries(repository, *, user_ids, round_id):
+    if round_id is not None:
+        return {
+            user_id: summary.display_name
+            for user_id, summary in repository.get_round_user_summaries(
+                user_ids=user_ids,
+                round_id=round_id,
+            ).items()
+        }
+    summaries = {}
+    for user_id in user_ids:
+        parent_user = repository.get_user(user_id)
+        if parent_user is not None:
+            summaries[user_id] = (
+                parent_user.primary_email
+                or parent_user.user_email
+                or f"사용자 {user_id}"
+            )
+    return summaries
+
+
 def _error_response(request, exc):
     if isinstance(exc, PrdNotFound):
         return api_error(
@@ -231,15 +252,16 @@ def participants(request, prd_id):
                 role=payload.get("role", PrdParticipantRole.EDITOR),
                 actor_user_id=context.user_id,
             )
-            summary = repository.get_round_user_summaries(
+            summaries = _participant_summaries(
+                repository,
                 user_ids=(participant.user_id,),
-                round_id=context.round_id,
-            ).get(participant.user_id)
+                round_id=access.prd.round_id,
+            )
             return api_success(
                 {
                     **_serialize_participant(
                         participant,
-                        display_name=summary.display_name if summary else None,
+                        display_name=summaries.get(participant.user_id),
                     ),
                     "created": created,
                 },
@@ -251,9 +273,10 @@ def participants(request, prd_id):
         queryset = PrdParticipant.objects.filter(prd=access.prd).order_by("created_at", "id")
         total_items = queryset.count()
         rows = list(queryset[(page - 1) * page_size : page * page_size])
-        summaries = repository.get_round_user_summaries(
+        summaries = _participant_summaries(
+            repository,
             user_ids=tuple(row.user_id for row in rows),
-            round_id=context.round_id,
+            round_id=access.prd.round_id,
         )
         return api_success(
             {
@@ -261,9 +284,7 @@ def participants(request, prd_id):
                     _serialize_participant(
                         row,
                         display_name=(
-                            summaries[row.user_id].display_name
-                            if row.user_id in summaries
-                            else None
+                            summaries.get(row.user_id)
                         ),
                     )
                     for row in rows
@@ -537,18 +558,17 @@ def comments(request, prd_id):
             queryset = queryset.filter(section_question_id=question_id)
         rows = list(queryset[(page - 1) * page_size : page * page_size])
         total_items = queryset.count()
-        summaries = get_integration_repository().get_round_user_summaries(
+        summaries = _participant_summaries(
+            get_integration_repository(),
             user_ids=tuple(dict.fromkeys(row.author_user_id for row in rows)),
-            round_id=context.round_id,
+            round_id=access.prd.round_id,
         )
         data = {
             "items": [
                 _serialize_comment(
                     row,
                     display_name=(
-                        summaries[row.author_user_id].display_name
-                        if row.author_user_id in summaries
-                        else f"사용자 {row.author_user_id}"
+                        summaries.get(row.author_user_id, f"사용자 {row.author_user_id}")
                     ),
                 )
                 for row in rows
@@ -626,15 +646,11 @@ def _serialize_comment(comment, *, display_name):
 
 
 def _author_display_name(*, user_id, round_id):
-    summary = (
-        get_integration_repository()
-        .get_round_user_summaries(
-            user_ids=(user_id,),
-            round_id=round_id,
-        )
-        .get(user_id)
-    )
-    return summary.display_name if summary else f"사용자 {user_id}"
+    return _participant_summaries(
+        get_integration_repository(),
+        user_ids=(user_id,),
+        round_id=round_id,
+    ).get(user_id, f"사용자 {user_id}")
 
 
 @require_GET

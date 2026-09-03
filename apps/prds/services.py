@@ -30,7 +30,7 @@ class CreatePrdCommand:
     description: str
     deadline: date | None
     prd_type: str
-    round_id: int
+    round_id: int | None
     team_id: int | None
     creator_user_id: int
     idempotency_key: str
@@ -43,22 +43,35 @@ class PrdParticipantService:
     def __init__(self, repository: IntegrationRepository | None = None):
         self.repository = repository or DjangoViewIntegrationRepository()
 
-    def validate_memberships(self, *, user_ids: tuple[int, ...], round_id: int):
+    def validate_memberships(self, *, user_ids: tuple[int, ...], round_id: int | None):
         unique_user_ids = tuple(dict.fromkeys(user_ids))
-        memberships = self.repository.get_eligible_memberships(
-            user_ids=unique_user_ids,
-            round_id=round_id,
-        )
+        if round_id is None:
+            memberships = tuple(
+                user
+                for user_id in unique_user_ids
+                if (user := self.repository.get_user(user_id)) is not None
+                and user.is_active
+                and user.approval_status == settings.INTEGRATION_APPROVED_USER_STATUS
+            )
+        else:
+            memberships = self.repository.get_eligible_memberships(
+                user_ids=unique_user_ids,
+                round_id=round_id,
+            )
         memberships_by_user_id = {membership.user_id: membership for membership in memberships}
         invalid_user_ids = [
             user_id for user_id in unique_user_ids if user_id not in memberships_by_user_id
         ]
         if invalid_user_ids:
+            eligibility_scope = (
+                "활성·승인된 부모 사용자가 아닌 사용자가 포함되어 있습니다: "
+                if round_id is None
+                else "현재 회차의 활성 참여자가 아닌 사용자가 포함되어 있습니다: "
+            )
             raise ValidationError(
                 {
                     "participant_user_ids": (
-                        "현재 회차의 활성 참여자가 아닌 사용자가 포함되어 있습니다: "
-                        + ", ".join(str(user_id) for user_id in invalid_user_ids)
+                        eligibility_scope + ", ".join(str(user_id) for user_id in invalid_user_ids)
                     )
                 }
             )
@@ -74,7 +87,7 @@ class PrdParticipantService:
                 PrdParticipant(
                     prd=prd,
                     user_id=membership.user_id,
-                    participant_id=membership.participant_id,
+                    participant_id=getattr(membership, "participant_id", None),
                     role=PrdParticipantRole.EDITOR,
                 )
                 for membership in memberships
@@ -103,7 +116,10 @@ class PrdParticipantService:
         participant, created = PrdParticipant.objects.get_or_create(
             prd=prd,
             user_id=user_id,
-            defaults={"participant_id": membership.participant_id, "role": role},
+            defaults={
+                "participant_id": getattr(membership, "participant_id", None),
+                "role": role,
+            },
         )
         if created:
             self._record_change(
@@ -113,7 +129,7 @@ class PrdParticipantService:
                 before={},
                 after={
                     "user_id": user_id,
-                    "participant_id": membership.participant_id,
+                    "participant_id": getattr(membership, "participant_id", None),
                     "role": role,
                 },
             )
@@ -227,13 +243,18 @@ class PrdCreationService:
         ):
             raise PermissionDenied("The creator is not an active approved parent user.")
 
-        membership = self.repository.get_active_membership(
-            command.creator_user_id, command.round_id
-        )
-        if membership is None:
-            raise PermissionDenied("The creator does not participate in the requested round.")
-        if command.team_id is not None and command.team_id != membership.team_id:
-            raise PermissionDenied("The team does not match the creator's current-round team.")
+        membership = None
+        if command.round_id is None:
+            if command.team_id is not None:
+                raise ValidationError({"team_id": "A PRD without a round cannot have a team."})
+        else:
+            membership = self.repository.get_active_membership(
+                command.creator_user_id, command.round_id
+            )
+            if membership is None:
+                raise PermissionDenied("The creator does not participate in the requested round.")
+            if command.team_id is not None and command.team_id != membership.team_id:
+                raise PermissionDenied("The team does not match the creator's current-round team.")
 
         normalized_key = command.idempotency_key.strip()
         existing = Prd.objects.filter(
@@ -278,7 +299,7 @@ class PrdCreationService:
         PrdParticipant.objects.create(
             prd=prd,
             user_id=command.creator_user_id,
-            participant_id=membership.participant_id,
+            participant_id=membership.participant_id if membership else None,
             role=PrdParticipantRole.OWNER,
         )
         participant_service.add_editors(prd=prd, user_ids=participant_user_ids)
@@ -292,7 +313,7 @@ class PrdCreationService:
             errors["title"] = "Title is required."
         if command.prd_type not in PrdType.values:
             errors["prd_type"] = "Unknown PRD type."
-        if command.round_id <= 0:
+        if command.round_id is not None and command.round_id <= 0:
             errors["round_id"] = "round_id must be positive."
         if command.creator_user_id <= 0:
             errors["creator_user_id"] = "creator_user_id must be positive."

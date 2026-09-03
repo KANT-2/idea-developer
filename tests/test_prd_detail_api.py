@@ -502,6 +502,50 @@ class PrdDetailApiTests(TestCase):
             403,
         )
 
+    def test_roundless_prd_access_and_participant_management_use_explicit_roles(self):
+        personal = self.make_prd(creator=7, team_id=None, round_id=None)
+        owner = PrdParticipant.objects.create(
+            prd=personal,
+            user_id=7,
+            participant_id=None,
+            role=PrdParticipantRole.OWNER,
+        )
+
+        detail_response = self.client.get(reverse("prd_api:detail", args=[personal.id]))
+        add_response = self.post_json(
+            reverse("prd_api:participants", args=[personal.id]),
+            {"user_id": 8, "role": PrdParticipantRole.EDITOR},
+        )
+
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(add_response.status_code, 201)
+        editor = personal.participants.get(user_id=8)
+        self.assertIsNone(editor.participant_id)
+
+        role_response = self.patch_json(
+            reverse("prd_api:participant-item", args=[personal.id, 8]),
+            {"role": PrdParticipantRole.VIEWER},
+        )
+        self.assertEqual(role_response.status_code, 200)
+        editor.refresh_from_db()
+        self.assertEqual(editor.role, PrdParticipantRole.VIEWER)
+
+        owner_delete = self.client.delete(
+            reverse("prd_api:participant-item", args=[personal.id, owner.user_id])
+        )
+        editor_delete = self.client.delete(
+            reverse("prd_api:participant-item", args=[personal.id, editor.user_id])
+        )
+        self.assertEqual(owner_delete.status_code, 400)
+        self.assertEqual(editor_delete.status_code, 200)
+        self.assertTrue(personal.participants.filter(user_id=7).exists())
+
+        self.login_as(8)
+        self.assertEqual(
+            self.client.get(reverse("prd_api:detail", args=[personal.id])).status_code,
+            403,
+        )
+
     def test_owner_and_editor_general_comments_are_contribution_eligible(self):
         url = reverse("prd_api:comments", args=[self.prd.id])
         owner_response = self.post_json(

@@ -57,7 +57,7 @@ class BrainstormCanvas(models.Model):
 
     def validate_context(self, context: IntegrationContext) -> None:
         """Validate the parent round/team boundary before canvas access or creation."""
-        if self.prd.round_id != context.round_id:
+        if self.prd.round_id is not None and self.prd.round_id != context.round_id:
             raise PermissionDenied("The canvas PRD belongs to another round.")
         if self.prd.team_id is not None and self.prd.team_id != context.team_id:
             raise PermissionDenied("The canvas PRD belongs to another current-round team.")

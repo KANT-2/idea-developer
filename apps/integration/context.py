@@ -7,16 +7,16 @@ from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest
 
-from .exceptions import NoActiveRound, RoundSelectionRequired
+from .exceptions import RoundSelectionRequired
 from .repository import DjangoViewIntegrationRepository, IntegrationRepository
 
 
 @dataclass(frozen=True, slots=True)
 class IntegrationContext:
     user_id: int
-    round_id: int
-    participant_id: int
-    team_id: int
+    round_id: int | None
+    participant_id: int | None
+    team_id: int | None
     parent_role: str | None
     is_staff: bool
     is_superuser: bool
@@ -71,7 +71,15 @@ class StandaloneSessionContextResolver:
         if round_id is None:
             active_memberships = self.repository.list_active_memberships(external_user_id)
             if not active_memberships:
-                raise NoActiveRound("No active round is available.")
+                return IntegrationContext(
+                    user_id=external_user_id,
+                    round_id=None,
+                    participant_id=None,
+                    team_id=None,
+                    parent_role=parent_user.parent_role,
+                    is_staff=parent_user.is_staff,
+                    is_superuser=parent_user.is_superuser,
+                )
             if len(active_memberships) > 1:
                 raise RoundSelectionRequired(active_memberships)
             membership = active_memberships[0]

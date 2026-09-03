@@ -29,7 +29,7 @@ class PrdAccessService:
             prd = Prd.objects.with_completion_rate().get(pk=prd_id, is_deleted=False)
         except Prd.DoesNotExist as exc:
             raise PrdNotFound from exc
-        if prd.round_id != context.round_id:
+        if prd.round_id is not None and prd.round_id != context.round_id:
             raise PermissionDenied("The PRD belongs to another round.")
 
         participant = PrdParticipant.objects.filter(
@@ -40,7 +40,14 @@ class PrdAccessService:
         if role is None and prd.creator_user_id == context.user_id:
             role = PrdParticipantRole.OWNER
 
-        has_team_access = prd.is_team_shared and prd.team_id == context.team_id
+        if prd.round_id is None and role is None:
+            raise PermissionDenied("Only an explicit participant can access this personal PRD.")
+
+        has_team_access = (
+            prd.round_id is not None
+            and prd.is_team_shared
+            and prd.team_id == context.team_id
+        )
         is_admin = context.is_staff or context.is_superuser
         if role is None and not has_team_access and not is_admin:
             raise PermissionDenied("The user cannot access this PRD.")

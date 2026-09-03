@@ -43,11 +43,11 @@ class LoginIdentity:
 @dataclass(frozen=True, slots=True)
 class UserSearchResult:
     user_id: int
-    participant_id: int
+    participant_id: int | None
     display_name: str
     email: str | None
-    team_id: int
-    team_name: str
+    team_id: int | None
+    team_name: str | None
     has_duplicate_name: bool
 
 
@@ -93,6 +93,8 @@ class IntegrationRepository(Protocol):
     def search_round_users(
         self, *, query: str, round_id: int, team_id: int | None, page: int, page_size: int
     ) -> SearchPage: ...
+
+    def search_login_users(self, *, query: str, page: int, page_size: int) -> SearchPage: ...
 
     def list_team_users(self, *, round_id: int, team_id: int) -> tuple[UserSearchResult, ...]: ...
 
@@ -319,33 +321,59 @@ class DjangoViewIntegrationRepository:
 
     def search_login_users(self, *, query: str, page: int, page_size: int) -> SearchPage:
         offset = (page - 1) * page_size
-        try:
-            queryset = (
-                AxUserTeamLoginView.objects.using(self.database_alias)
-                .filter(
-                    Q(user_email__icontains=query)
-                    | Q(primary_email__icontains=query)
-                    | Q(first_name__icontains=query)
-                    | Q(last_name__icontains=query)
-                    | Q(display_name_snapshot__icontains=query),
-                    is_active=True,
-                    approval_status=settings.INTEGRATION_APPROVED_USER_STATUS,
-                )
-                .order_by("user_id")
-                .values(
-                    "user_id",
-                    "user_email",
-                    "primary_email",
-                    "first_name",
-                    "last_name",
-                    "display_name_snapshot",
-                )
+        effective_name = """
+            COALESCE(
+                NULLIF(BTRIM(aut.display_name_snapshot), ''),
+                NULLIF(BTRIM(CONCAT_WS(' ', aut.first_name, aut.last_name)), ''),
+                aut.primary_email,
+                aut.user_email
             )
-            rows = list(queryset[offset : offset + page_size + 1])
+        """
+        sql = f"""
+            WITH candidates AS (
+                SELECT
+                    aut.user_id,
+                    {effective_name} AS display_name,
+                    COALESCE(aut.primary_email, aut.user_email) AS email,
+                    COUNT(*) OVER (PARTITION BY LOWER({effective_name})) AS duplicate_name_count
+                FROM public.ax_user_team_login_view AS aut
+                WHERE aut.is_active = TRUE
+                  AND aut.approval_status = %s
+                  AND {effective_name} ILIKE %s ESCAPE '!'
+            )
+            SELECT user_id, display_name, email, duplicate_name_count
+            FROM candidates
+            ORDER BY LOWER(display_name), user_id
+            LIMIT %s OFFSET %s
+        """
+        try:
+            with connections[self.database_alias].cursor() as cursor:
+                cursor.execute(
+                    sql,
+                    [
+                        settings.INTEGRATION_APPROVED_USER_STATUS,
+                        f"%{escape_like_pattern(query)}%",
+                        page_size + 1,
+                        offset,
+                    ],
+                )
+                columns = [column[0] for column in cursor.description]
+                rows = [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
         except DatabaseError as exc:
             self._raise_unavailable(exc)
         return SearchPage(
-            results=tuple(rows[:page_size]),
+            results=tuple(
+                UserSearchResult(
+                    user_id=row["user_id"],
+                    participant_id=None,
+                    display_name=row["display_name"],
+                    email=row["email"],
+                    team_id=None,
+                    team_name=None,
+                    has_duplicate_name=row["duplicate_name_count"] > 1,
+                )
+                for row in rows[:page_size]
+            ),
             page=page,
             page_size=page_size,
             has_next=len(rows) > page_size,
@@ -706,11 +734,38 @@ class FixtureIntegrationRepository:
             )
             if query.casefold() in searchable.casefold():
                 matching.append(row)
-        matching.sort(key=lambda row: row["user_id"])
+        candidates = []
+        for row in matching:
+            full_name = " ".join(
+                part for part in (row.get("first_name"), row.get("last_name")) if part
+            )
+            display_name = (
+                row.get("display_name_snapshot")
+                or full_name
+                or row.get("primary_email")
+                or row.get("user_email")
+            )
+            candidates.append((row, display_name))
+        name_counts = {}
+        for _, display_name in candidates:
+            key = display_name.casefold()
+            name_counts[key] = name_counts.get(key, 0) + 1
+        candidates.sort(key=lambda item: (item[1].casefold(), item[0]["user_id"]))
         offset = (page - 1) * page_size
-        page_rows = matching[offset : offset + page_size + 1]
+        page_rows = candidates[offset : offset + page_size + 1]
         return SearchPage(
-            results=tuple(page_rows[:page_size]),
+            results=tuple(
+                UserSearchResult(
+                    user_id=row["user_id"],
+                    participant_id=None,
+                    display_name=display_name,
+                    email=row.get("primary_email") or row.get("user_email"),
+                    team_id=None,
+                    team_name=None,
+                    has_duplicate_name=name_counts[display_name.casefold()] > 1,
+                )
+                for row, display_name in page_rows[:page_size]
+            ),
             page=page,
             page_size=page_size,
             has_next=len(page_rows) > page_size,

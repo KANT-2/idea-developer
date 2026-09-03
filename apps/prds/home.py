@@ -86,14 +86,13 @@ class HomeQueryService:
         total_items = queryset.count()
         offset = (filters.page - 1) * filters.page_size
         page_prds = list(queryset[offset : offset + filters.page_size])
-        participants_by_prd = self._card_participants(
-            prds=page_prds,
-            round_id=context.round_id,
-        )
-        current_user = self.repository.get_round_user_summaries(
-            user_ids=(context.user_id,),
-            round_id=context.round_id,
-        ).get(context.user_id)
+        participants_by_prd = self._card_participants(prds=page_prds)
+        current_user = None
+        if context.round_id is not None:
+            current_user = self.repository.get_round_user_summaries(
+                user_ids=(context.user_id,),
+                round_id=context.round_id,
+            ).get(context.user_id)
         return {
             "user": {
                 "id": context.user_id,
@@ -198,7 +197,7 @@ class HomeQueryService:
         )
         return queryset.order_by(status_order, "-updated_at", "-id")
 
-    def _card_participants(self, *, prds, round_id):
+    def _card_participants(self, *, prds):
         if not prds:
             return {}
         rows = list(
@@ -213,13 +212,26 @@ class HomeQueryService:
             .filter(card_rank__lte=4)
             .order_by("prd_id", "card_rank")
         )
-        summaries = self.repository.get_round_user_summaries(
-            user_ids=tuple(dict.fromkeys(row.user_id for row in rows)),
-            round_id=round_id,
-        )
+        summaries = {}
+        rows_by_round = {}
+        prd_rounds = {prd.id: prd.round_id for prd in prds}
+        for row in rows:
+            round_id = prd_rounds[row.prd_id]
+            if round_id is not None:
+                rows_by_round.setdefault(round_id, []).append(row)
+        for round_id, round_rows in rows_by_round.items():
+            summaries.update(
+                {
+                    (round_id, user_id): summary
+                    for user_id, summary in self.repository.get_round_user_summaries(
+                        user_ids=tuple(dict.fromkeys(row.user_id for row in round_rows)),
+                        round_id=round_id,
+                    ).items()
+                }
+            )
         result = {}
         for row in rows:
-            summary = summaries.get(row.user_id)
+            summary = summaries.get((prd_rounds[row.prd_id], row.user_id))
             result.setdefault(row.prd_id, []).append(
                 {
                     "user_id": row.user_id,
