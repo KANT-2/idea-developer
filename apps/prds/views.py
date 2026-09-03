@@ -98,7 +98,8 @@ def _serialize_user(row, selected_user_ids):
     }
     if row.has_duplicate_name:
         item["email"] = mask_email(row.email) if row.email else None
-        item["team"] = {"team_id": row.team_id, "team_name": row.team_name}
+        if row.team_id is not None:
+            item["team"] = {"team_id": row.team_id, "team_name": row.team_name}
     return item
 
 
@@ -114,6 +115,17 @@ def current_team_participants(request):
     try:
         context = _resolve_context(request)
         selected_user_ids = _selected_user_ids(request) | {context.user_id}
+        if context.round_id is None:
+            return api_success(
+                {
+                    "round_id": None,
+                    "team": None,
+                    "users": [],
+                    "participants_enabled": False,
+                    "message": "팀원 모두 추가 대신 개별 사용자 검색으로 참여자를 추가해 주세요.",
+                },
+                request_id=_request_id(request),
+            )
         users = get_integration_repository().list_team_users(
             round_id=context.round_id,
             team_id=context.team_id,
@@ -157,13 +169,21 @@ def search_participants(request):
         page_size = min(requested_size, settings.USER_SEARCH_MAX_PAGE_SIZE)
         context = _resolve_context(request)
         selected_user_ids = _selected_user_ids(request) | {context.user_id}
-        result_page = get_integration_repository().search_round_users(
-            query=query,
-            round_id=context.round_id,
-            team_id=None,
-            page=page,
-            page_size=page_size,
-        )
+        repository = get_integration_repository()
+        if context.round_id is None:
+            result_page = repository.search_login_users(
+                query=query,
+                page=page,
+                page_size=page_size,
+            )
+        else:
+            result_page = repository.search_round_users(
+                query=query,
+                round_id=context.round_id,
+                team_id=None,
+                page=page,
+                page_size=page_size,
+            )
     except (TypeError, ValueError):
         return api_error(
             code="invalid_parameter",

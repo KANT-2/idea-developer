@@ -92,7 +92,10 @@ def round_context(request: HttpRequest):
         return render(request, "integration/unavailable.html", status=503)
 
     if request.method == "POST":
-        request.session["selected_round_id"] = context.round_id
+        if context.round_id is None:
+            request.session.pop("selected_round_id", None)
+        else:
+            request.session["selected_round_id"] = context.round_id
     return render(
         request,
         "integration/context_ready.html",

@@ -129,6 +129,33 @@ class PrdModelPolicyTests(TestCase):
                 deleted_at=None,
             )
 
+    def test_roundless_prd_requires_null_team_and_allows_null_external_participant(self):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Prd.objects.create(
+                title="잘못된 개인 PRD",
+                prd_type=PrdType.NEW_PRODUCT,
+                round_id=None,
+                team_id=30,
+                creator_user_id=7,
+                creation_idempotency_key="roundless-with-team",
+            )
+
+        prd = Prd.objects.create(
+            title="회차 없는 개인 PRD",
+            prd_type=PrdType.NEW_PRODUCT,
+            round_id=None,
+            team_id=None,
+            creator_user_id=7,
+            creation_idempotency_key="roundless-valid",
+        )
+        participant = PrdParticipant.objects.create(
+            prd=prd,
+            user_id=7,
+            participant_id=None,
+            role=PrdParticipantRole.OWNER,
+        )
+        self.assertIsNone(participant.participant_id)
+
     def test_unknown_status_and_participant_role_are_blocked_by_database(self):
         prd = self.make_prd()
         with self.assertRaises(IntegrityError), transaction.atomic():
@@ -255,6 +282,48 @@ class PrdCreationServiceTests(TestCase):
         self.assertFalse(second_created)
         self.assertEqual(first.pk, second.pk)
         self.assertEqual(Prd.objects.count(), 1)
+
+    def test_roundless_creation_uses_active_parent_users_without_memberships(self):
+        repository = FixtureIntegrationRepository(
+            users=[
+                {
+                    "user_id": user_id,
+                    "role": "student",
+                    "approval_status": "fixture-approved",
+                    "is_active": True,
+                    "is_staff": False,
+                    "is_superuser": False,
+                    "user_email": f"user{user_id}@example.test",
+                    "primary_email": f"user{user_id}@example.test",
+                }
+                for user_id in (7, 8)
+            ],
+            memberships=[],
+            active_statuses={"fixture-running"},
+        )
+
+        prd, created = PrdCreationService(repository).create(
+            make_command(
+                round_id=None,
+                team_id=None,
+                participant_user_ids=(8, 8),
+                idempotency_key="roundless-create",
+            )
+        )
+
+        self.assertTrue(created)
+        self.assertEqual((prd.round_id, prd.team_id), (None, None))
+        self.assertEqual(
+            list(
+                prd.participants.order_by("user_id").values_list(
+                    "user_id", "participant_id", "role"
+                )
+            ),
+            [
+                (7, None, PrdParticipantRole.OWNER),
+                (8, None, PrdParticipantRole.EDITOR),
+            ],
+        )
 
     def test_rejects_team_not_matching_current_round_membership(self):
         with self.assertRaises(PermissionDenied):

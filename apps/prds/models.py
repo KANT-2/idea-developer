@@ -85,21 +85,23 @@ class PrdQuerySet(models.QuerySet):
             )
         )
 
-    def accessible_home(self, *, user_id: int, round_id: int, team_id: int):
+    def accessible_home(
+        self, *, user_id: int, round_id: int | None, team_id: int | None
+    ):
         participant_access = PrdParticipant.objects.filter(
             prd_id=OuterRef("pk"),
             user_id=user_id,
         )
-        return (
-            self.active()
-            .filter(round_id=round_id)
-            .annotate(_is_participant=Exists(participant_access))
-            .filter(
-                Q(creator_user_id=user_id)
-                | Q(_is_participant=True)
-                | Q(is_team_shared=True, team_id=team_id)
-            )
+        queryset = self.active().annotate(_is_participant=Exists(participant_access))
+        personal_access = Q(round_id__isnull=True, _is_participant=True)
+        if round_id is None:
+            return queryset.filter(personal_access)
+        round_access = Q(round_id=round_id) & (
+            Q(creator_user_id=user_id)
+            | Q(_is_participant=True)
+            | Q(is_team_shared=True, team_id=team_id)
         )
+        return queryset.filter(round_access | personal_access)
 
     def with_home_metrics(self, *, user_id: int):
         my_role = PrdParticipant.objects.filter(
@@ -198,7 +200,7 @@ class Prd(models.Model):
         choices=PrdContributionStatus.choices,
         default=PrdContributionStatus.NOT_STARTED,
     )
-    round_id = models.PositiveBigIntegerField()
+    round_id = models.PositiveBigIntegerField(null=True, blank=True)
     team_id = models.PositiveBigIntegerField(null=True, blank=True)
     is_team_shared = models.BooleanField(default=False)
     creator_user_id = models.PositiveBigIntegerField()
@@ -240,8 +242,8 @@ class Prd(models.Model):
                 name="prd_contribution_status_valid",
             ),
             models.CheckConstraint(
-                condition=Q(round_id__gt=0),
-                name="prd_round_id_positive",
+                condition=Q(round_id__isnull=True) | Q(round_id__gt=0),
+                name="prd_round_id_null_or_positive",
             ),
             models.CheckConstraint(
                 condition=Q(creator_user_id__gt=0),
@@ -250,6 +252,10 @@ class Prd(models.Model):
             models.CheckConstraint(
                 condition=Q(team_id__isnull=True) | Q(team_id__gt=0),
                 name="prd_team_id_null_or_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(round_id__isnull=False) | Q(team_id__isnull=True),
+                name="prd_round_null_requires_team_null",
             ),
             models.CheckConstraint(
                 condition=~Q(creation_idempotency_key=""),
@@ -293,6 +299,8 @@ class Prd(models.Model):
 
     def clean(self):
         super().clean()
+        if self.round_id is None and self.team_id is not None:
+            raise ValidationError({"team_id": "A PRD without a round cannot have a team."})
         if self.is_deleted != (self.deleted_at is not None):
             raise ValidationError({"deleted_at": "is_deleted and deleted_at must change together."})
 
@@ -300,7 +308,7 @@ class Prd(models.Model):
 class PrdParticipant(models.Model):
     prd = models.ForeignKey(Prd, on_delete=models.CASCADE, related_name="participants")
     user_id = models.PositiveBigIntegerField()
-    participant_id = models.PositiveBigIntegerField()
+    participant_id = models.PositiveBigIntegerField(null=True, blank=True)
     role = models.CharField(max_length=16, choices=PrdParticipantRole.choices)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -312,8 +320,8 @@ class PrdParticipant(models.Model):
                 name="prd_participant_user_id_positive",
             ),
             models.CheckConstraint(
-                condition=Q(participant_id__gt=0),
-                name="prd_participant_external_id_positive",
+                condition=Q(participant_id__isnull=True) | Q(participant_id__gt=0),
+                name="prd_participant_external_id_null_or_positive",
             ),
             models.CheckConstraint(
                 condition=Q(role__in=PrdParticipantRole.values),

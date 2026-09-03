@@ -402,6 +402,78 @@ class HomeApiTests(TestCase):
         self.assertEqual(self.get_home().status_code, 401)
 
 
+class RoundlessHomeApiTests(TestCase):
+    def setUp(self):
+        self.repository = FixtureIntegrationRepository(
+            users=[user_row(7), user_row(8)],
+            memberships=[membership_row(7)],
+            active_statuses={"fixture-running"},
+        )
+        self.resolver = Mock()
+        self.resolver_patch = patch(
+            "apps.prds.views.get_context_resolver", return_value=self.resolver
+        )
+        self.repository_patch = patch(
+            "apps.prds.home_views.get_integration_repository",
+            return_value=self.repository,
+        )
+        self.resolver_patch.start()
+        self.repository_patch.start()
+        self.addCleanup(self.resolver_patch.stop)
+        self.addCleanup(self.repository_patch.stop)
+        user = LocalUserMapping.objects.create_user(7, "user7@example.test")
+        self.client.force_login(user)
+
+        self.personal = self.make_prd(creator=7, round_id=None, key="personal")
+        self.other_personal = self.make_prd(creator=8, round_id=None, key="other-personal")
+        self.current_round = self.make_prd(creator=7, round_id=3, key="current")
+        self.other_round = self.make_prd(creator=7, round_id=2, key="other-round")
+
+    @staticmethod
+    def make_prd(*, creator, round_id, key):
+        prd = Prd.objects.create(
+            title=key,
+            prd_type=PrdType.NEW_PRODUCT,
+            round_id=round_id,
+            team_id=30 if round_id is not None else None,
+            creator_user_id=creator,
+            creation_idempotency_key=key,
+        )
+        PrdParticipant.objects.create(
+            prd=prd,
+            user_id=creator,
+            participant_id=creator * 10 if round_id is not None else None,
+            role=PrdParticipantRole.OWNER,
+        )
+        return prd
+
+    def test_no_round_context_returns_only_explicit_roundless_prds(self):
+        self.resolver.resolve.return_value = IntegrationContext(
+            7, None, None, None, "student", False, False
+        )
+
+        response = self.client.get(reverse("home_api:home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            {item["id"] for item in response.json()["data"]["items"]},
+            {self.personal.id},
+        )
+
+    def test_round_context_includes_own_roundless_and_current_round_only(self):
+        self.resolver.resolve.return_value = IntegrationContext(
+            7, 3, 70, 30, "student", False, False
+        )
+
+        response = self.client.get(reverse("home_api:home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            {item["id"] for item in response.json()["data"]["items"]},
+            {self.personal.id, self.current_round.id},
+        )
+
+
 class EmptyHomeApiTests(TestCase):
     @patch("apps.prds.home.timezone.localdate", return_value=TODAY)
     @patch("apps.prds.home.timezone.now", return_value=NOW)

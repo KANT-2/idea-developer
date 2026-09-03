@@ -7,11 +7,7 @@ from apps.integration.context import (
     StandaloneSessionContextResolver,
     TestIntegrationContextResolver,
 )
-from apps.integration.exceptions import (
-    IntegrationUnavailableError,
-    NoActiveRound,
-    RoundSelectionRequired,
-)
+from apps.integration.exceptions import IntegrationUnavailableError, RoundSelectionRequired
 from apps.integration.repository import FixtureIntegrationRepository
 from tests.fixtures.integration_views import (
     AX_USER_TEAM_LOGIN_ROWS,
@@ -59,15 +55,19 @@ class StandaloneSessionContextResolverTests(SimpleTestCase):
         with self.assertRaises(PermissionDenied):
             self.resolver.resolve(self.request, round_id=2)
 
-    def test_no_active_round_does_not_fall_back_to_latest(self):
+    def test_no_active_round_returns_parent_user_context_without_membership(self):
         repository = FixtureIntegrationRepository(
             users=AX_USER_TEAM_LOGIN_ROWS,
             memberships=USER_ROUND_TEAM_ROWS,
             active_statuses={"different-active-value"},
         )
 
-        with self.assertRaises(NoActiveRound):
-            StandaloneSessionContextResolver(repository).resolve(self.request)
+        context = StandaloneSessionContextResolver(repository).resolve(self.request)
+
+        self.assertEqual(context.user_id, 7)
+        self.assertIsNone(context.round_id)
+        self.assertIsNone(context.participant_id)
+        self.assertIsNone(context.team_id)
 
     def test_multiple_active_rounds_require_user_selection(self):
         second_active = {

@@ -198,6 +198,64 @@ class PrdCreationApiTests(TestCase):
         self.assertEqual(prd.sections.count(), 1)
         self.assertEqual(prd.sections.get().questions.count(), 1)
 
+    def test_roundless_context_supports_parent_search_and_participant_creation(self):
+        self.context = IntegrationContext(
+            user_id=7,
+            round_id=None,
+            participant_id=None,
+            team_id=None,
+            parent_role="student",
+            is_staff=False,
+            is_superuser=False,
+        )
+        self.resolver.resolve.return_value = self.context
+        session = self.client.session
+        session.pop("selected_round_id", None)
+        session.save()
+
+        team_response = self.client.get(reverse("prd_api:current-team"))
+        search_response = self.client.get(
+            reverse("prd_api:participant-search"),
+            {"q": "테스트"},
+        )
+        create_response = self.post_create(
+            self.payload(
+                round_id=999,
+                team_id=999,
+                participant_user_ids=[8, 8],
+            ),
+            key="roundless-api",
+        )
+
+        self.assertEqual(team_response.status_code, 200)
+        self.assertIsNone(team_response.json()["data"]["team"])
+        self.assertEqual(team_response.json()["data"]["users"], [])
+        self.assertEqual(search_response.status_code, 200)
+        self.assertEqual(
+            {row["user_id"] for row in search_response.json()["data"]["results"]},
+            {7, 8, 9, 11},
+        )
+        self.assertEqual(create_response.status_code, 201)
+        prd = Prd.objects.get()
+        self.assertEqual((prd.round_id, prd.team_id), (None, None))
+        self.assertEqual(
+            list(prd.participants.order_by("user_id").values_list("user_id", "participant_id")),
+            [(7, None), (8, None)],
+        )
+
+    def test_roundless_creation_rejects_inactive_or_unapproved_parent_user(self):
+        self.resolver.resolve.return_value = IntegrationContext(
+            7, None, None, None, "student", False, False
+        )
+        response = self.post_create(
+            self.payload(participant_user_ids=[10]),
+            key="roundless-inactive",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("participant_user_ids", response.json()["error"]["details"])
+        self.assertFalse(Prd.objects.exists())
+
     def test_retry_with_same_key_returns_original_without_duplicate_rows(self):
         first = self.post_create()
         second = self.post_create(
