@@ -96,6 +96,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "apps.common.context_processors.runtime_settings",
+                "apps.common.context_processors.session_identity",
             ],
         },
     }

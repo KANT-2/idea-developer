@@ -1,8 +1,11 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}개발 전용 로그인 | Idea Developer{% endblock %}
+{% block extra_head %}<link href="{% static 'accounts/css/auth.css' %}" rel="stylesheet">{% endblock %}
 
 {% block content %}
+  <div class="debug-login-shell"><div class="debug-login-card"><div class="debug-heading"><span><i class="bi bi-tools"></i></span><div><h1>개발 전용 로그인</h1><p>이메일 발송 없이 테스트할 사용자를 선택하세요.</p></div></div>
   <div class="alert alert-warning" role="alert">
     <strong>개발 전용 로그인</strong> — 운영 환경에서는 이 URL이 등록되지 않습니다.
   </div>
@@ -22,8 +25,8 @@
           {% csrf_token %}
           <input type="hidden" name="external_user_id" value="{{ row.user_id }}">
           <span>
-            <strong>{% firstof row.display_name_snapshot row.first_name row.primary_email row.user_email %}</strong>
-            <small class="d-block text-body-secondary">{% firstof row.primary_email row.user_email %}</small>
+            <strong>{{ row.display_name }}</strong>
+            <small class="d-block text-body-secondary">{{ row.email }}</small>
           </span>
           <button class="btn btn-sm btn-outline-primary" type="submit">이 사용자로 로그인</button>
         </form>
@@ -40,4 +43,5 @@
       {% endif %}
     </nav>
   {% endif %}
+  </div></div>
 {% endblock %}

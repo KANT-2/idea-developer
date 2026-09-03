@@ -2,102 +2,98 @@
 {% load static %}
 
 {% block title %}{{ prd.title }} | Idea Developer{% endblock %}
-
-{% block extra_head %}
-  <link href="{% static 'prds/css/write.css' %}" rel="stylesheet">
-{% endblock %}
-
-{% block breadcrumb %}
-  <nav aria-label="breadcrumb">
-    <ol class="breadcrumb">
-      <li class="breadcrumb-item"><a href="{% url 'ideas:home' %}">PRD</a></li>
-      <li class="breadcrumb-item active" aria-current="page">{{ prd.title }}</li>
-    </ol>
-  </nav>
-{% endblock %}
+{% block extra_head %}<link href="{% static 'prds/css/write.css' %}?v=20260903-9" rel="stylesheet">{% endblock %}
 
 {% block content %}
-  <div
-    id="prd-write-app"
-    data-prd-id="{{ prd.id }}"
-    data-detail-api="{{ detail_api_url }}"
-    data-prd-api-base="{{ prd_api_base }}"
-    data-ai-api-base="{{ ai_api_base }}"
-  >
-    <div id="prd-alert" class="alert d-none" role="alert"></div>
-    <div class="row g-4">
-      <section class="col-lg-7" aria-labelledby="prd-heading">
-        <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
-          <div>
-            <h1 id="prd-heading" class="h3 mb-1">{{ prd.title }}</h1>
-            <p id="prd-description" class="text-secondary mb-0"></p>
-          </div>
-          <div class="d-flex flex-wrap gap-2">
-            <a class="btn btn-sm btn-outline-primary" href="{% url 'brainstorm-page' prd.id %}">아이디어 맵</a>
-            <button id="prd-complete" class="btn btn-sm btn-success d-none" type="button">PRD 완료</button>
-            <button id="prd-reopen" class="btn btn-sm btn-outline-success d-none" type="button">PRD 재개</button>
-            <span id="prd-status" class="badge text-bg-light align-self-center"></span>
-          </div>
-        </div>
-        <div id="prd-sections" class="vstack gap-3" aria-live="polite">
-          <div class="text-center py-5"><span class="spinner-border" aria-hidden="true"></span></div>
-        </div>
-      </section>
-
-      <aside class="col-lg-5" aria-labelledby="coach-heading">
-        <div class="card ai-coach-panel sticky-lg-top">
-          <div class="card-header bg-white">
-            <div class="d-flex justify-content-between align-items-center gap-2">
-              <h2 id="coach-heading" class="h5 mb-0">AI 코치</h2>
-              <select id="coach-scope" class="form-select form-select-sm w-auto" aria-label="AI 코치 범위">
-                <option value="">전체 PRD</option>
-              </select>
-            </div>
-          </div>
-          <div id="coach-messages" class="card-body ai-coach-messages" aria-live="polite"></div>
-          <div class="card-footer bg-white">
-            <form id="coach-form">
-              <label class="form-label" for="coach-input">질문</label>
-              <textarea id="coach-input" class="form-control" rows="3" maxlength="4000" required></textarea>
-              <div class="d-flex justify-content-between align-items-center mt-2">
-                <small class="text-secondary">최근 3턴만 AI에게 전달됩니다.</small>
-                <div class="d-flex gap-2">
-                  <button id="coach-cancel" type="button" class="btn btn-outline-secondary btn-sm d-none">취소</button>
-                  <button id="coach-submit" type="submit" class="btn btn-primary btn-sm">전송</button>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
-      </aside>
+<div id="prd-write-app" data-prd-id="{{ prd.id }}" data-detail-api="{{ detail_api_url }}" data-participants-api="{{ participants_api_url }}" data-participant-search-api="{{ participant_search_api_url }}" data-comments-api="{{ comments_api_url }}" data-contributions-api="{{ contributions_api_url }}" data-ai-api-base="{{ ai_api_base }}">
+  <div id="prd-alert" class="alert d-none write-alert" role="alert"></div>
+  <header class="write-toolbar" aria-labelledby="prd-heading">
+    <a class="write-back" href="{% url 'ideas:home' %}" aria-label="PRD 목록으로 돌아가기"><i class="bi bi-arrow-left"></i></a>
+    <span class="write-doc-mark" aria-hidden="true">아</span>
+    <div class="write-doc-copy"><div class="d-flex align-items-center gap-2"><h1 id="prd-heading">{{ prd.title }}</h1><span id="prd-status" class="write-status"></span></div><p id="prd-description"></p></div>
+    <div class="write-toolbar-meta"><span class="write-deadline"><i class="bi bi-calendar3"></i><span id="write-deadline-label">마감일 없음</span></span><div class="write-members-wrap"><div id="write-members" class="write-members" aria-label="PRD 참여자"></div><button id="manage-participants" class="write-member-manage d-none" type="button" data-bs-toggle="modal" data-bs-target="#participant-modal" aria-label="PRD 참여자 관리" title="참여자 추가 및 관리"><i class="bi bi-plus-lg"></i></button></div></div>
+    <div class="write-actions">
+      <a class="btn btn-sm btn-outline-secondary" href="{% url 'brainstorm-page' prd.id %}" target="_blank" rel="noopener"><i class="bi bi-lightbulb"></i><span>브레인스토밍</span></a>
+      <button id="comment-toggle" class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="offcanvas" data-bs-target="#write-comments-panel" aria-controls="write-comments-panel"><i class="bi bi-chat-square-text"></i><span>코멘트</span><b id="comment-count" class="comment-count d-none">0</b></button>
+      <button id="contribution-toggle" class="btn btn-sm btn-outline-secondary d-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#write-contribution-panel" aria-controls="write-contribution-panel"><i class="bi bi-bar-chart"></i><span>기여도</span></button>
+      <button id="coach-toggle" class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="offcanvas" data-bs-target="#write-support-panel" aria-controls="write-support-panel"><i class="bi bi-stars"></i> AI 코치</button>
+      <button id="complete-prd" class="btn btn-sm btn-primary d-none" type="button"><i class="bi bi-check2-circle"></i> PRD 완료</button>
+      <button id="reopen-prd" class="btn btn-sm btn-warning d-none" type="button"><i class="bi bi-arrow-counterclockwise"></i> 다시 열기</button>
     </div>
+  </header>
+
+  <nav class="write-stepper" aria-label="PRD 섹션 진행 단계"><div id="write-steps" class="write-steps"></div><div class="write-step-progress"><span>진행률</span><div><i id="write-step-progress-bar"></i></div><strong id="write-completion-label">0%</strong></div></nav>
+
+  <div class="write-workspace">
+    <section class="write-structure" aria-labelledby="structure-heading">
+      <div class="write-panel-head"><div><h2 id="structure-heading">PRD 구조</h2><span id="active-section-count">활성 섹션</span></div><div class="btn-group btn-group-sm" role="group" aria-label="PRD 보기 방식"><button class="btn btn-light active" id="structure-view" type="button">구조 보기</button><button class="btn btn-light" id="question-view" type="button">질문 리스트</button></div></div>
+      <div id="prd-sections" class="write-section-list" aria-live="polite"><div class="text-center py-5"><span class="spinner-border text-primary" aria-hidden="true"></span></div></div>
+    </section>
+
+    <aside class="write-evaluation" aria-labelledby="evaluation-heading">
+      <div class="write-evaluation-title"><div><span>PRD REVIEW</span><h2 id="evaluation-heading">PRD 작성 평가</h2></div><span id="score-state">작성 중</span></div>
+      <section class="write-score-card" aria-label="전체 PRD 완성도">
+        <div class="write-score-main">
+          <div id="write-score-ring" class="write-score-ring" style="--score:0%"><strong id="write-score-value">0</strong><small>/ 100</small></div>
+          <div><strong id="write-score-label">시작 전</strong><p id="write-score-feedback">답변을 작성하면 PRD의 현재 완성도를 확인할 수 있습니다.</p></div>
+        </div>
+        <div class="write-score-legend" aria-label="평가 범례"><span><i class="good"></i>완료</span><span><i class="working"></i>작성 중</span><span><i></i>시작 전</span></div>
+      </section>
+      <section class="write-diagnosis" aria-labelledby="diagnosis-heading">
+        <div class="write-diagnosis-head"><div><span>SECTION REVIEW</span><h3 id="diagnosis-heading">항목별 진단 피드백</h3></div><small>항목을 누르면 이동합니다</small></div>
+        <div id="write-section-diagnostics" class="write-diagnosis-list"></div>
+      </section>
+      <section class="write-section-score" aria-labelledby="section-score-heading">
+        <div class="write-section-score-head"><h3 id="section-score-heading">섹션별 완성도</h3><small>완료한 질문 기준</small></div>
+        <div id="write-section-progress" class="write-section-progress"></div>
+      </section>
+    </aside>
+
+    <aside class="offcanvas offcanvas-end write-insight" tabindex="-1" id="write-support-panel" aria-labelledby="write-support-title">
+      <div class="offcanvas-header write-support-head"><div><span>AI COACH</span><h2 id="write-support-title">AI 코치</h2></div><button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="닫기"></button></div>
+      <div class="offcanvas-body write-support-body">
+      <section id="coach-panel" class="ai-coach-panel">
+        <div class="coach-header"><div><span class="coach-mark"><i class="bi bi-stars"></i></span><div><h2 id="coach-heading">AI 코치</h2><p>PRD 맥락을 기반으로 피드백합니다</p></div></div><select id="coach-scope" class="form-select form-select-sm" aria-label="AI 코치 범위"><option value="">전체 PRD</option></select></div>
+        <div class="coach-notice"><i class="bi bi-lightbulb"></i> 내용을 임의로 추가하지 않고 현재 PRD를 기준으로 답합니다.</div>
+        <div id="coach-messages" class="ai-coach-messages" aria-live="polite"></div>
+        <form id="coach-form" class="coach-form"><textarea id="coach-input" class="form-control" rows="2" maxlength="4000" required placeholder="질문하거나 피드백을 요청하세요"></textarea><div><small>Enter로 전송 · 최근 3턴 전달</small><span><button id="coach-cancel" type="button" class="btn btn-outline-secondary btn-sm d-none">취소</button><button id="coach-submit" type="submit" class="btn btn-primary btn-sm"><i class="bi bi-send"></i></button></span></div></form>
+      </section>
+      </div>
+    </aside>
+
+    <aside class="offcanvas offcanvas-end write-comments" tabindex="-1" id="write-comments-panel" aria-labelledby="write-comments-title">
+      <div class="offcanvas-header comment-panel-head"><div><span>COMMENTS</span><h2 id="write-comments-title">PRD 코멘트</h2><p>팀원과 PRD 전체에 대한 의견을 나눠보세요.</p></div><button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="닫기"></button></div>
+      <div id="comment-panel-alert" class="alert d-none comment-panel-alert" role="alert"></div>
+      <div id="comment-list" class="offcanvas-body comment-list" aria-live="polite"><div class="text-center py-5"><span class="spinner-border spinner-border-sm text-primary"></span></div></div>
+      <nav id="comment-pagination" class="comment-pagination d-none" aria-label="코멘트 페이지"></nav>
+      <form id="comment-form" class="comment-form"><label class="form-label" for="comment-target">코멘트 위치</label><select id="comment-target" class="form-select form-select-sm"><option value="">PRD 전체</option></select><label class="visually-hidden" for="comment-input">코멘트 내용</label><textarea id="comment-input" class="form-control mt-2" rows="3" maxlength="4000" placeholder="PRD에 대한 의견을 남겨주세요."></textarea><div><small id="comment-permission-hint">PRD 전체 또는 질문을 선택해 의견을 남길 수 있습니다.</small><button id="comment-submit" class="btn btn-primary btn-sm" type="submit"><i class="bi bi-send"></i> 등록</button></div></form>
+    </aside>
+
+    <aside class="offcanvas offcanvas-end write-contributions" tabindex="-1" id="write-contribution-panel" aria-labelledby="write-contribution-title">
+      <div class="offcanvas-header contribution-panel-head"><div><span>ADMIN ONLY</span><h2 id="write-contribution-title">팀원 기여도 평가</h2><p>완료 시점별 평가 결과이며 관리자만 조회할 수 있습니다.</p></div><button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="닫기"></button></div>
+      <div id="contribution-alert" class="alert d-none contribution-alert" role="alert"></div>
+      <div id="contribution-list" class="offcanvas-body contribution-list" aria-live="polite"><div class="text-center py-5"><span class="spinner-border spinner-border-sm text-primary"></span></div></div>
+    </aside>
   </div>
-  <form class="d-none" aria-hidden="true">{% csrf_token %}</form>
+</div>
+<form class="d-none" aria-hidden="true">{% csrf_token %}</form>
 {% endblock %}
 
 {% block modals %}
-  <div class="modal fade" id="draft-modal" tabindex="-1" aria-labelledby="draft-title" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2 class="modal-title fs-5" id="draft-title">AI 질문 초안 미리보기</h2>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
-        </div>
-        <div class="modal-body">
-          <p id="draft-question" class="fw-semibold"></p>
-          <label class="form-label" for="draft-content">반영 전 자유롭게 수정해 주세요.</label>
-          <textarea id="draft-content" class="form-control" rows="12" maxlength="12000"></textarea>
-          <div id="draft-error" class="alert alert-danger mt-3 d-none" role="alert"></div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
-          <button id="draft-apply" type="button" class="btn btn-primary">PRD에 반영</button>
-        </div>
-      </div>
-    </div>
-  </div>
-{% endblock %}
+<div class="modal fade" id="draft-modal" tabindex="-1" aria-labelledby="draft-title" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header draft-modal-head"><div><span>AI DRAFT</span><h2 class="modal-title" id="draft-title">AI 질문 초안 미리보기</h2></div><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="닫기"></button></div>
+  <div class="modal-body"><p id="draft-question" class="fw-semibold"></p><label class="form-label" for="draft-content">반영 전 자유롭게 수정해 주세요.</label><textarea id="draft-content" class="form-control" rows="12" maxlength="12000"></textarea><div id="draft-error" class="alert alert-danger mt-3 d-none" role="alert"></div></div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">닫기</button><button id="draft-apply" type="button" class="btn btn-primary">PRD에 반영</button></div>
+</div></div></div>
 
-{% block extra_js %}
-  <script src="{% static 'prds/js/write.js' %}"></script>
+<div class="modal fade" id="participant-modal" tabindex="-1" aria-labelledby="participant-modal-title" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content participant-modal-content">
+  <div class="modal-header participant-modal-head"><div><span>PRD MEMBERS</span><h2 class="modal-title" id="participant-modal-title">참여자 추가 및 관리</h2><p>추가한 사용자는 초대 승인 없이 바로 PRD에 참여합니다.</p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button></div>
+  <div class="modal-body participant-modal-body">
+    <div id="participant-alert" class="alert d-none" role="alert"></div>
+    <section aria-labelledby="participant-current-title"><div class="participant-section-head"><h3 id="participant-current-title">현재 참여자</h3><span id="participant-count">0명</span></div><div id="participant-list" class="participant-list"><div class="text-center py-4"><span class="spinner-border spinner-border-sm text-primary"></span></div></div></section>
+    <section id="participant-add-section" class="participant-search-section" aria-labelledby="participant-search-title"><div class="participant-section-head"><div><h3 id="participant-search-title">팀원 추가</h3><p>이름을 2자 이상 입력해 검색하세요.</p></div></div><form id="participant-search-form" class="input-group"><input id="participant-search" class="form-control" type="search" minlength="2" autocomplete="off" placeholder="추가할 사용자 이름"><button class="btn btn-primary" type="submit"><i class="bi bi-search"></i> 검색</button></form><div id="participant-search-results" class="participant-search-results" aria-live="polite"></div></section>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">닫기</button></div>
+</div></div></div>
 {% endblock %}
+{% block extra_js %}<script src="{% static 'prds/js/write.js' %}?v=20260903-8"></script>{% endblock %}

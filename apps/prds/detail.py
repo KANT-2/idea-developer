@@ -70,6 +70,7 @@ class PrdPermissionPresenter:
             "can_reopen": self._allows(access, ParticipantAction.REOPEN),
             "can_request_ai": self._allows(access, ParticipantAction.REQUEST_AI),
             "can_apply_ai": self._allows(access, ParticipantAction.APPLY_AI),
+            "can_view_contributions": access.is_admin,
             "is_completed": access.prd.status == PrdStatus.COMPLETED,
         }
 

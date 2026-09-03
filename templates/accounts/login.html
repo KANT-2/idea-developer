@@ -3,13 +3,18 @@
 
 {% block title %}로그인 | Idea Developer{% endblock %}
 
+{% block extra_head %}<link href="{% static 'accounts/css/auth.css' %}" rel="stylesheet">{% endblock %}
+
 {% block content %}
-  <div class="row justify-content-center">
-    <div class="col-12 col-md-7 col-lg-5">
-      <div class="card shadow-sm">
-        <div class="card-body p-4">
-          <h1 class="h3 mb-2">이메일 인증 로그인</h1>
-          <p class="text-body-secondary">회원가입이나 비밀번호 없이 인증번호로 로그인합니다.</p>
+  <div class="auth-shell">
+    <section class="auth-story d-none d-lg-flex" aria-label="서비스 소개"><div><span class="auth-story-mark"><i class="bi bi-stars"></i></span><p class="auth-kicker">FROM IDEA TO PRODUCT</p><h1>좋은 아이디어가<br>좋은 제품이 되도록.</h1><p>팀의 생각을 모으고, AI 코치와 함께 더 선명한 PRD를 완성하세요.</p></div><div class="auth-quote"><i class="bi bi-quote"></i><span>문제와 사용자를 이해하는 순간,<br>제품의 방향이 보이기 시작합니다.</span></div></section>
+    <div class="auth-form-wrap">
+      <div class="auth-card card">
+        <div class="card-body">
+          <span class="auth-mobile-mark d-lg-none"><i class="bi bi-stars"></i></span>
+          <p class="auth-kicker">WELCOME BACK</p>
+          <h2 class="mb-2">이메일 인증 로그인</h2>
+          <p class="text-body-secondary mb-4">비밀번호 없이 6자리 인증번호로 안전하게 로그인합니다.</p>
 
           <div id="login-message" class="alert d-none" role="alert" aria-live="assertive"></div>
 
@@ -28,7 +33,7 @@
               >
               <div id="email-help" class="form-text">부모 시스템에 등록된 이메일을 입력해 주세요.</div>
             </div>
-            <button id="request-code-button" type="submit" class="btn btn-primary w-100">
+            <button id="request-code-button" type="submit" class="btn btn-primary auth-submit w-100">
               <span class="button-label">인증번호 받기</span>
               <span class="spinner-border spinner-border-sm d-none" aria-hidden="true"></span>
             </button>
@@ -52,7 +57,7 @@
               >
               <div id="code-timer" class="form-text" aria-live="polite"></div>
             </div>
-            <button id="verify-code-button" type="submit" class="btn btn-primary w-100 mb-2">
+            <button id="verify-code-button" type="submit" class="btn btn-primary auth-submit w-100 mb-2">
               <span class="button-label">로그인</span>
               <span class="spinner-border spinner-border-sm d-none" aria-hidden="true"></span>
             </button>
@@ -63,8 +68,7 @@
           </form>
         </div>
       </div>
-    </div>
-  </div>
+    </div></div>
 {% endblock %}
 
 {% block extra_js %}

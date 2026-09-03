@@ -42,7 +42,16 @@ def _resolve_context(request: HttpRequest):
     except (TypeError, ValueError) as exc:
         request.session.pop("selected_round_id", None)
         raise PermissionDenied("The selected round session is invalid.") from exc
-    return get_context_resolver().resolve(request, round_id=selected_round_id)
+    resolver = get_context_resolver()
+    if selected_round_id is None:
+        return resolver.resolve(request)
+    try:
+        return resolver.resolve(request, round_id=selected_round_id)
+    except PermissionDenied:
+        # A round stored in the session may have ended or the user's membership may
+        # have changed. Clear only that stale selection and retry in roundless mode.
+        request.session.pop("selected_round_id", None)
+        return resolver.resolve(request)
 
 
 def _context_error(request, exc):

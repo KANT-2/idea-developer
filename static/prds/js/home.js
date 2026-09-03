@@ -10,6 +10,14 @@
   const alertBox = document.getElementById("home-alert");
 
   function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
+  function avatarColor(user) {
+    const rawId = Number(user.user_id);
+    if (Number.isSafeInteger(rawId)) return (Math.imul(rawId, -1640531527) >>> 0) % 8;
+    const name = user.display_name || "?";
+    let hash = 0;
+    for (let index = 0; index < name.length; index += 1) hash = ((hash * 31) + name.charCodeAt(index)) >>> 0;
+    return hash % 8;
+  }
   function showError(message) { alertBox.className = "alert alert-danger"; alertBox.textContent = message; }
   function pageUrl(id) { return "/ideas/prds/" + encodeURIComponent(id) + "/"; }
   function brainstormUrl(id) { return pageUrl(id) + "brainstorm/"; }
@@ -31,7 +39,7 @@
       const body = el("div", "card-body d-flex flex-column"); const badges = el("div", "d-flex flex-wrap gap-2 mb-2"); badges.append(el("span", "badge text-bg-light", labels[item.prd_type] || item.prd_type), el("span", "badge " + (item.status === "completed" ? "text-bg-success" : item.status === "in_progress" ? "text-bg-warning" : "text-bg-secondary"), labels[item.status] || item.status)); if (item.show_new_badge) badges.append(el("span", "badge text-bg-primary", "NEW"));
       const title = el("h3", "h6 fw-bold", item.title); const description = el("p", "small text-secondary prd-card-description", item.description || "한 줄 소개가 없습니다.");
       const progressText = el("div", "d-flex justify-content-between small mb-1"); progressText.append(el("span", "text-secondary", "완성도"), el("strong", "", item.completion_rate + "%")); const progress = el("div", "progress mb-3"); progress.style.height = "6px"; const bar = el("div", "progress-bar"); bar.style.width = item.completion_rate + "%"; progress.append(bar);
-      const footer = el("div", "d-flex justify-content-between align-items-center mt-auto pt-2 border-top"); const avatars = el("div", "d-flex align-items-center"); item.participants.forEach(function (p) { const a = el("span", "participant-avatar", (p.display_name || "?").slice(0, 2)); a.title = p.display_name; avatars.append(a); }); if (item.participant_count > 4) avatars.append(el("span", "small text-secondary ms-1", "+" + (item.participant_count - 4)));
+      const footer = el("div", "d-flex justify-content-between align-items-center mt-auto pt-2 border-top"); const avatars = el("div", "d-flex align-items-center"); item.participants.forEach(function (p) { const a = el("span", "participant-avatar avatar-color-" + avatarColor(p), (p.display_name || "?").slice(0, 2)); a.title = p.display_name; avatars.append(a); }); if (item.participant_count > 4) avatars.append(el("span", "small text-secondary ms-1", "+" + (item.participant_count - 4)));
       const meta = el("div", "small text-secondary text-end", (item.d_day || "마감일 없음") + " · AI " + item.ai_coaching_count + "회"); footer.append(avatars, meta); body.append(badges, title, description, progressText, progress, footer); card.append(body);
       card.addEventListener("click", function () { window.location.href = pageUrl(item.id); }); card.addEventListener("keydown", function (event) { if (event.key === "Enter") window.location.href = pageUrl(item.id); });
       const brain = el("a", "btn btn-sm btn-outline-primary position-absolute top-0 end-0 m-3", "아이디어 맵"); brain.href = brainstormUrl(item.id); brain.addEventListener("click", function (event) { event.stopPropagation(); }); card.style.position = "relative"; body.style.paddingTop = "3.25rem"; card.append(brain); col.append(card); list.append(col);

@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime, timedelta
 from unittest.mock import Mock, patch
 
+from django.core.exceptions import PermissionDenied
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
@@ -458,6 +459,34 @@ class RoundlessHomeApiTests(TestCase):
         self.assertEqual(
             {item["id"] for item in response.json()["data"]["items"]},
             {self.personal.id},
+        )
+        data = response.json()["data"]
+        self.assertEqual(data["user"]["display_name"], "사용자 7")
+        self.assertEqual(data["items"][0]["participants"][0]["display_name"], "사용자 7")
+
+    def test_stale_selected_round_falls_back_to_roundless_home(self):
+        roundless_context = IntegrationContext(
+            7, None, None, None, "student", False, False
+        )
+        self.resolver.resolve.side_effect = [PermissionDenied, roundless_context]
+        session = self.client.session
+        session["selected_round_id"] = 999
+        session.save()
+
+        response = self.client.get(reverse("home_api:home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            {item["id"] for item in response.json()["data"]["items"]},
+            {self.personal.id},
+        )
+        self.assertNotIn("selected_round_id", self.client.session)
+        self.assertEqual(
+            self.resolver.resolve.call_args_list,
+            [
+                ((response.wsgi_request,), {"round_id": 999}),
+                ((response.wsgi_request,), {}),
+            ],
         )
 
     def test_round_context_includes_own_roundless_and_current_round_only(self):

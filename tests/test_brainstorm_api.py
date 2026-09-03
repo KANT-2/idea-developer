@@ -178,6 +178,7 @@ class BrainstormApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()["data"]
         self.assertFalse(data["canvas"]["created"])
+        self.assertEqual(data["current_user_id"], 7)
         self.assertEqual(BrainstormCanvas.objects.filter(prd=self.prd).count(), 1)
         self.assertEqual(
             data["counts"],
@@ -186,6 +187,13 @@ class BrainstormApiTests(TestCase):
         self.assertEqual([row["status"] for row in data["nodes"]], ["accepted"])
         self.assertEqual(len(data["held_nodes"]), 1)
         self.assertEqual(data["viewport"]["zoom_level"], 1.0)
+        self.assertEqual(
+            data["participants"],
+            [
+                {"user_id": 7, "role": "owner", "display_name": "사용자 7"},
+                {"user_id": 8, "role": "editor", "display_name": "사용자 8"},
+            ],
+        )
 
     def test_context_round_team_and_prd_role_are_checked_on_every_request(self):
         self.initialize_canvas()

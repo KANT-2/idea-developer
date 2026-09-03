@@ -211,6 +211,31 @@ def _serialize_permissions(access):
     return permissions
 
 
+def _canvas_participants(access):
+    rows = list(access.prd.participants.order_by("created_at", "id"))
+    user_ids = tuple(row.user_id for row in rows)
+    repository = get_integration_repository()
+    if access.prd.round_id is None:
+        summaries = repository.get_user_summaries(user_ids=user_ids)
+    else:
+        summaries = repository.get_round_user_summaries(
+            user_ids=user_ids,
+            round_id=access.prd.round_id,
+        )
+    return [
+        {
+            "user_id": row.user_id,
+            "role": row.role,
+            "display_name": (
+                summaries[row.user_id].display_name
+                if row.user_id in summaries
+                else "알 수 없는 참여자"
+            ),
+        }
+        for row in rows
+    ]
+
+
 def _canvas_counts(canvas_row):
     active_nodes = BrainstormNode.objects.filter(canvas=canvas_row, is_deleted=False)
     regular_notes = active_nodes.filter(node_type=BrainstormNodeType.NOTE).exclude(
@@ -279,10 +304,12 @@ def canvas(request, prd_id):
         return api_success(
             {
                 "canvas": {"id": canvas_row.id, "prd_id": access.prd.id, "created": created},
+                "current_user_id": context.user_id,
                 "sections": [
                     {"id": section.id, "title": section.title, "position": section.position}
                     for section in sections
                 ],
+                "participants": _canvas_participants(access),
                 "nodes": [_serialize_node(node) for node in visible_nodes],
                 "held_nodes": [_serialize_node(node) for node in held_nodes],
                 "connections": [_serialize_connection(row) for row in connections],

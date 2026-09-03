@@ -93,6 +93,10 @@ class HomeQueryService:
                 user_ids=(context.user_id,),
                 round_id=context.round_id,
             ).get(context.user_id)
+        else:
+            current_user = self.repository.get_user_summaries(
+                user_ids=(context.user_id,),
+            ).get(context.user_id)
         return {
             "user": {
                 "id": context.user_id,
@@ -215,10 +219,24 @@ class HomeQueryService:
         summaries = {}
         rows_by_round = {}
         prd_rounds = {prd.id: prd.round_id for prd in prds}
+        roundless_rows = []
         for row in rows:
             round_id = prd_rounds[row.prd_id]
-            if round_id is not None:
+            if round_id is None:
+                roundless_rows.append(row)
+            else:
                 rows_by_round.setdefault(round_id, []).append(row)
+        if roundless_rows:
+            summaries.update(
+                {
+                    (None, user_id): summary
+                    for user_id, summary in self.repository.get_user_summaries(
+                        user_ids=tuple(
+                            dict.fromkeys(row.user_id for row in roundless_rows)
+                        ),
+                    ).items()
+                }
+            )
         for round_id, round_rows in rows_by_round.items():
             summaries.update(
                 {
