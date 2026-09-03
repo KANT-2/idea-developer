@@ -1,7 +1,18 @@
 from django.conf import settings
 from django.http import HttpRequest
+from django.shortcuts import redirect
+from django.urls import reverse
 
 from .responses import api_error, api_success
+
+
+def root_entry(request: HttpRequest):
+    """Send the bare domain to the correct first screen."""
+    if request.user.is_authenticated:
+        return redirect("ideas:home")
+    login_name = "accounts_debug:login" if settings.DEBUG else "accounts:login"
+    login_url = reverse(login_name)
+    return redirect(f"{login_url}?next={reverse('ideas:home')}")
 
 
 def health(request: HttpRequest):

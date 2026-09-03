@@ -1,13 +1,59 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}PRD 홈 | 아이디어 디벨로퍼{% endblock %}
 
+{% block extra_head %}
+  <link href="{% static 'prds/css/home.css' %}" rel="stylesheet">
+{% endblock %}
+
 {% block content %}
-  <div class="card border-0 shadow-sm">
-    <div class="card-body p-5 text-center">
-      <h1 class="h4">아이디어 디벨로퍼</h1>
-      <p class="text-secondary mb-4">홈 대시보드 화면은 팀원 PR에서 연결됩니다.</p>
-      <a class="btn btn-primary" href="{% url 'ideas:new-prd' %}">새 PRD 만들기</a>
+  <div id="prd-home-app" data-api-url="{{ home_api_url }}" data-new-url="{{ new_prd_url }}">
+    <div id="home-alert" class="alert d-none" role="alert"></div>
+    <div class="home-hero d-flex flex-wrap justify-content-between align-items-center gap-4 mb-4">
+      <div>
+        <span class="home-eyebrow"><i class="bi bi-stars"></i> PRODUCT WORKSPACE</span>
+        <h1 id="home-greeting" class="home-title">PRD를 불러오는 중입니다.</h1>
+        <p class="home-subtitle mb-0">흩어진 아이디어를 팀과 함께 실행 가능한 제품 문서로 발전시켜 보세요.</p>
+      </div>
+      <a href="{{ new_prd_url }}" class="btn btn-primary home-create"><i class="bi bi-plus-lg"></i> 새 PRD 만들기</a>
     </div>
+
+    <section class="row g-3 mb-4" aria-label="PRD 요약">
+      <div class="col-6 col-md-4 col-xl-2"><button class="home-kpi w-100 text-start h-100" data-status=""><span class="kpi-icon kpi-indigo"><i class="bi bi-collection"></i></span><span>전체 PRD</span><strong id="kpi-total">-</strong></button></div>
+      <div class="col-6 col-md-4 col-xl-2"><button class="home-kpi w-100 text-start h-100" data-status="in_progress"><span class="kpi-icon kpi-blue"><i class="bi bi-lightning-charge"></i></span><span>진행 중</span><strong id="kpi-progress">-</strong></button></div>
+      <div class="col-6 col-md-4 col-xl-2"><div class="home-kpi h-100"><span class="kpi-icon kpi-cyan"><i class="bi bi-bar-chart"></i></span><span>평균 완성도</span><strong id="kpi-average">-</strong></div></div>
+      <div class="col-6 col-md-4 col-xl-2"><button class="home-kpi w-100 text-start h-100" data-status="completed"><span class="kpi-icon kpi-green"><i class="bi bi-check2-circle"></i></span><span>완료됨</span><strong id="kpi-completed">-</strong></button></div>
+      <div class="col-6 col-md-4 col-xl-2"><div class="home-kpi h-100"><span class="kpi-icon kpi-purple"><i class="bi bi-stars"></i></span><span>AI 코칭</span><strong id="kpi-ai">-</strong></div></div>
+      <div class="col-6 col-md-4 col-xl-2"><div class="home-kpi h-100"><span class="kpi-icon kpi-rose"><i class="bi bi-calendar2-week"></i></span><span>이번 주 마감</span><strong id="kpi-due">-</strong></div></div>
+    </section>
+
+    <section class="home-library" aria-labelledby="prd-list-title">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+        <div>
+          <h2 id="prd-list-title" class="home-section-title mb-3">내 PRD</h2>
+          <div class="btn-group home-tabs" role="group" aria-label="PRD 범위">
+            <button class="btn btn-primary home-tab" data-tab="all">전체</button>
+            <button class="btn btn-outline-primary home-tab" data-tab="project">프로젝트</button>
+            <button class="btn btn-outline-primary home-tab" data-tab="team">팀</button>
+            <button class="btn btn-outline-primary home-tab" data-tab="personal">개인</button>
+          </div>
+        </div>
+        <div class="home-filters d-flex flex-wrap gap-2 align-self-end">
+          <select id="home-status" class="form-select form-select-sm" aria-label="상태 필터">
+            <option value="">모든 상태</option><option value="in_progress">진행 중</option><option value="completed">완료</option><option value="held">홀딩</option><option value="dropped">드랍</option>
+          </select>
+          <select id="home-sort" class="form-select form-select-sm" aria-label="정렬">
+            <option value="default">상태·최근 수정순</option><option value="deadline_asc">마감 임박순</option><option value="completion_desc">완성도순</option><option value="updated_desc">최근 수정순</option><option value="ai_coaching_desc">AI 코칭 많은순</option>
+          </select>
+        </div>
+      </div>
+      <div id="home-loading" class="text-center py-5"><span class="spinner-border text-primary" aria-hidden="true"></span><span class="visually-hidden">불러오는 중</span></div>
+      <div id="home-empty" class="card border-0 shadow-sm text-center py-5 d-none"><div class="card-body"><div class="display-6 mb-2">📭</div><h3 class="h6">조건에 맞는 PRD가 없습니다.</h3><a href="{{ new_prd_url }}" class="btn btn-sm btn-primary mt-2">첫 PRD 만들기</a></div></div>
+      <div id="home-list" class="row g-3" aria-live="polite"></div>
+      <nav class="mt-4" aria-label="PRD 페이지"><ul id="home-pagination" class="pagination pagination-sm justify-content-center"></ul></nav>
+    </section>
   </div>
 {% endblock %}
+
+{% block extra_js %}<script src="{% static 'prds/js/home.js' %}"></script>{% endblock %}

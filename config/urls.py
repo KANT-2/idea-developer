@@ -4,8 +4,10 @@ from django.urls import include, path
 
 from apps.ai import views as ai_views
 from apps.brainstorm import views as brainstorm_views
+from apps.common import views as common_views
 
 urlpatterns = [
+    path("", common_views.root_entry, name="root"),
     path("admin/", admin.site.urls),
     path("accounts/", include("apps.accounts.urls")),
     path("api/v1/auth/", include("apps.accounts.api_urls")),

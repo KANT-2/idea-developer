@@ -216,6 +216,20 @@ class PrdDetailApiTests(TestCase):
         self.assertEqual(data["permissions"]["role"], "owner")
         self.assertTrue(data["permissions"]["can_edit"])
         self.assertTrue(data["permissions"]["can_comment"])
+        self.assertFalse(data["permissions"]["can_view_contributions"])
+
+    def test_contribution_results_are_admin_only(self):
+        url = reverse("prd_api:contributions", args=[self.prd.id])
+
+        self.assertEqual(self.client.get(url).status_code, 403)
+
+        self.login_as(11, is_staff=True)
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["items"], [])
+        detail = self.client.get(reverse("prd_api:detail", args=[self.prd.id]))
+        self.assertTrue(detail.json()["data"]["permissions"]["can_view_contributions"])
 
     def test_owner_saves_answer_with_version_and_change_history(self):
         response = self.patch_json(
@@ -676,6 +690,7 @@ class PrdDetailApiTests(TestCase):
         self.assertEqual(len(data["items"]), 1)
         self.assertEqual(data["items"][0]["author"]["display_name"], "표시명 7")
         self.assertEqual(data["items"][0]["author"]["role_at_created"], "owner")
+        self.assertTrue(data["items"][0]["can_modify"])
 
     def test_ai_usage_chat_and_change_history_are_separate_paginated_apis(self):
         for index in range(3):

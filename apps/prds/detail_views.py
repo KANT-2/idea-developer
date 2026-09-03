@@ -57,16 +57,12 @@ def _participant_summaries(repository, *, user_ids, round_id):
                 round_id=round_id,
             ).items()
         }
-    summaries = {}
-    for user_id in user_ids:
-        parent_user = repository.get_user(user_id)
-        if parent_user is not None:
-            summaries[user_id] = (
-                parent_user.primary_email
-                or parent_user.user_email
-                or f"사용자 {user_id}"
-            )
-    return summaries
+    return {
+        user_id: summary.display_name
+        for user_id, summary in repository.get_user_summaries(
+            user_ids=tuple(user_ids),
+        ).items()
+    }
 
 
 def _error_response(request, exc):
@@ -540,6 +536,8 @@ def comments(request, prd_id):
                         user_id=context.user_id,
                         round_id=context.round_id,
                     ),
+                    actor_user_id=context.user_id,
+                    access=access,
                 ),
                 status=201,
                 request_id=_request_id(request),
@@ -570,6 +568,8 @@ def comments(request, prd_id):
                     display_name=(
                         summaries.get(row.author_user_id, f"사용자 {row.author_user_id}")
                     ),
+                    actor_user_id=context.user_id,
+                    access=access,
                 )
                 for row in rows
             ],
@@ -615,6 +615,8 @@ def comment_item(request, prd_id, comment_id):
                         user_id=context.user_id,
                         round_id=context.round_id,
                     ),
+                    actor_user_id=context.user_id,
+                    access=access,
                 ),
                 request_id=_request_id(request),
             )
@@ -628,7 +630,18 @@ def comment_item(request, prd_id, comment_id):
         return _error_response(request, exc)
 
 
-def _serialize_comment(comment, *, display_name):
+def _serialize_comment(comment, *, display_name, actor_user_id=None, access=None):
+    can_modify = bool(
+        actor_user_id == comment.author_user_id
+        and access is not None
+        and (
+            access.prd.status != "completed"
+            or (
+                access.role == PrdParticipantRole.TUTOR
+                and comment.comment_type == PrdCommentType.POST_COMPLETION_REVIEW
+            )
+        )
+    )
     return {
         "id": comment.id,
         "section_question_id": comment.section_question_id,
@@ -640,6 +653,7 @@ def _serialize_comment(comment, *, display_name):
         "comment_type": comment.comment_type,
         "content": comment.content,
         "is_contribution_eligible": comment.is_contribution_eligible,
+        "can_modify": can_modify,
         "created_at": comment.created_at.isoformat(),
         "updated_at": comment.updated_at.isoformat(),
     }
@@ -710,14 +724,31 @@ def contribution_results(request, prd_id):
         return response
     try:
         _, access = _get_access(request, prd_id)
+        if not access.is_admin:
+            raise PermissionDenied("기여도 결과는 관리자만 조회할 수 있습니다.")
         evaluations = (
             ContributionEvaluation.objects.filter(prd=access.prd)
             .select_related("job")
             .prefetch_related("user_scores", "comment_scores")
             .order_by("-calculation_version")
         )
+        user_ids = tuple(
+            dict.fromkeys(
+                score.user_id for evaluation in evaluations for score in evaluation.user_scores.all()
+            )
+        )
+        display_names = _participant_summaries(
+            get_integration_repository(),
+            user_ids=user_ids,
+            round_id=access.prd.round_id,
+        )
         return api_success(
-            {"items": [_serialize_contribution(row) for row in evaluations]},
+            {
+                "items": [
+                    _serialize_contribution(row, display_names=display_names)
+                    for row in evaluations
+                ]
+            },
             request_id=_request_id(request),
         )
     except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
@@ -730,6 +761,8 @@ def retry_contribution(request, prd_id, calculation_version):
         return response
     try:
         _, access = _get_access(request, prd_id)
+        if not access.is_admin:
+            raise PermissionDenied("기여도 재평가는 관리자만 실행할 수 있습니다.")
         try:
             evaluation = ContributionEvaluation.objects.get(
                 prd=access.prd,
@@ -741,8 +774,13 @@ def retry_contribution(request, prd_id, calculation_version):
             evaluation=evaluation,
             access=access,
         )
+        display_names = _participant_summaries(
+            get_integration_repository(),
+            user_ids=tuple(score.user_id for score in evaluation.user_scores.all()),
+            round_id=access.prd.round_id,
+        )
         return api_success(
-            _serialize_contribution(evaluation),
+            _serialize_contribution(evaluation, display_names=display_names),
             status=202,
             request_id=_request_id(request),
         )
@@ -758,7 +796,8 @@ def retry_contribution(request, prd_id, calculation_version):
         return _error_response(request, exc)
 
 
-def _serialize_contribution(evaluation):
+def _serialize_contribution(evaluation, *, display_names=None):
+    display_names = display_names or {}
     return {
         "calculation_version": evaluation.calculation_version,
         "prd_version": evaluation.prd_version,
@@ -776,6 +815,7 @@ def _serialize_contribution(evaluation):
         "scores": [
             {
                 "user_id": score.user_id,
+                "display_name": display_names.get(score.user_id, "알 수 없는 참여자"),
                 "participant_id": score.participant_id,
                 "memo_raw": score.memo_raw,
                 "memo_contribution": float(score.memo_contribution),

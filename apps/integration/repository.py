@@ -59,6 +59,12 @@ class RoundUserSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class UserDisplaySummary:
+    user_id: int
+    display_name: str
+
+
+@dataclass(frozen=True, slots=True)
 class SearchPage:
     results: tuple
     page: int
@@ -106,6 +112,10 @@ class IntegrationRepository(Protocol):
         self, *, user_ids: tuple[int, ...], round_id: int
     ) -> dict[int, RoundUserSummary]: ...
 
+    def get_user_summaries(
+        self, *, user_ids: tuple[int, ...]
+    ) -> dict[int, UserDisplaySummary]: ...
+
 
 class DjangoViewIntegrationRepository:
     """Reads only the two parent-owned PostgreSQL VIEWs."""
@@ -150,6 +160,39 @@ class DjangoViewIntegrationRepository:
             user_email=row["user_email"],
             primary_email=row["primary_email"],
         )
+
+    def get_user_summaries(
+        self, *, user_ids: tuple[int, ...]
+    ) -> dict[int, UserDisplaySummary]:
+        requested_user_ids = tuple(dict.fromkeys(user_ids))
+        if not requested_user_ids:
+            return {}
+        try:
+            rows = list(
+                AxUserTeamLoginView.objects.using(self.database_alias)
+                .filter(
+                    user_id__in=requested_user_ids,
+                    is_active=True,
+                    approval_status=settings.INTEGRATION_APPROVED_USER_STATUS,
+                )
+                .values(
+                    "user_id",
+                    "display_name_snapshot",
+                    "first_name",
+                    "last_name",
+                    "primary_email",
+                    "user_email",
+                )
+            )
+        except DatabaseError as exc:
+            self._raise_unavailable(exc)
+        return {
+            row["user_id"]: UserDisplaySummary(
+                user_id=row["user_id"],
+                display_name=self._login_display_name(row),
+            )
+            for row in rows
+        }
 
     def get_membership(self, user_id: int, round_id: int) -> RoundMembership | None:
         try:
@@ -548,6 +591,21 @@ class DjangoViewIntegrationRepository:
         )
 
     @staticmethod
+    def _login_display_name(row) -> str:
+        full_name = " ".join(
+            part.strip()
+            for part in (row.get("first_name"), row.get("last_name"))
+            if part and part.strip()
+        )
+        return (
+            (row.get("display_name_snapshot") or "").strip()
+            or full_name
+            or row.get("primary_email")
+            or row.get("user_email")
+            or f"사용자 {row['user_id']}"
+        )
+
+    @staticmethod
     def _to_membership(row) -> RoundMembership:
         return RoundMembership(**row)
 
@@ -585,6 +643,22 @@ class FixtureIntegrationRepository:
 
     def get_user(self, user_id: int) -> ParentUser | None:
         return self.users.get(user_id)
+
+    def get_user_summaries(
+        self, *, user_ids: tuple[int, ...]
+    ) -> dict[int, UserDisplaySummary]:
+        requested_user_ids = set(user_ids)
+        return {
+            row["user_id"]: UserDisplaySummary(
+                user_id=row["user_id"],
+                display_name=DjangoViewIntegrationRepository._login_display_name(row),
+            )
+            for row in self.user_rows
+            if isinstance(row, dict)
+            and row["user_id"] in requested_user_ids
+            and row["is_active"]
+            and row.get("approval_status") == settings.INTEGRATION_APPROVED_USER_STATUS
+        }
 
     def get_membership(self, user_id: int, round_id: int) -> RoundMembership | None:
         matches = [

@@ -48,6 +48,10 @@ def prd_write_page(request, prd_id):
         {
             "prd": access.prd,
             "detail_api_url": reverse("prd_api:detail", args=[prd_id]),
+            "participants_api_url": reverse("prd_api:participants", args=[prd_id]),
+            "participant_search_api_url": reverse("prd_api:participant-search"),
+            "comments_api_url": reverse("prd_api:comments", args=[prd_id]),
+            "contributions_api_url": reverse("prd_api:contributions", args=[prd_id]),
             "prd_api_base": reverse("prd_api:detail", args=[prd_id]),
             "ai_api_base": reverse("ai_api:conversation", args=[prd_id]).removesuffix(
                 "conversation/"
