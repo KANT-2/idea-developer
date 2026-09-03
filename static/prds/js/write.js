@@ -5,6 +5,7 @@
   if (!root) return;
 
   const detailApi = root.dataset.detailApi;
+  const prdApiBase = root.dataset.prdApiBase;
   const aiBase = root.dataset.aiApiBase;
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
   const sectionsRoot = document.getElementById("prd-sections");
@@ -71,6 +72,8 @@
     detail = data;
     document.getElementById("prd-description").textContent = data.prd.description || "한 줄 소개가 없습니다.";
     document.getElementById("prd-status").textContent = data.prd.status;
+    document.getElementById("prd-complete").classList.toggle("d-none", !data.permissions.can_complete || data.prd.status === "completed");
+    document.getElementById("prd-reopen").classList.toggle("d-none", !data.permissions.can_reopen || data.prd.status !== "completed");
     sectionsRoot.replaceChildren();
     scope.replaceChildren(new Option("전체 PRD", ""));
     const canRequestAi = data.permissions.can_request_ai && data.prd.status !== "completed";
@@ -97,14 +100,58 @@
           top.append(button);
         }
         block.append(top);
-        const answer = element("div", "question-answer text-secondary", question.answer?.content || "아직 답변이 없습니다.");
-        answer.dataset.questionId = question.id;
-        block.append(answer);
+        if (data.permissions.can_edit && data.prd.status !== "completed") {
+          const answer = element("textarea", "form-control question-answer");
+          answer.rows = 4;
+          answer.maxLength = 12000;
+          answer.value = question.answer?.content || "";
+          answer.placeholder = "답변을 입력해 주세요.";
+          answer.dataset.questionId = question.id;
+          const controls = element("div", "d-flex justify-content-between align-items-center mt-2");
+          const status = element("small", "text-secondary", question.is_completed ? "작성됨" : "작성 전");
+          const save = element("button", "btn btn-primary btn-sm", "답변 저장");
+          save.type = "button";
+          save.addEventListener("click", function () { saveAnswer(question, answer, save, status); });
+          controls.append(status, save);
+          block.append(answer, controls);
+        } else {
+          const answer = element("div", "question-answer text-secondary", question.answer?.content || "아직 답변이 없습니다.");
+          answer.dataset.questionId = question.id;
+          block.append(answer);
+        }
         body.append(block);
       });
       card.append(body);
       sectionsRoot.append(card);
     });
+  }
+
+  async function saveAnswer(question, textarea, button, status) {
+    clearAlert();
+    button.disabled = true;
+    button.textContent = "저장 중…";
+    try {
+      const data = await api(prdApiBase + "questions/" + question.id + "/answer/", {
+        method: "PATCH",
+        body: JSON.stringify({content: textarea.value, version: question.version})
+      });
+      question.version = data.version;
+      question.answer = data.answer;
+      question.is_completed = data.is_completed;
+      status.textContent = data.is_completed ? "저장됨" : "빈 답변으로 저장됨";
+      showAlert("답변을 저장했습니다.", "success");
+    } catch (error) {
+      if (error.code === "version_conflict" && error.details?.latest) {
+        const latest = error.details.latest;
+        question.version = latest.version;
+        textarea.value = latest.answer?.content || "";
+        status.textContent = "최신 답변을 불러왔습니다.";
+      }
+      showAlert(error.message);
+    } finally {
+      button.disabled = false;
+      button.textContent = "답변 저장";
+    }
   }
 
   async function loadConversation() {
@@ -264,6 +311,25 @@
   });
 
   scope.addEventListener("change", loadConversation);
+
+  document.getElementById("prd-complete").addEventListener("click", async function () {
+    if (!window.confirm("PRD를 완료하면 일반 편집이 잠깁니다. 완료하시겠습니까?")) return;
+    try {
+      await api(prdApiBase + "complete/", {method: "POST", body: JSON.stringify({confirm_incomplete: true})});
+      const data = await api(detailApi); renderDetail(data); await loadConversation();
+      showAlert("PRD를 완료했습니다.", "success");
+    } catch (error) { showAlert(error.message); }
+  });
+
+  document.getElementById("prd-reopen").addEventListener("click", async function () {
+    const reason = window.prompt("재개 이유를 입력해 주세요.");
+    if (reason === null) return;
+    try {
+      await api(prdApiBase + "reopen/", {method: "POST", body: JSON.stringify({reason: reason})});
+      const data = await api(detailApi); renderDetail(data); await loadConversation();
+      showAlert("PRD를 재개했습니다.", "success");
+    } catch (error) { showAlert(error.message); }
+  });
 
   api(detailApi)
     .then(function (data) { renderDetail(data); return loadConversation(); })

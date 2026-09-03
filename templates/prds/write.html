@@ -21,6 +21,7 @@
     id="prd-write-app"
     data-prd-id="{{ prd.id }}"
     data-detail-api="{{ detail_api_url }}"
+    data-prd-api-base="{{ prd_api_base }}"
     data-ai-api-base="{{ ai_api_base }}"
   >
     <div id="prd-alert" class="alert d-none" role="alert"></div>
@@ -31,7 +32,12 @@
             <h1 id="prd-heading" class="h3 mb-1">{{ prd.title }}</h1>
             <p id="prd-description" class="text-secondary mb-0"></p>
           </div>
-          <span id="prd-status" class="badge text-bg-light"></span>
+          <div class="d-flex flex-wrap gap-2">
+            <a class="btn btn-sm btn-outline-primary" href="{% url 'brainstorm-page' prd.id %}">아이디어 맵</a>
+            <button id="prd-complete" class="btn btn-sm btn-success d-none" type="button">PRD 완료</button>
+            <button id="prd-reopen" class="btn btn-sm btn-outline-success d-none" type="button">PRD 재개</button>
+            <span id="prd-status" class="badge text-bg-light align-self-center"></span>
+          </div>
         </div>
         <div id="prd-sections" class="vstack gap-3" aria-live="polite">
           <div class="text-center py-5"><span class="spinner-border" aria-hidden="true"></span></div>
