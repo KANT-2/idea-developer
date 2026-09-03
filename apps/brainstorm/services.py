@@ -4,6 +4,7 @@ import uuid
 from dataclasses import dataclass
 from decimal import Decimal
 
+from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import F, Q
@@ -37,6 +38,11 @@ class DuplicateConnection(Exception):
     connection: BrainstormConnection
 
 
+@dataclass(slots=True)
+class ConnectionSetConflict(Exception):
+    latest: tuple[BrainstormConnection, ...]
+
+
 class BrainstormAccessService:
     def get(self, *, prd_id: int, context: IntegrationContext) -> PrdAccess:
         access = PrdAccessService().get(prd_id=prd_id, context=context)
@@ -57,14 +63,19 @@ class BrainstormAccessService:
         *,
         access: PrdAccess,
         context: IntegrationContext,
+        idempotency_key: str,
     ) -> tuple[BrainstormCanvas, bool]:
         try:
             canvas = BrainstormCanvas.objects.get(prd=access.prd)
             created = False
         except BrainstormCanvas.DoesNotExist:
             self.enforce_write(access)
+            key = BrainstormMutationService._validate_idempotency_key(idempotency_key)
             try:
-                canvas, created = BrainstormCanvas.objects.get_or_create(prd=access.prd)
+                canvas, created = BrainstormCanvas.objects.get_or_create(
+                    prd=access.prd,
+                    defaults={"creation_idempotency_key": key},
+                )
             except IntegrityError:
                 canvas = BrainstormCanvas.objects.get(prd=access.prd)
                 created = False
@@ -83,10 +94,44 @@ class BrainstormMutationService:
         return version
 
     @staticmethod
+    def _validate_idempotency_key(value) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValidationError({"idempotency_key": "Idempotency-Key 헤더가 필요합니다."})
+        normalized = value.strip()
+        if len(normalized) > 128:
+            raise ValidationError({"idempotency_key": "Idempotency-Key가 너무 깁니다."})
+        return normalized
+
+    @staticmethod
     def _validate_content(content) -> str:
         if not isinstance(content, str) or not content.strip():
             raise ValidationError({"content": "메모 내용을 입력해 주세요."})
-        return content.strip()
+        normalized = content.strip()
+        if len(normalized) > settings.BRAINSTORM_NOTE_MAX_LENGTH:
+            raise ValidationError(
+                {
+                    "content": (
+                        f"메모 내용은 {settings.BRAINSTORM_NOTE_MAX_LENGTH}자 이하여야 합니다."
+                    )
+                }
+            )
+        return normalized
+
+    @staticmethod
+    def _validate_color(color) -> str:
+        if not isinstance(color, str):
+            raise ValidationError({"color": "색상 값이 올바르지 않습니다."})
+        normalized = color.strip()
+        if normalized not in settings.BRAINSTORM_ALLOWED_COLORS:
+            raise ValidationError(
+                {
+                    "color": (
+                        "허용된 색상을 사용해 주세요: "
+                        + ", ".join(settings.BRAINSTORM_ALLOWED_COLORS)
+                    )
+                }
+            )
+        return normalized
 
     @staticmethod
     def _validate_coordinate(value, field_name) -> Decimal:
@@ -252,21 +297,43 @@ class BrainstormMutationService:
         return operation_id, eligible_nodes
 
     @transaction.atomic
-    def create_note(self, *, canvas, access, context, payload):
+    def create_note(self, *, canvas, access, context, payload, idempotency_key):
         BrainstormAccessService.enforce_write(access)
         canvas = self._lock_canvas(canvas)
+        key = self._validate_idempotency_key(idempotency_key)
         content = self._validate_content(payload.get("content"))
-        color = payload.get("color")
-        if not isinstance(color, str) or not color.strip() or len(color.strip()) > 32:
-            raise ValidationError({"color": "색상 값이 올바르지 않습니다."})
+        color = self._validate_color(payload.get("color"))
+        position_x = self._validate_coordinate(payload.get("x"), "x")
+        position_y = self._validate_coordinate(payload.get("y"), "y")
+        section = self._section(canvas, payload.get("section_id"))
+        existing = BrainstormNode.objects.filter(
+            canvas=canvas,
+            author_id=context.user_id,
+            creation_idempotency_key=key,
+        ).first()
+        if existing:
+            requested = (content, color, position_x, position_y, section.pk if section else None)
+            stored = (
+                existing.content,
+                existing.color,
+                existing.position_x,
+                existing.position_y,
+                existing.section_id,
+            )
+            if requested != stored:
+                raise ValidationError(
+                    {"idempotency_key": "같은 키가 다른 메모 생성 요청에 사용되었습니다."}
+                )
+            return existing, False
         node = BrainstormNode.create_note(
             canvas=canvas,
             context=context,
             content=content,
-            color=color.strip(),
-            position_x=self._validate_coordinate(payload.get("x"), "x"),
-            position_y=self._validate_coordinate(payload.get("y"), "y"),
-            section=self._section(canvas, payload.get("section_id")),
+            color=color,
+            position_x=position_x,
+            position_y=position_y,
+            section=section,
+            creation_idempotency_key=key,
         )
         self._record(
             canvas=canvas,
@@ -277,7 +344,7 @@ class BrainstormMutationService:
             before={},
             after={"version": node.version},
         )
-        return node
+        return node, True
 
     @transaction.atomic
     def update_content(self, *, canvas, access, actor_user_id, node_id, payload):
@@ -403,6 +470,35 @@ class BrainstormMutationService:
             raise ValidationError({"status": "메모 상태가 올바르지 않습니다."})
         before = {"status": node.status, "section_id": node.section_id, "version": node.version}
         if status == BrainstormNodeStatus.HELD:
+            expected_connections = payload.get("connection_versions")
+            if not isinstance(expected_connections, list):
+                raise ValidationError(
+                    {"connection_versions": "보류할 메모의 연결선 버전 배열이 필요합니다."}
+                )
+            submitted = {}
+            for item in expected_connections:
+                if not isinstance(item, dict):
+                    raise ValidationError(
+                        {"connection_versions": "연결선 ID와 version이 필요합니다."}
+                    )
+                connection_id = str(item.get("id", ""))
+                if not connection_id or connection_id in submitted:
+                    raise ValidationError(
+                        {"connection_versions": "연결선 ID가 누락되었거나 중복되었습니다."}
+                    )
+                submitted[connection_id] = self._validate_version(item.get("version"))
+            current_connections = tuple(
+                BrainstormConnection.objects.select_for_update()
+                .filter(
+                    Q(node_a=node) | Q(node_b=node),
+                    canvas=canvas,
+                    is_deleted=False,
+                )
+                .order_by("id")
+            )
+            current = {str(connection.pk): connection.version for connection in current_connections}
+            if submitted != current:
+                raise ConnectionSetConflict(current_connections)
             node.hold(actor_user_id=actor_user_id)
         elif node.status == BrainstormNodeStatus.HELD:
             if status != BrainstormNodeStatus.DEFAULT:
@@ -470,14 +566,11 @@ class BrainstormMutationService:
     @transaction.atomic
     def create_connection(self, *, canvas, access, actor_user_id, payload, idempotency_key):
         BrainstormAccessService.enforce_write(access)
-        if not isinstance(idempotency_key, str) or not idempotency_key.strip():
-            raise ValidationError({"idempotency_key": "Idempotency-Key 헤더가 필요합니다."})
-        if len(idempotency_key.strip()) > 128:
-            raise ValidationError({"idempotency_key": "Idempotency-Key가 너무 깁니다."})
+        key = self._validate_idempotency_key(idempotency_key)
         canvas = self._lock_canvas(canvas)
         existing_request = BrainstormConnection.objects.filter(
             canvas=canvas,
-            creation_idempotency_key=idempotency_key.strip(),
+            creation_idempotency_key=key,
         ).first()
         if existing_request:
             requested_ids = {str(payload.get("node_a_id")), str(payload.get("node_b_id"))}
@@ -515,7 +608,7 @@ class BrainstormMutationService:
             canvas=canvas,
             node_a=node_a,
             node_b=node_b,
-            creation_idempotency_key=idempotency_key.strip(),
+            creation_idempotency_key=key,
         )
         connection.full_clean()
         connection.save(force_insert=True)

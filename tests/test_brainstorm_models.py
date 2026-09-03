@@ -110,6 +110,7 @@ class BrainstormModelTests(TestCase):
             color="blue",
             position_x=Decimal("10.5"),
             position_y=Decimal("20.5"),
+            creation_idempotency_key="model-create-note",
         )
 
         self.assertIsInstance(node.pk, uuid.UUID)
@@ -128,6 +129,7 @@ class BrainstormModelTests(TestCase):
                 color="yellow",
                 position_x=Decimal("0"),
                 position_y=Decimal("0"),
+                creation_idempotency_key="nonparticipant",
             )
         with self.assertRaises(PermissionDenied):
             BrainstormNode.create_note(
@@ -137,6 +139,7 @@ class BrainstormModelTests(TestCase):
                 color="yellow",
                 position_x=Decimal("0"),
                 position_y=Decimal("0"),
+                creation_idempotency_key="wrong-context",
             )
 
     def test_title_has_no_status_author_or_assignee(self):

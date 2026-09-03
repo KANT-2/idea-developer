@@ -9,6 +9,17 @@ urlpatterns = [
     path("participants/team/", views.current_team_participants, name="current-team"),
     path("participants/search/", views.search_participants, name="participant-search"),
     path("<int:prd_id>/", detail_views.prd_detail, name="detail"),
+    path(
+        "<int:prd_id>/questions/<int:question_id>/answer/",
+        detail_views.question_answer,
+        name="question-answer",
+    ),
+    path("<int:prd_id>/participants/", detail_views.participants, name="participants"),
+    path(
+        "<int:prd_id>/participants/<int:user_id>/",
+        detail_views.participant_item,
+        name="participant-item",
+    ),
     path("<int:prd_id>/complete/", detail_views.complete_prd, name="complete"),
     path("<int:prd_id>/reopen/", detail_views.reopen_prd, name="reopen"),
     path(

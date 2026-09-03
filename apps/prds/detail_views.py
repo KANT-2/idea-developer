@@ -5,9 +5,11 @@ from math import ceil
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError
+from django.db import transaction
 from django.db.models import Prefetch
 from django.views.decorators.http import require_GET, require_http_methods
 
+from apps.accounts.permissions import ParticipantAction, role_permission_policy
 from apps.ai.contribution import ContributionEvaluationService
 from apps.ai.exceptions import AiJobNotRetryable, AiPromptNotConfigured, AiUsageLimitExceeded
 from apps.ai.models import AiChatHistory, AiUsageLog, ContributionEvaluation
@@ -17,11 +19,16 @@ from apps.integration.exceptions import IntegrationError
 from .comment_services import PrdCommentService
 from .detail import PrdAccessService, PrdNotFound, PrdPermissionPresenter
 from .models import (
+    PrdAnswer,
+    PrdChangeHistory,
     PrdComment,
     PrdCommentType,
+    PrdParticipant,
+    PrdParticipantRole,
     PrdQuestion,
     PrdSection,
 )
+from .services import PrdParticipantService
 from .status_services import PrdStatusConflict, PrdStatusService
 from .views import (
     _context_error,
@@ -29,6 +36,11 @@ from .views import (
     _resolve_context,
     get_integration_repository,
 )
+
+
+class PrdQuestionVersionConflict(Exception):
+    def __init__(self, question):
+        self.question = question
 
 
 def _get_access(request, prd_id):
@@ -51,6 +63,14 @@ def _error_response(request, exc):
             message="입력값을 확인해 주세요.",
             status=400,
             details=details,
+            request_id=_request_id(request),
+        )
+    if isinstance(exc, PrdQuestionVersionConflict):
+        return api_error(
+            code="version_conflict",
+            message="다른 사용자가 먼저 답변을 변경했습니다. 최신 내용을 확인해 주세요.",
+            status=409,
+            details={"latest": _serialize_question(exc.question)},
             request_id=_request_id(request),
         )
     if isinstance(exc, PrdStatusConflict):
@@ -125,6 +145,26 @@ def _paginate(queryset, *, page, page_size, serializer):
     }
 
 
+def _enforce_participant_management(access):
+    if access.prd.status == "completed":
+        raise PermissionDenied("완료된 PRD의 참여자는 변경할 수 없습니다.")
+    if access.is_admin:
+        return
+    if access.role is None:
+        raise PermissionDenied("참여자 관리 권한이 없습니다.")
+    role_permission_policy.enforce(access.role, ParticipantAction.MANAGE_PARTICIPANTS)
+
+
+def _serialize_participant(participant, *, display_name=None):
+    return {
+        "user_id": participant.user_id,
+        "participant_id": participant.participant_id,
+        "role": participant.role,
+        "display_name": display_name or f"사용자 {participant.user_id}",
+        "created_at": participant.created_at.isoformat(),
+    }
+
+
 @require_GET
 def prd_detail(request, prd_id):
     if response := _require_authentication(request):
@@ -170,6 +210,116 @@ def prd_detail(request, prd_id):
         },
         request_id=_request_id(request),
     )
+
+
+@require_http_methods(["GET", "POST"])
+def participants(request, prd_id):
+    if response := _require_authentication(request):
+        return response
+    try:
+        context, access = _get_access(request, prd_id)
+        repository = get_integration_repository()
+        if request.method == "POST":
+            _enforce_participant_management(access)
+            payload = _parse_json(request)
+            user_id = payload.get("user_id")
+            if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id < 1:
+                raise ValidationError({"user_id": "사용자 ID가 올바르지 않습니다."})
+            participant, created = PrdParticipantService(repository).add_participant(
+                prd=access.prd,
+                user_id=user_id,
+                role=payload.get("role", PrdParticipantRole.EDITOR),
+                actor_user_id=context.user_id,
+            )
+            summary = repository.get_round_user_summaries(
+                user_ids=(participant.user_id,),
+                round_id=context.round_id,
+            ).get(participant.user_id)
+            return api_success(
+                {
+                    **_serialize_participant(
+                        participant,
+                        display_name=summary.display_name if summary else None,
+                    ),
+                    "created": created,
+                },
+                status=201 if created else 200,
+                request_id=_request_id(request),
+            )
+
+        page, page_size = _pagination(request)
+        queryset = PrdParticipant.objects.filter(prd=access.prd).order_by("created_at", "id")
+        total_items = queryset.count()
+        rows = list(queryset[(page - 1) * page_size : page * page_size])
+        summaries = repository.get_round_user_summaries(
+            user_ids=tuple(row.user_id for row in rows),
+            round_id=context.round_id,
+        )
+        return api_success(
+            {
+                "items": [
+                    _serialize_participant(
+                        row,
+                        display_name=(
+                            summaries[row.user_id].display_name
+                            if row.user_id in summaries
+                            else None
+                        ),
+                    )
+                    for row in rows
+                ],
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total_items": total_items,
+                    "total_pages": ceil(total_items / page_size) if total_items else 0,
+                },
+            },
+            request_id=_request_id(request),
+        )
+    except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
+        return _error_response(request, exc)
+
+
+@require_http_methods(["PATCH", "DELETE"])
+def participant_item(request, prd_id, user_id):
+    if response := _require_authentication(request):
+        return response
+    try:
+        context, access = _get_access(request, prd_id)
+        _enforce_participant_management(access)
+        try:
+            participant = PrdParticipant.objects.select_related("prd").get(
+                prd=access.prd,
+                user_id=user_id,
+            )
+        except PrdParticipant.DoesNotExist as exc:
+            raise PrdNotFound from exc
+        service = PrdParticipantService(get_integration_repository())
+        if request.method == "PATCH":
+            payload = _parse_json(request)
+            participant = service.update_role(
+                participant=participant,
+                role=payload.get("role"),
+                actor_user_id=context.user_id,
+            )
+            return api_success(
+                _serialize_participant(participant),
+                request_id=_request_id(request),
+            )
+        reassigned_nodes = service.remove_participant(
+            participant=participant,
+            actor_user_id=context.user_id,
+        )
+        return api_success(
+            {
+                "deleted": True,
+                "reassigned_node_ids": [str(node.pk) for node in reassigned_nodes],
+            },
+            request_id=_request_id(request),
+        )
+    except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
+        return _error_response(request, exc)
 
 
 @require_http_methods(["POST"])
@@ -269,6 +419,74 @@ def _serialize_question(question):
             else None
         ),
     }
+
+
+@require_http_methods(["PATCH"])
+def question_answer(request, prd_id, question_id):
+    if response := _require_authentication(request):
+        return response
+    try:
+        context, access = _get_access(request, prd_id)
+        if not PrdPermissionPresenter().describe(access)["can_edit"]:
+            raise PermissionDenied("PRD 답변을 수정할 권한이 없습니다.")
+        payload = _parse_json(request)
+        content = payload.get("content")
+        version = payload.get("version")
+        if not isinstance(content, str):
+            raise ValidationError({"content": "답변은 문자열이어야 합니다."})
+        if len(content) > settings.AI_DRAFT_MAX_LENGTH:
+            raise ValidationError(
+                {"content": f"답변은 {settings.AI_DRAFT_MAX_LENGTH}자 이하여야 합니다."}
+            )
+        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+            raise ValidationError({"version": "질문 version이 올바르지 않습니다."})
+        with transaction.atomic():
+            try:
+                question = (
+                    PrdQuestion.objects.select_for_update()
+                    .select_related("section__prd")
+                    .get(
+                        pk=question_id,
+                        section__prd=access.prd,
+                        section__is_deleted=False,
+                        is_deleted=False,
+                    )
+                )
+            except PrdQuestion.DoesNotExist as exc:
+                raise PrdNotFound from exc
+            if question.version != version:
+                raise PrdQuestionVersionConflict(question)
+            try:
+                previous = question.answer.content
+            except ObjectDoesNotExist:
+                previous = ""
+            answer, _ = PrdAnswer.objects.update_or_create(
+                question=question,
+                defaults={"content": content, "updated_by_user_id": context.user_id},
+            )
+            question.version += 1
+            question.is_completed = bool(content.strip())
+            question.save(update_fields=["version", "is_completed", "updated_at"])
+            PrdChangeHistory.objects.create(
+                prd=access.prd,
+                actor_user_id=context.user_id,
+                event_type="answer_updated",
+                before_data={"question_id": question.id, "content": previous},
+                after_data={"question_id": question.id, "content": content},
+            )
+        question.answer = answer
+        return api_success(
+            _serialize_question(question),
+            request_id=_request_id(request),
+        )
+    except (
+        PrdNotFound,
+        PrdQuestionVersionConflict,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+    ) as exc:
+        return _error_response(request, exc)
 
 
 @require_http_methods(["GET", "POST"])

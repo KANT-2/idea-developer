@@ -12,6 +12,7 @@ from django.views.decorators.http import require_GET, require_POST
 from apps.accounts.permissions import ParticipantAction, role_permission_policy
 from apps.common.responses import api_error, api_success
 from apps.integration.exceptions import IntegrationError
+from apps.integration.views import render_context_exception
 from apps.prds.detail import PrdAccessService, PrdNotFound
 from apps.prds.models import PrdQuestion, PrdSection, PrdStatus
 from apps.prds.views import _context_error, _request_id, _resolve_context
@@ -34,17 +35,20 @@ from .services import AiJobService
 @login_required
 @require_GET
 def prd_write_page(request, prd_id):
-    context = _resolve_context(request)
     try:
+        context = _resolve_context(request)
         access = PrdAccessService().get(prd_id=prd_id, context=context)
     except PrdNotFound as exc:
         raise Http404 from exc
+    except (PermissionDenied, IntegrationError) as exc:
+        return render_context_exception(request, exc)
     return render(
         request,
         "prds/write.html",
         {
             "prd": access.prd,
             "detail_api_url": reverse("prd_api:detail", args=[prd_id]),
+            "prd_api_base": reverse("prd_api:detail", args=[prd_id]),
             "ai_api_base": reverse("ai_api:conversation", args=[prd_id]).removesuffix(
                 "conversation/"
             ),

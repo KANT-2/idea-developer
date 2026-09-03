@@ -6,6 +6,7 @@ import logging
 from collections import defaultdict
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
+from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import F, Max
@@ -208,7 +209,7 @@ class ContributionEvaluationService:
             .select_related("section", "answer")
             .order_by("section__position", "position", "id")
         )
-        return {
+        snapshot = {
             "prd": {
                 "id": prd.pk,
                 "version": prd.version,
@@ -235,6 +236,38 @@ class ContributionEvaluationService:
             ],
             "comments": [self._serialize_comment(comment) for comment in comments],
         }
+        self._enforce_snapshot_limits(snapshot)
+        return snapshot
+
+    @staticmethod
+    def _enforce_snapshot_limits(snapshot):
+        if len(snapshot["accepted_memos"]) > settings.AI_BRAINSTORM_MAX_NODES:
+            raise ValidationError(
+                {
+                    "accepted_memos": (
+                        f"기여도 평가는 메모 {settings.AI_BRAINSTORM_MAX_NODES}개까지 가능합니다."
+                    )
+                }
+            )
+        if len(snapshot["comments"]) > settings.AI_CONTRIBUTION_MAX_COMMENTS:
+            raise ValidationError(
+                {
+                    "comments": (
+                        "기여도 평가는 코멘트 "
+                        f"{settings.AI_CONTRIBUTION_MAX_COMMENTS}개까지 가능합니다."
+                    )
+                }
+            )
+        character_count = len(json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")))
+        if character_count > settings.AI_CONTRIBUTION_MAX_CHARS:
+            raise ValidationError(
+                {
+                    "input": (
+                        "기여도 평가 입력이 "
+                        f"{settings.AI_CONTRIBUTION_MAX_CHARS}자를 초과했습니다."
+                    )
+                }
+            )
 
     @staticmethod
     def _serialize_questions(questions):
@@ -285,9 +318,8 @@ class ContributionEvaluationService:
         )
         for node in nodes:
             if node.assignee_id is not None and node.assignee_id not in participant_user_ids:
-                fallback = node.author_id if node.author_id in participant_user_ids else None
                 BrainstormNode.objects.filter(pk=node.pk).update(
-                    assignee_id=fallback,
+                    assignee_id=node.author_id,
                     version=F("version") + 1,
                     updated_at=timezone.now(),
                 )

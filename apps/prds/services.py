@@ -6,11 +6,14 @@ from datetime import date
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
+from django.db.models import F
+from django.utils import timezone
 
 from apps.integration.repository import DjangoViewIntegrationRepository, IntegrationRepository
 
 from .models import (
     Prd,
+    PrdChangeHistory,
     PrdParticipant,
     PrdParticipantRole,
     PrdQuestion,
@@ -78,6 +81,133 @@ class PrdParticipantService:
                 if membership.user_id != prd.creator_user_id
                 and membership.user_id not in existing_user_ids
             ]
+        )
+
+    @staticmethod
+    def _validate_role(role: str) -> str:
+        if role not in {
+            PrdParticipantRole.EDITOR,
+            PrdParticipantRole.TUTOR,
+            PrdParticipantRole.VIEWER,
+        }:
+            raise ValidationError(
+                {"role": "추가 가능한 역할은 editor, tutor, viewer입니다."}
+            )
+        return role
+
+    @transaction.atomic
+    def add_participant(self, *, prd: Prd, user_id: int, role: str, actor_user_id: int):
+        role = self._validate_role(role)
+        memberships = self.validate_memberships(user_ids=(user_id,), round_id=prd.round_id)
+        membership = memberships[0]
+        participant, created = PrdParticipant.objects.get_or_create(
+            prd=prd,
+            user_id=user_id,
+            defaults={"participant_id": membership.participant_id, "role": role},
+        )
+        if created:
+            self._record_change(
+                prd=prd,
+                actor_user_id=actor_user_id,
+                event_type="participant_added",
+                before={},
+                after={
+                    "user_id": user_id,
+                    "participant_id": membership.participant_id,
+                    "role": role,
+                },
+            )
+        return participant, created
+
+    @transaction.atomic
+    def update_role(self, *, participant: PrdParticipant, role: str, actor_user_id: int):
+        participant = (
+            PrdParticipant.objects.select_for_update()
+            .select_related("prd")
+            .get(pk=participant.pk)
+        )
+        self.validate_memberships(
+            user_ids=(participant.user_id,),
+            round_id=participant.prd.round_id,
+        )
+        role = self._validate_role(role)
+        if participant.role == PrdParticipantRole.OWNER:
+            raise ValidationError({"participant": "owner 역할은 변경할 수 없습니다."})
+        before_role = participant.role
+        if before_role != role:
+            participant.role = role
+            participant.save(update_fields=["role"])
+            self._record_change(
+                prd=participant.prd,
+                actor_user_id=actor_user_id,
+                event_type="participant_role_changed",
+                before={"user_id": participant.user_id, "role": before_role},
+                after={"user_id": participant.user_id, "role": role},
+            )
+        return participant
+
+    @transaction.atomic
+    def remove_participant(self, *, participant: PrdParticipant, actor_user_id: int):
+        if participant.role == PrdParticipantRole.OWNER:
+            raise ValidationError({"participant": "owner는 PRD 참여자에서 제거할 수 없습니다."})
+        from apps.brainstorm.models import (
+            AuditLog,
+            BrainstormChangeTarget,
+            BrainstormNode,
+            BrainstormNodeType,
+        )
+
+        participant = PrdParticipant.objects.select_for_update().get(pk=participant.pk)
+        nodes = list(
+            BrainstormNode.objects.select_for_update().filter(
+                canvas__prd=participant.prd,
+                node_type=BrainstormNodeType.NOTE,
+                assignee_id=participant.user_id,
+                is_deleted=False,
+            )
+        )
+        for node in nodes:
+            BrainstormNode.objects.filter(pk=node.pk).update(
+                assignee_id=F("author_id"),
+                version=F("version") + 1,
+                updated_at=timezone.now(),
+            )
+            AuditLog.objects.create(
+                canvas=node.canvas,
+                actor_user_id=actor_user_id,
+                action="assignee_restored_to_author",
+                target_type=BrainstormChangeTarget.NODE,
+                target_id=str(node.pk),
+                reason="participant_removed",
+                details={
+                    "removed_user_id": participant.user_id,
+                    "author_id": node.author_id,
+                },
+            )
+        removed = {
+            "user_id": participant.user_id,
+            "participant_id": participant.participant_id,
+            "role": participant.role,
+        }
+        prd = participant.prd
+        participant.delete()
+        self._record_change(
+            prd=prd,
+            actor_user_id=actor_user_id,
+            event_type="participant_removed",
+            before=removed,
+            after={"reassigned_node_ids": [str(node.pk) for node in nodes]},
+        )
+        return nodes
+
+    @staticmethod
+    def _record_change(*, prd, actor_user_id, event_type, before, after):
+        PrdChangeHistory.objects.create(
+            prd=prd,
+            actor_user_id=actor_user_id,
+            event_type=event_type,
+            before_data=before,
+            after_data=after,
         )
 
 

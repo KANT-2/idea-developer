@@ -5,7 +5,7 @@ import json
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Count, Q
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
@@ -13,6 +13,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from apps.accounts.permissions import ParticipantAction, role_permission_policy
 from apps.common.responses import api_error, api_success
 from apps.integration.exceptions import IntegrationError
+from apps.integration.views import render_context_exception
 from apps.prds.detail import PrdNotFound, PrdPermissionPresenter
 from apps.prds.views import (
     _context_error,
@@ -35,6 +36,7 @@ from .models import (
 from .services import (
     BrainstormAccessService,
     BrainstormMutationService,
+    ConnectionSetConflict,
     DuplicateConnection,
     VersionConflict,
 )
@@ -54,8 +56,13 @@ def _authentication_error(request):
 @login_required
 @require_GET
 def brainstorm_page(request, prd_id):
-    context = _resolve_context(request)
-    access = BrainstormAccessService().get(prd_id=prd_id, context=context)
+    try:
+        context = _resolve_context(request)
+        access = BrainstormAccessService().get(prd_id=prd_id, context=context)
+    except PrdNotFound as exc:
+        raise Http404 from exc
+    except (PermissionDenied, IntegrationError) as exc:
+        return render_context_exception(request, exc)
     api_base = reverse("brainstorm_api:canvas", kwargs={"prd_id": prd_id}).removesuffix("canvas/")
     return render(
         request,
@@ -83,7 +90,11 @@ def _access(request, prd_id, *, create_canvas=False):
     service = BrainstormAccessService()
     access = service.get(prd_id=prd_id, context=context)
     if create_canvas:
-        canvas, created = service.get_or_create_canvas(access=access, context=context)
+        canvas, created = service.get_or_create_canvas(
+            access=access,
+            context=context,
+            idempotency_key=request.headers.get("Idempotency-Key", ""),
+        )
         return context, access, canvas, created
     try:
         canvas = BrainstormCanvas.objects.select_related("prd").get(prd=access.prd)
@@ -94,6 +105,14 @@ def _access(request, prd_id, *, create_canvas=False):
 
 
 def _error(request, exc):
+    if isinstance(exc, ConnectionSetConflict):
+        return api_error(
+            code="connection_version_conflict",
+            message="연결선이 변경되어 보류 처리를 취소했습니다.",
+            status=409,
+            details={"latest_connections": [_serialize_connection(row) for row in exc.latest]},
+            request_id=_request_id(request),
+        )
     if isinstance(exc, VersionConflict):
         latest = (
             _serialize_node(exc.latest, include_deleted=True)
@@ -301,13 +320,18 @@ def create_node(request, prd_id):
         return response
     try:
         context, access, canvas_row = _access(request, prd_id)
-        node = BrainstormMutationService(get_integration_repository()).create_note(
+        node, created = BrainstormMutationService(get_integration_repository()).create_note(
             canvas=canvas_row,
             access=access,
             context=context,
             payload=_parse_json(request),
+            idempotency_key=request.headers.get("Idempotency-Key", ""),
         )
-        return api_success(_serialize_node(node), status=201, request_id=_request_id(request))
+        return api_success(
+            {**_serialize_node(node), "created": created},
+            status=201 if created else 200,
+            request_id=_request_id(request),
+        )
     except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
         return _error(request, exc)
 
@@ -331,6 +355,7 @@ def _node_patch(request, prd_id, node_id, method_name):
         IntegrationError,
         ValidationError,
         VersionConflict,
+        ConnectionSetConflict,
     ) as exc:
         return _error(request, exc)
 

@@ -12,12 +12,28 @@ from django.views.decorators.http import require_http_methods
 from .exceptions import (
     IntegrationConfigurationError,
     IntegrationDataIntegrityError,
+    IntegrationError,
     IntegrationUnavailableError,
     NoActiveRound,
     RoundSelectionRequired,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def render_context_exception(request, exc):
+    """Render safe HTML states for page views that resolve IntegrationContext."""
+    if isinstance(exc, NoActiveRound):
+        request.session.pop("selected_round_id", None)
+        return render(request, "integration/no_round.html")
+    if isinstance(exc, RoundSelectionRequired):
+        return render(request, "integration/select_round.html", {"rounds": exc.rounds})
+    if isinstance(exc, PermissionDenied):
+        return render(request, "403.html", status=403)
+    if isinstance(exc, IntegrationError):
+        logger.exception("Integration context could not be resolved")
+        return render(request, "integration/unavailable.html", status=503)
+    raise exc
 
 
 def get_context_resolver():

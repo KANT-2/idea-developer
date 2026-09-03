@@ -221,6 +221,7 @@ class AiJob(models.Model):
         default=AiJobStatus.QUEUED,
     )
     idempotency_key = models.CharField(max_length=128)
+    request_fingerprint = models.CharField(max_length=64, blank=True, default="", db_index=True)
     input_data = models.JSONField(default=dict)
     output_data = models.JSONField(null=True, blank=True)
     attempt_count = models.PositiveIntegerField(default=0)

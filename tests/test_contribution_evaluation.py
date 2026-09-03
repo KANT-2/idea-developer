@@ -299,6 +299,26 @@ class ContributionEvaluationTests(TestCase):
         )
         self.assertEqual(ContributionCommentScore.objects.count(), 2)
 
+    @override_settings(AI_CONTRIBUTION_MAX_COMMENTS=1)
+    def test_oversized_contribution_input_fails_without_reverting_completion(self):
+        evaluation = self.schedule()
+
+        self.prd.refresh_from_db()
+        self.assertEqual(evaluation.status, ContributionEvaluationStatus.FAILED)
+        self.assertEqual(evaluation.failure_code, "ValidationError")
+        self.assertEqual(self.prd.status, PrdStatus.COMPLETED)
+        self.assertEqual(self.prd.contribution_status, PrdContributionStatus.FAILED)
+        self.assertIsNone(evaluation.job_id)
+
+    def test_removed_assignee_returns_to_historical_author_even_if_author_was_removed(self):
+        historical = self.note(author=98, assignee=99, content="과거 작성자 메모")
+
+        self.schedule()
+
+        historical.refresh_from_db()
+        self.assertEqual(historical.assignee_id, 98)
+        self.assertEqual(historical.version, 2)
+
     def test_failure_keeps_prd_completed_and_admin_retries_same_snapshot(self):
         evaluation = self.schedule()
         fingerprint = evaluation.input_fingerprint

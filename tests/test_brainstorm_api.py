@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from decimal import Decimal
 from unittest.mock import Mock, patch
 
@@ -127,7 +128,9 @@ class BrainstormApiTests(TestCase):
         return reverse(f"brainstorm_api:{name}", kwargs={"prd_id": self.prd.id, **kwargs})
 
     def json_request(self, method, name, payload=None, *, headers=None, **kwargs):
-        request_headers = headers or {}
+        request_headers = dict(headers or {})
+        if name == "node-create" and "HTTP_IDEMPOTENCY_KEY" not in request_headers:
+            request_headers["HTTP_IDEMPOTENCY_KEY"] = f"node-{uuid.uuid4()}"
         return getattr(self.client, method)(
             self.url(name, **kwargs),
             data=json.dumps(payload or {}),
@@ -136,7 +139,10 @@ class BrainstormApiTests(TestCase):
         )
 
     def initialize_canvas(self):
-        response = self.client.get(self.url("canvas"))
+        response = self.client.get(
+            self.url("canvas"),
+            HTTP_IDEMPOTENCY_KEY="canvas-initialize",
+        )
         self.assertEqual(response.status_code, 200)
         return BrainstormCanvas.objects.get(prd=self.prd)
 
@@ -222,6 +228,63 @@ class BrainstormApiTests(TestCase):
         self.assertEqual((node.author_id, node.assignee_id), (7, 7))
         self.assertEqual(node.section_id, self.section_a.id)
         self.assertEqual(node.version, 1)
+
+    def test_canvas_and_note_creation_require_and_reuse_idempotency_keys(self):
+        missing_canvas_key = self.client.get(self.url("canvas"))
+        self.assertEqual(missing_canvas_key.status_code, 400)
+        self.initialize_canvas()
+
+        payload = {"content": "중복 방지", "color": "yellow", "x": 1, "y": 2}
+        missing_note_key = self.client.post(
+            self.url("node-create"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        first = self.json_request(
+            "post",
+            "node-create",
+            payload,
+            headers={"HTTP_IDEMPOTENCY_KEY": "same-node-key"},
+        )
+        retry = self.json_request(
+            "post",
+            "node-create",
+            payload,
+            headers={"HTTP_IDEMPOTENCY_KEY": "same-node-key"},
+        )
+        changed = self.json_request(
+            "post",
+            "node-create",
+            {**payload, "content": "다른 내용"},
+            headers={"HTTP_IDEMPOTENCY_KEY": "same-node-key"},
+        )
+
+        self.assertEqual(missing_note_key.status_code, 400)
+        self.assertEqual(
+            (first.status_code, retry.status_code, changed.status_code),
+            (201, 200, 400),
+        )
+        self.assertTrue(first.json()["data"]["created"])
+        self.assertFalse(retry.json()["data"]["created"])
+        self.assertEqual(BrainstormNode.objects.count(), 1)
+
+    def test_note_content_length_and_color_are_validated(self):
+        self.initialize_canvas()
+        too_long = self.json_request(
+            "post",
+            "node-create",
+            {"content": "x" * 4001, "color": "yellow", "x": 0, "y": 0},
+        )
+        invalid_color = self.json_request(
+            "post",
+            "node-create",
+            {"content": "메모", "color": "javascript:red", "x": 0, "y": 0},
+        )
+
+        self.assertEqual(too_long.status_code, 400)
+        self.assertIn("4000", str(too_long.json()["error"]["details"]))
+        self.assertEqual(invalid_color.status_code, 400)
+        self.assertFalse(BrainstormNode.objects.exists())
 
     def test_content_update_requires_version_and_returns_latest_on_conflict(self):
         node = self.create_note()
@@ -402,7 +465,7 @@ class BrainstormApiTests(TestCase):
     def test_hold_is_atomic_audited_and_restores_without_connections(self):
         first = self.create_note(section=self.section_a)
         second = self.create_note(content="연결")
-        BrainstormConnection.objects.create(
+        connection = BrainstormConnection.objects.create(
             canvas=first.canvas,
             node_a=first,
             node_b=second,
@@ -411,7 +474,11 @@ class BrainstormApiTests(TestCase):
         held = self.json_request(
             "patch",
             "node-status",
-            {"status": "held", "version": 1},
+            {
+                "status": "held",
+                "version": 1,
+                "connection_versions": [{"id": str(connection.pk), "version": 1}],
+            },
             node_id=first.pk,
         )
         restored = self.json_request(
@@ -428,6 +495,35 @@ class BrainstormApiTests(TestCase):
         self.assertEqual(restored.status_code, 200)
         self.assertEqual(restored.json()["data"]["status"], "default")
         self.assertFalse(BrainstormConnection.objects.exists())
+
+    def test_hold_rejects_stale_connection_versions_without_partial_changes(self):
+        first = self.create_note(section=self.section_a)
+        second = self.create_note(content="연결")
+        connection = BrainstormConnection.objects.create(
+            canvas=first.canvas,
+            node_a=first,
+            node_b=second,
+            creation_idempotency_key="hold-conflict",
+        )
+
+        response = self.json_request(
+            "patch",
+            "node-status",
+            {
+                "status": "held",
+                "version": 1,
+                "connection_versions": [{"id": str(connection.pk), "version": 2}],
+            },
+            node_id=first.pk,
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"]["code"], "connection_version_conflict")
+        first.refresh_from_db()
+        self.assertEqual(first.status, BrainstormNodeStatus.DEFAULT)
+        self.assertEqual(first.section_id, self.section_a.id)
+        self.assertTrue(BrainstormConnection.objects.filter(pk=connection.pk).exists())
+        self.assertFalse(AuditLog.objects.exists())
 
     def test_multiple_hold_restores_receive_non_overlapping_default_positions(self):
         first = self.create_note(status=BrainstormNodeStatus.HELD, section=None)

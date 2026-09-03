@@ -48,6 +48,7 @@ class BrainstormCanvas(models.Model):
         on_delete=models.CASCADE,
         related_name="brainstorm_canvas",
     )
+    creation_idempotency_key = models.CharField(max_length=128, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -77,6 +78,7 @@ class BrainstormNode(models.Model):
         default=BrainstormNodeType.NOTE,
     )
     content = models.TextField()
+    creation_idempotency_key = models.CharField(max_length=128, blank=True, default="")
     color = models.CharField(max_length=32)
     position_x = models.DecimalField(max_digits=12, decimal_places=3)
     position_y = models.DecimalField(max_digits=12, decimal_places=3)
@@ -164,6 +166,11 @@ class BrainstormNode(models.Model):
                 condition=~Q(content=""),
                 name="brain_node_content_not_blank",
             ),
+            models.UniqueConstraint(
+                fields=["canvas", "author_id", "creation_idempotency_key"],
+                condition=~Q(creation_idempotency_key=""),
+                name="uniq_brain_node_request",
+            ),
             models.CheckConstraint(
                 condition=(
                     Q(is_deleted=False, deleted_at__isnull=True)
@@ -211,6 +218,7 @@ class BrainstormNode(models.Model):
         color: str,
         position_x: Decimal,
         position_y: Decimal,
+        creation_idempotency_key: str,
         section: PrdSection | None = None,
     ) -> BrainstormNode:
         canvas.validate_context(context)
@@ -223,6 +231,7 @@ class BrainstormNode(models.Model):
             canvas=canvas,
             node_type=BrainstormNodeType.NOTE,
             content=content,
+            creation_idempotency_key=creation_idempotency_key,
             color=color,
             position_x=position_x,
             position_y=position_y,

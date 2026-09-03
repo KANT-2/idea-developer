@@ -207,11 +207,25 @@ class AiJobServiceTests(AiInfrastructureTestCase):
         self.assertEqual(first.pk, second.pk)
         self.assertEqual(first.prompt_id, self.prompt.pk)
 
+    @override_settings(AI_DUPLICATE_WINDOW_SECONDS=30)
+    def test_same_input_with_a_fresh_key_reuses_recent_job(self):
+        first, created = self.enqueue(idempotency_key="first-key")
+        duplicate, duplicate_created = self.enqueue(idempotency_key="fresh-key")
+
+        self.assertTrue(created)
+        self.assertFalse(duplicate_created)
+        self.assertEqual(duplicate.pk, first.pk)
+        self.assertEqual(AiJob.objects.count(), 1)
+        self.assertEqual(len(first.request_fingerprint), 64)
+
     @override_settings(AI_DAILY_REQUEST_LIMIT=1)
     def test_daily_request_limit_is_enforced(self):
         self.enqueue()
         with self.assertRaises(AiUsageLimitExceeded):
-            self.enqueue(idempotency_key="ai-request-2")
+            self.enqueue(
+                idempotency_key="ai-request-2",
+                input_data={"memo": "다른 사용자 입력"},
+            )
 
     def test_queued_job_can_be_cancelled_and_records_usage(self):
         job, _ = self.enqueue()

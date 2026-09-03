@@ -13,6 +13,13 @@ from apps.ai.models import (
     AiUsageLog,
     AiUsageStatus,
 )
+from apps.brainstorm.models import (
+    AuditLog,
+    BrainstormCanvas,
+    BrainstormNode,
+    BrainstormNodeStatus,
+    BrainstormNodeType,
+)
 from apps.integration.context import IntegrationContext
 from apps.integration.repository import FixtureIntegrationRepository
 from apps.prds.models import (
@@ -209,6 +216,130 @@ class PrdDetailApiTests(TestCase):
         self.assertEqual(data["permissions"]["role"], "owner")
         self.assertTrue(data["permissions"]["can_edit"])
         self.assertTrue(data["permissions"]["can_comment"])
+
+    def test_owner_saves_answer_with_version_and_change_history(self):
+        response = self.patch_json(
+            reverse("prd_api:question-answer", args=[self.prd.id, self.question.id]),
+            {"content": "수동으로 수정한 답변", "version": 1},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(data["answer"]["content"], "수동으로 수정한 답변")
+        self.assertEqual(data["version"], 2)
+        self.assertTrue(data["is_completed"])
+        self.answer.refresh_from_db()
+        self.assertEqual(self.answer.content, "수동으로 수정한 답변")
+        history = PrdChangeHistory.objects.get(event_type="answer_updated")
+        self.assertEqual(history.actor_user_id, 7)
+        self.assertEqual(history.before_data["content"], "사용자 문제입니다.")
+
+    def test_answer_save_rejects_stale_version_and_read_only_user(self):
+        url = reverse("prd_api:question-answer", args=[self.prd.id, self.question.id])
+        first = self.patch_json(url, {"content": "최신 답변", "version": 1})
+        stale = self.patch_json(url, {"content": "오래된 덮어쓰기", "version": 1})
+        self.login_as(10, role=PrdParticipantRole.VIEWER)
+        denied = self.patch_json(url, {"content": "권한 없는 답변", "version": 2})
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(stale.status_code, 409)
+        self.assertEqual(stale.json()["error"]["code"], "version_conflict")
+        self.assertEqual(
+            stale.json()["error"]["details"]["latest"]["answer"]["content"],
+            "최신 답변",
+        )
+        self.assertEqual(denied.status_code, 403)
+        self.answer.refresh_from_db()
+        self.assertEqual(self.answer.content, "최신 답변")
+
+    def test_completed_prd_locks_manual_answer_save(self):
+        self.prd.status = PrdStatus.COMPLETED
+        self.prd.completed_at = timezone.now()
+        self.prd.save(update_fields=["status", "completed_at", "updated_at"])
+
+        response = self.patch_json(
+            reverse("prd_api:question-answer", args=[self.prd.id, self.question.id]),
+            {"content": "완료 후 수정", "version": 1},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.answer.refresh_from_db()
+        self.assertEqual(self.answer.content, "사용자 문제입니다.")
+
+    def test_owner_manages_participants_and_removal_restores_assignee_atomically(self):
+        participants_url = reverse("prd_api:participants", args=[self.prd.id])
+        created = self.post_json(
+            participants_url,
+            {"user_id": 11, "role": PrdParticipantRole.EDITOR},
+        )
+        duplicate = self.post_json(
+            participants_url,
+            {"user_id": 11, "role": PrdParticipantRole.VIEWER},
+        )
+        item_url = reverse("prd_api:participant-item", args=[self.prd.id, 11])
+        changed = self.patch_json(item_url, {"role": PrdParticipantRole.TUTOR})
+
+        canvas = BrainstormCanvas.objects.create(prd=self.prd)
+        node = BrainstormNode.objects.create(
+            canvas=canvas,
+            node_type=BrainstormNodeType.NOTE,
+            content="담당자 복구",
+            color="yellow",
+            position_x=0,
+            position_y=0,
+            author_id=7,
+            assignee_id=11,
+            status=BrainstormNodeStatus.ACCEPTED,
+        )
+        removed = self.client.delete(item_url)
+
+        self.assertEqual((created.status_code, duplicate.status_code), (201, 200))
+        self.assertTrue(created.json()["data"]["created"])
+        self.assertFalse(duplicate.json()["data"]["created"])
+        self.assertEqual(changed.status_code, 200)
+        self.assertEqual(changed.json()["data"]["role"], PrdParticipantRole.TUTOR)
+        self.assertEqual(removed.status_code, 200)
+        self.assertFalse(self.prd.participants.filter(user_id=11).exists())
+        node.refresh_from_db()
+        self.assertEqual(node.assignee_id, 7)
+        self.assertEqual(node.version, 2)
+        self.assertEqual(AuditLog.objects.get().reason, "participant_removed")
+        self.assertEqual(
+            list(
+                self.prd.change_history.order_by("created_at", "id").values_list(
+                    "event_type", flat=True
+                )
+            ),
+            ["participant_added", "participant_role_changed", "participant_removed"],
+        )
+
+    def test_participant_management_rechecks_membership_permissions_and_completion_lock(self):
+        participants_url = reverse("prd_api:participants", args=[self.prd.id])
+        invalid_round = self.post_json(
+            participants_url,
+            {"user_id": 13, "role": PrdParticipantRole.EDITOR},
+        )
+        self.login_as(8, role=PrdParticipantRole.EDITOR)
+        denied = self.post_json(
+            participants_url,
+            {"user_id": 11, "role": PrdParticipantRole.EDITOR},
+        )
+        self.login_as(7, role=PrdParticipantRole.OWNER)
+        self.prd.status = PrdStatus.COMPLETED
+        self.prd.completed_at = timezone.now()
+        self.prd.save(update_fields=["status", "completed_at", "updated_at"])
+        locked = self.post_json(
+            participants_url,
+            {"user_id": 11, "role": PrdParticipantRole.EDITOR},
+        )
+        owner_delete = self.client.delete(
+            reverse("prd_api:participant-item", args=[self.prd.id, 7])
+        )
+
+        self.assertEqual(invalid_round.status_code, 400)
+        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(locked.status_code, 403)
+        self.assertEqual(owner_delete.status_code, 403)
 
     def test_owner_completes_and_reopens_with_audited_previous_completion(self):
         completed = self.post_json(

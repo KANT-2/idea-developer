@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import timedelta
 from decimal import Decimal
@@ -7,6 +8,7 @@ from typing import Any
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import IntegrityError, transaction
 from django.db.models import Sum
 from django.utils import timezone
@@ -269,6 +271,28 @@ class AiJobService:
         ).first()
         if existing:
             return existing, False
+        fingerprint = self._request_fingerprint(
+            feature_type=feature_type,
+            action_type=action_type,
+            input_data=input_data,
+        )
+        Prd.objects.select_for_update().only("pk").get(pk=prd.pk)
+        duplicate_window = max(0, settings.AI_DUPLICATE_WINDOW_SECONDS)
+        if duplicate_window:
+            recent_duplicate = (
+                AiJob.objects.filter(
+                    user_id=user_id,
+                    prd=prd,
+                    feature_type=feature_type,
+                    action_type=action_type,
+                    request_fingerprint=fingerprint,
+                    created_at__gte=timezone.now() - timedelta(seconds=duplicate_window),
+                )
+                .order_by("-created_at", "-id")
+                .first()
+            )
+            if recent_duplicate:
+                return recent_duplicate, False
         self.limiter.enforce(user_id=user_id, feature_type=feature_type)
         try:
             prompt = AiPrompt.objects.get(feature_type=feature_type, is_active=True)
@@ -283,6 +307,7 @@ class AiJobService:
                     feature_type=feature_type,
                     action_type=action_type,
                     idempotency_key=idempotency_key.strip(),
+                    request_fingerprint=fingerprint,
                     input_data=input_data,
                     max_attempts=settings.AI_JOB_MAX_ATTEMPTS,
                     timeout_seconds=settings.AI_JOB_TIMEOUT_SECONDS,
@@ -296,6 +321,21 @@ class AiJobService:
             )
             return job, False
         return job, True
+
+    @staticmethod
+    def _request_fingerprint(*, feature_type, action_type, input_data) -> str:
+        encoded = json.dumps(
+            {
+                "feature_type": feature_type,
+                "action_type": action_type,
+                "input_data": input_data,
+            },
+            cls=DjangoJSONEncoder,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
     @transaction.atomic
     def cancel(self, *, job_id, user_id: int) -> AiJob:
