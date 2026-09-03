@@ -1,0 +1,7 @@
+.home-kpi { min-height: 7rem; padding: 1rem; }
+.home-kpi span { color: #6c757d; font-size: .74rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
+.home-kpi strong { font-size: 1.65rem; margin-top: .35rem; }
+.text-purple { color: #7c3aed; }
+.prd-card-description { min-height: 2.5rem; }
+.participant-avatar { align-items: center; background: #e0e7ff; border: 2px solid #fff; border-radius: 50%; color: #4338ca; display: inline-flex; font-size: .65rem; font-weight: 700; height: 1.75rem; justify-content: center; margin-left: -.35rem; width: 1.75rem; }
+.participant-avatar:first-child { margin-left: 0; }
