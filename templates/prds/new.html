@@ -1,13 +1,37 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}새 PRD 만들기 | 아이디어 디벨로퍼{% endblock %}
+{% block extra_head %}<link href="{% static 'prds/css/new.css' %}" rel="stylesheet">{% endblock %}
+
+{% block breadcrumb %}<nav aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="{% url 'ideas:home' %}">PRD</a></li><li class="breadcrumb-item active">새 PRD 만들기</li></ol></nav>{% endblock %}
 
 {% block content %}
-  <div class="card border-0 shadow-sm">
-    <div class="card-body p-5 text-center">
-      <h1 class="h4">새 PRD 만들기</h1>
-      <p class="text-secondary mb-4">PRD 생성 화면은 팀원 PR에서 연결됩니다.</p>
-      <a class="btn btn-outline-secondary" href="{% url 'ideas:home' %}">홈으로 돌아가기</a>
-    </div>
-  </div>
+<div id="new-prd-app" data-create-api="{{ create_api_url }}" data-team-api="{{ team_api_url }}" data-search-api="{{ search_api_url }}">
+  <div class="row justify-content-center"><div class="col-xl-9">
+    <div id="new-alert" class="alert d-none" role="alert"></div>
+    <div class="d-flex align-items-center gap-3 mb-4"><a class="btn btn-light border" href="{% url 'ideas:home' %}" aria-label="홈으로 돌아가기">←</a><div><h1 class="h3 fw-bold mb-1">새 PRD 만들기</h1><p class="text-secondary mb-0">유형을 고른 뒤 기본 정보와 참여자를 확인해 주세요.</p></div></div>
+    <ol class="new-stepper list-unstyled d-flex mb-4" aria-label="생성 단계"><li id="step-indicator-1" class="active"><span>1</span> 유형 선택</li><li id="step-indicator-2"><span>2</span> 기본 정보</li></ol>
+
+    <section id="new-step-1" aria-labelledby="type-heading"><h2 id="type-heading" class="h5 mb-3">어떤 PRD를 작성하시나요?</h2><div class="row g-3">
+      <div class="col-md-4"><button type="button" class="prd-type-card card h-100 w-100 text-start" data-type="new_product"><div class="card-body"><div class="type-icon">🚀</div><h3 class="h6 fw-bold">신규 프로젝트</h3><p class="small text-secondary mb-0">새로운 서비스를 처음 만들고 검증하는 경우</p></div></button></div>
+      <div class="col-md-4"><button type="button" class="prd-type-card card h-100 w-100 text-start" data-type="new_feature"><div class="card-body"><div class="type-icon">⚡</div><h3 class="h6 fw-bold">신규 기능</h3><p class="small text-secondary mb-0">기존 서비스에 새로운 기능을 추가하는 경우</p></div></button></div>
+      <div class="col-md-4"><button type="button" class="prd-type-card card h-100 w-100 text-start" data-type="improvement"><div class="card-body"><div class="type-icon">🔧</div><h3 class="h6 fw-bold">기능 개선</h3><p class="small text-secondary mb-0">현재 기능의 사용성·성능·정책을 개선하는 경우</p></div></button></div>
+    </div><div class="text-end mt-4"><button id="to-details" type="button" class="btn btn-primary px-4" disabled>다음</button></div></section>
+
+    <section id="new-step-2" class="d-none" aria-labelledby="details-heading"><h2 id="details-heading" class="h5 mb-3">기본 정보를 입력해 주세요.</h2>
+      <form id="new-prd-form" novalidate><div class="card border-0 shadow-sm"><div class="card-body p-4">
+        <div class="mb-3"><label for="prd-title" class="form-label fw-semibold">제목 <span class="text-danger">*</span></label><input id="prd-title" class="form-control" maxlength="200" required autocomplete="off"><div class="invalid-feedback">제목을 입력해 주세요.</div></div>
+        <div class="mb-3"><label for="prd-description" class="form-label fw-semibold">한 줄 소개</label><input id="prd-description" class="form-control" maxlength="500" autocomplete="off"><div class="form-text">줄바꿈 없이 핵심 목적을 간결하게 적어 주세요.</div></div>
+        <div class="mb-4"><label for="prd-deadline" class="form-label fw-semibold">목표 마감일</label><input id="prd-deadline" type="date" class="form-control new-date-input"></div>
+        <fieldset><legend class="h6 fw-semibold">참여자</legend><p class="small text-secondary">로그인 사용자는 owner로 항상 포함되며, 추가한 사용자는 초대 수락 없이 즉시 참여합니다.</p>
+          <div class="d-flex flex-wrap gap-2 mb-3"><button id="load-team" type="button" class="btn btn-sm btn-outline-primary">현재 팀 불러오기</button><button id="add-team" type="button" class="btn btn-sm btn-outline-primary" disabled>팀원 모두 추가</button></div>
+          <div id="selected-participants" class="d-flex flex-wrap gap-2 mb-3" aria-live="polite"></div>
+          <label for="participant-search" class="form-label small fw-semibold">개별 사용자 검색</label><div class="input-group"><input id="participant-search" class="form-control" minlength="2" placeholder="이름 2자 이상"><button id="search-button" class="btn btn-outline-secondary" type="button">검색</button></div><div id="participant-results" class="list-group mt-2"></div>
+        </fieldset>
+      </div></div><div class="d-flex justify-content-between mt-4"><button id="back-to-types" type="button" class="btn btn-outline-secondary">이전</button><button id="create-prd" type="submit" class="btn btn-primary px-4">PRD 생성</button></div></form>
+    </section>
+  </div></div><form class="d-none">{% csrf_token %}</form>
+</div>
 {% endblock %}
+{% block extra_js %}<script src="{% static 'prds/js/new.js' %}"></script>{% endblock %}
