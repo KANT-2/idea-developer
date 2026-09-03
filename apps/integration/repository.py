@@ -957,7 +957,6 @@ class FixtureIntegrationRepository:
                 display_name=display_name,
             )
         return summaries
-
     @staticmethod
     def _to_parent_user(row) -> ParentUser:
         if isinstance(row, ParentUser):
@@ -993,3 +992,39 @@ class FixtureIntegrationRepository:
             user_id=row["user_id"],
             email=row.get("primary_email") or row.get("user_email") or fallback_email,
         )
+
+
+class FailoverIntegrationRepository:
+    """Uses a development fixture only while the parent VIEW database is unavailable."""
+
+    def __init__(self, primary: IntegrationRepository, fallback: IntegrationRepository):
+        self.primary = primary
+        self.fallback = fallback
+
+    def __getattr__(self, name):
+        primary_method = getattr(self.primary, name)
+        fallback_method = getattr(self.fallback, name)
+
+        def call(*args, **kwargs):
+            try:
+                return primary_method(*args, **kwargs)
+            except IntegrationUnavailableError:
+                logger.warning(
+                    "Parent integration unavailable; using DEBUG fixture",
+                    extra={"integration_method": name},
+                )
+                return fallback_method(*args, **kwargs)
+
+        return call
+
+
+def get_default_integration_repository() -> IntegrationRepository:
+    primary = DjangoViewIntegrationRepository()
+    if not settings.DEBUG or not getattr(settings, "DEV_INTEGRATION_FALLBACK", False):
+        return primary
+    fallback = FixtureIntegrationRepository(
+        users=getattr(settings, "DEV_INTEGRATION_USERS", ()),
+        memberships=getattr(settings, "DEV_INTEGRATION_MEMBERSHIPS", ()),
+        active_statuses=settings.INTEGRATION_ACTIVE_ROUND_STATUSES,
+    )
+    return FailoverIntegrationRepository(primary, fallback)

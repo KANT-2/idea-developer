@@ -8,7 +8,7 @@ from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest
 
 from .exceptions import RoundSelectionRequired
-from .repository import DjangoViewIntegrationRepository, IntegrationRepository
+from .repository import IntegrationRepository, get_default_integration_repository
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +48,7 @@ class StandaloneSessionContextResolver:
         repository: IntegrationRepository | None = None,
         user_id_mapper: ExternalUserIdMapper | None = None,
     ):
-        self.repository = repository or DjangoViewIntegrationRepository()
+        self.repository = repository or get_default_integration_repository()
         self.user_id_mapper = user_id_mapper or UserAttributeExternalIdMapper()
 
     def resolve(self, request: HttpRequest, *, round_id: int | None = None) -> IntegrationContext:

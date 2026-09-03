@@ -18,7 +18,9 @@
   var LANE_W = 290;
   var LANE_GAP = 20;
   var LANE_TOP = 350;
-  var CANVAS_H = 1800;
+  var LANE_H = 2200;
+  var CANVAS_W = 4800;
+  var CANVAS_H = 3200;
   var laneColors = [
     ["#eef2ff", "#c7d2fe", "#4338ca"], ["#ecfeff", "#a5f3fc", "#0e7490"],
     ["#ecfdf5", "#a7f3d0", "#047857"], ["#fff7ed", "#fed7aa", "#c2410c"],
@@ -32,7 +34,19 @@
       credentials: "same-origin",
       headers: Object.assign({"Content-Type": "application/json", "X-CSRFToken": csrf}, options.headers || {})
     })).then(function (response) {
-      return response.json().then(function (payload) {
+      return response.text().then(function (body) {
+        var payload;
+        try {
+          payload = JSON.parse(body);
+        } catch (parseError) {
+          var invalidResponse = new Error(
+            response.ok
+              ? "서버 응답을 읽지 못했습니다. 잠시 후 다시 시도해 주세요."
+              : "서버에서 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
+          );
+          invalidResponse.code = "invalid_response";
+          throw invalidResponse;
+        }
         if (!response.ok || !payload.ok) {
           var error = new Error(payload.error?.message || "요청을 처리하지 못했습니다.");
           error.code = payload.error?.code; error.details = payload.error?.details; throw error;
@@ -47,7 +61,7 @@
     var syncPair = window.React.useState("loading"), sync = syncPair[0], setSync = syncPair[1];
     var filterPair = window.React.useState("all"), filter = filterPair[0], setFilter = filterPair[1];
     var toolPair = window.React.useState("select"), tool = toolPair[0], setTool = toolPair[1];
-    var boardPair = window.React.useState("board"), boardView = boardPair[0], setBoardView = boardPair[1];
+    var boardPair = window.React.useState("canvas"), boardView = boardPair[0], setBoardView = boardPair[1];
     var sourcePair = window.React.useState(null), source = sourcePair[0], setSource = sourcePair[1];
     var focusPair = window.React.useState(null), focused = focusPair[0], setFocused = focusPair[1];
     var viewPair = window.React.useState({x: 0, y: 0, zoom: 1}), view = viewPair[0], setView = viewPair[1];
@@ -55,23 +69,29 @@
     var busyPair = window.React.useState(false), busy = busyPair[0], setBusy = busyPair[1];
     var jobPair = window.React.useState(null), jobId = jobPair[0], setJobId = jobPair[1];
     var aiPair = window.React.useState(null), aiPanel = aiPair[0], setAiPanel = aiPair[1];
-    var defaultsPair = window.React.useState({}), defaults = defaultsPair[0], setDefaults = defaultsPair[1];
     var editorPair = window.React.useState(null), editor = editorPair[0], setEditor = editorPair[1];
+    var assigneeMenuPair = window.React.useState(null), assigneeMenu = assigneeMenuPair[0], setAssigneeMenu = assigneeMenuPair[1];
     var timerRef = window.React.useRef(null);
     var cursorRef = window.React.useRef(null);
     var initialViewport = window.React.useRef(false);
+    var viewportSaveRef = window.React.useRef(null);
+    var fullSyncGenerationRef = window.React.useRef(0);
 
     function fullSync() {
+      var generation = ++fullSyncGenerationRef.current;
       setSync("loading");
-      return fetch(apiBase + "canvas/", {credentials: "same-origin", headers: {"Idempotency-Key": key()}})
-        .then(function (response) { if (!response.ok) throw new Error("캔버스를 불러오지 못했습니다."); return response.json(); })
-        .then(function (payload) {
-          cursorRef.current = payload.data.cursor; setState(payload.data); setSync("connected");
-          if (!initialViewport.current && payload.data.viewport) {
-            setView({x: Number(payload.data.viewport.viewport_x || 0), y: Number(payload.data.viewport.viewport_y || 0), zoom: Math.max(.75, Math.min(2, Number(payload.data.viewport.zoom_level || 1)))});
+      return request(apiBase + "canvas/", {headers: {"Idempotency-Key": key()}})
+        .then(function (data) {
+          if (generation !== fullSyncGenerationRef.current) return;
+          cursorRef.current = data.cursor; setState(data); setSync("connected");
+          if (!initialViewport.current && data.viewport) {
+            setView({x: Number(data.viewport.viewport_x || 0), y: Number(data.viewport.viewport_y || 0), zoom: Math.max(.3, Math.min(2, Number(data.viewport.zoom_level || 1)))});
             initialViewport.current = true;
           }
-        }).catch(function (error) { setSync("disconnected"); setNotice({kind: "warning", text: error.message}); });
+        }).catch(function (error) {
+          if (generation !== fullSyncGenerationRef.current) return;
+          setSync("disconnected"); setNotice({kind: "warning", text: error.message});
+        });
     }
 
     function poll() {
@@ -113,8 +133,9 @@
       if (editor.node) {
         refresh(request(apiBase + "nodes/" + editor.node.id + "/content/", {method: "PATCH", body: JSON.stringify({content: content, version: editor.node.version})}));
       } else {
-        var unclassified = state.nodes.filter(function (node) { return !node.section_id; }).length;
-        refresh(request(apiBase + "nodes/", {method: "POST", headers: {"Idempotency-Key": key()}, body: JSON.stringify({content: content, color: editor.color, x: 55 + (unclassified % 6) * 205, y: 115 + Math.floor(unclassified / 6) * 145, section_id: null})}));
+        var x = Math.max(20, Math.min(CANVAS_W - NODE_W, (window.innerWidth / 2 - view.x) / view.zoom - NODE_W / 2));
+        var y = Math.max(20, Math.min(CANVAS_H - NODE_H, ((window.innerHeight - 190) / 2 - view.y) / view.zoom - NODE_H / 2));
+        refresh(request(apiBase + "nodes/", {method: "POST", headers: {"Idempotency-Key": key()}, body: JSON.stringify({content: content, color: editor.color, x: x, y: y, section_id: sectionAt(x, y)})}));
       }
       setEditor(null);
     }
@@ -122,7 +143,42 @@
     function statusNode(node, status) {
       var payload = {status: status, version: node.version};
       if (status === "held") payload.connection_versions = state.connections.filter(function (line) { return line.node_a_id === node.id || line.node_b_id === node.id; }).map(function (line) { return {id: line.id, version: line.version}; });
-      refresh(request(apiBase + "nodes/" + node.id + "/status/", {method: "PATCH", body: JSON.stringify(payload)}));
+      // Invalidate a canvas request that began before this mutation.  Applying
+      // that older response after the hold succeeds would draw the note once
+      // more until the next click/render.
+      fullSyncGenerationRef.current += 1;
+      setBusy(true); setNotice(null);
+      request(apiBase + "nodes/" + node.id + "/status/", {method: "PATCH", body: JSON.stringify(payload)})
+        .then(function (updated) {
+          setFocused(function (current) { return current === updated.id ? null : current; });
+          setState(function (previous) {
+            var nodes = previous.nodes.filter(function (item) { return item.id !== updated.id; });
+            var heldNodes = previous.held_nodes.filter(function (item) { return item.id !== updated.id; });
+            var connections = previous.connections;
+            if (updated.status === "held") {
+              heldNodes.push(updated);
+              connections = connections.filter(function (line) { return line.node_a_id !== updated.id && line.node_b_id !== updated.id; });
+            } else {
+              nodes.push(updated);
+            }
+            var regularNotes = nodes.filter(function (item) { return item.node_type === "note"; });
+            var counts = {
+              total: regularNotes.length,
+              unclassified: regularNotes.filter(function (item) { return !item.section_id; }).length,
+              accepted: regularNotes.filter(function (item) { return !!item.section_id; }).length,
+              held: heldNodes.length
+            };
+            return Object.assign({}, previous, {nodes: nodes, held_nodes: heldNodes, connections: connections, counts: counts});
+          });
+          cursorRef.current = null;
+          setSync("connected");
+        })
+        .catch(function (error) {
+          setNotice({kind: error.code === "version_conflict" ? "warning" : "danger", text: error.message});
+          cursorRef.current = null;
+          return fullSync();
+        })
+        .finally(function () { setBusy(false); });
     }
 
     function assignNode(node, assigneeId) {
@@ -141,25 +197,93 @@
       refresh(request(apiBase + "nodes/" + node.id + "/position/", {method: "PATCH", body: JSON.stringify({version: node.version, x: x, y: y, section_id: sectionId})}));
     }
 
-    function canvasWidth() { return Math.max(1500, state.sections.length * (LANE_W + LANE_GAP) + 80); }
+    function holdNode(node) {
+      statusNode(node, "held");
+    }
+
+    function canvasWidth() { return Math.max(CANVAS_W, state.sections.length * (LANE_W + LANE_GAP) + 400); }
     function laneIndex(sectionId) { return state.sections.findIndex(function (section) { return section.id === sectionId; }); }
     function displayPosition(node) {
-      var x = Number(node.x), y = Number(node.y);
-      if (node.section_id && y < LANE_TOP) {
-        var siblings = state.nodes.filter(function (item) { return item.section_id === node.section_id; });
-        var index = Math.max(0, siblings.findIndex(function (item) { return item.id === node.id; }));
-        return {x: 55 + laneIndex(node.section_id) * (LANE_W + LANE_GAP) + (index % 2) * 128, y: LANE_TOP + 90 + Math.floor(index / 2) * 155};
-      }
-      return {x: x, y: y};
+      return {x: Number(node.x), y: Number(node.y)};
     }
-    function sectionAt(x, y) { if (y < LANE_TOP) return null; var index = Math.floor((x - 35) / (LANE_W + LANE_GAP)); return state.sections[index]?.id || null; }
+    function sectionAt(x, y) {
+      var centerX = x + NODE_W / 2, centerY = y + NODE_H / 2;
+      for (var index = 0; index < state.sections.length; index += 1) {
+        var left = 40 + index * (LANE_W + LANE_GAP);
+        if (centerX >= left && centerX <= left + LANE_W && centerY >= LANE_TOP && centerY <= LANE_TOP + LANE_H) return state.sections[index].id;
+      }
+      return null;
+    }
+
+    function createConnection(nodeA, nodeB) {
+      var optimisticId = "pending-" + key();
+      var optimisticConnection = {
+        id: optimisticId,
+        node_a_id: nodeA.id,
+        node_b_id: nodeB.id,
+        version: 0,
+        pending: true
+      };
+      function showOptimisticConnection() {
+        setState(function (previous) {
+          return Object.assign({}, previous, {
+            connections: previous.connections.concat([optimisticConnection])
+          });
+        });
+      }
+      if (window.ReactDOM.flushSync) {
+        window.ReactDOM.flushSync(showOptimisticConnection);
+      } else {
+        showOptimisticConnection();
+      }
+      fullSyncGenerationRef.current += 1;
+      setBusy(true); setNotice(null);
+      request(apiBase + "connections/", {
+        method: "POST",
+        headers: {"Idempotency-Key": key()},
+        body: JSON.stringify({node_a_id: nodeA.id, node_b_id: nodeB.id, node_a_version: nodeA.version, node_b_version: nodeB.version})
+      }).then(function (result) {
+        var connection = result.connection;
+        setState(function (previous) {
+          var connections = previous.connections.filter(function (item) { return item.id !== optimisticId && item.id !== connection.id; });
+          connections.push(connection);
+          return Object.assign({}, previous, {connections: connections});
+        });
+        cursorRef.current = null;
+        setSync("connected");
+      }).catch(function (error) {
+        setState(function (previous) {
+          return Object.assign({}, previous, {connections: previous.connections.filter(function (item) { return item.id !== optimisticId; })});
+        });
+        setNotice({kind: error.code === "version_conflict" ? "warning" : "danger", text: error.message});
+        cursorRef.current = null;
+        return fullSync();
+      }).finally(function () { setBusy(false); });
+    }
+
+    function deleteConnection(connection) {
+      fullSyncGenerationRef.current += 1;
+      setBusy(true); setNotice(null);
+      request(apiBase + "connections/" + connection.id + "/", {method: "DELETE", body: JSON.stringify({version: connection.version})})
+        .then(function () {
+          setState(function (previous) {
+            return Object.assign({}, previous, {connections: previous.connections.filter(function (item) { return item.id !== connection.id; })});
+          });
+          cursorRef.current = null;
+          setSync("connected");
+        }).catch(function (error) {
+          setNotice({kind: error.code === "version_conflict" ? "warning" : "danger", text: error.message});
+          cursorRef.current = null;
+          return fullSync();
+        }).finally(function () { setBusy(false); });
+    }
 
     function beginMove(event, node) {
       event.stopPropagation(); setFocused(node.id);
       if (tool === "connect") {
         if (!source) return setSource(node);
         if (source.id === node.id) return setSource(null);
-        refresh(request(apiBase + "connections/", {method: "POST", headers: {"Idempotency-Key": key()}, body: JSON.stringify({node_a_id: source.id, node_b_id: node.id, node_a_version: source.version, node_b_version: node.version})}));
+        createConnection(source, node);
         setSource(null); setTool("select"); return;
       }
       if (!state.permissions.can_edit || state.permissions.is_completed || event.button !== 0) return;
@@ -168,27 +292,49 @@
         var deltaX = moveEvent.clientX - sx, deltaY = moveEvent.clientY - sy;
         if (!moved && Math.abs(deltaX) + Math.abs(deltaY) < 5) return;
         moved = true;
-        var x = Math.max(10, start.x + deltaX / view.zoom), y = Math.max(55, start.y + deltaY / view.zoom);
+        var x = Math.max(10, Math.min(canvasWidth() - NODE_W, start.x + deltaX / view.zoom)), y = Math.max(10, Math.min(CANVAS_H - NODE_H, start.y + deltaY / view.zoom));
         setState(function (previous) { return Object.assign({}, previous, {nodes: previous.nodes.map(function (item) { return item.id === node.id ? Object.assign({}, item, {x: x, y: y}) : item; })}); });
       }
       function done(upEvent) {
         window.removeEventListener("mousemove", moving); window.removeEventListener("mouseup", done);
         if (!moved) return;
-        var x = Math.max(10, start.x + (upEvent.clientX - sx) / view.zoom), y = Math.max(55, start.y + (upEvent.clientY - sy) / view.zoom);
+        if (document.elementFromPoint(upEvent.clientX, upEvent.clientY)?.closest(".brain-held")) {
+          holdNode(node);
+          return;
+        }
+        var x = Math.max(10, Math.min(canvasWidth() - NODE_W, start.x + (upEvent.clientX - sx) / view.zoom)), y = Math.max(10, Math.min(CANVAS_H - NODE_H, start.y + (upEvent.clientY - sy) / view.zoom));
         moveNode(node, x, y, sectionAt(x, y));
       }
       window.addEventListener("mousemove", moving); window.addEventListener("mouseup", done);
     }
 
     function pan(event) {
-      if (event.button !== 0 || event.target.closest("[data-node],button,a,select,input,textarea")) return;
+      if (![0, 1].includes(event.button) || (event.button === 0 && event.target.closest("[data-node],button,a,input,textarea"))) return;
+      event.preventDefault();
       var sx = event.clientX, sy = event.clientY, ox = view.x, oy = view.y;
       function moving(moveEvent) { setView({x: ox + moveEvent.clientX - sx, y: oy + moveEvent.clientY - sy, zoom: view.zoom}); }
       function done(upEvent) { window.removeEventListener("mousemove", moving); window.removeEventListener("mouseup", done); var next = {x: ox + upEvent.clientX - sx, y: oy + upEvent.clientY - sy, zoom: view.zoom}; setView(next); saveView(next); }
       window.addEventListener("mousemove", moving); window.addEventListener("mouseup", done);
     }
     function saveView(next) { request(apiBase + "viewport/", {method: "PUT", body: JSON.stringify({viewport_x: next.x, viewport_y: next.y, zoom_level: next.zoom})}).catch(function () {}); }
-    function zoom(amount) { var next = {x: view.x, y: view.y, zoom: Math.max(.75, Math.min(2, Math.round((view.zoom + amount) * 100) / 100))}; setView(next); saveView(next); }
+    function saveViewSoon(next) { clearTimeout(viewportSaveRef.current); viewportSaveRef.current = setTimeout(function () { saveView(next); }, 250); }
+    function zoom(amount, anchorX, anchorY) {
+      var nextZoom = Math.max(.3, Math.min(2, Math.round((view.zoom + amount) * 100) / 100));
+      var px = anchorX === undefined ? window.innerWidth / 2 : anchorX, py = anchorY === undefined ? (window.innerHeight - 190) / 2 : anchorY;
+      var worldX = (px - view.x) / view.zoom, worldY = (py - view.y) / view.zoom;
+      var next = {x: px - worldX * nextZoom, y: py - worldY * nextZoom, zoom: nextZoom};
+      setView(next); saveViewSoon(next);
+    }
+    function wheelCanvas(event) {
+      event.preventDefault();
+      if (event.ctrlKey || event.metaKey) {
+        var rect = event.currentTarget.getBoundingClientRect();
+        zoom(event.deltaY < 0 ? .1 : -.1, event.clientX - rect.left, event.clientY - rect.top);
+        return;
+      }
+      var next = {x: view.x - event.deltaX, y: view.y - event.deltaY, zoom: view.zoom};
+      setView(next); saveViewSoon(next);
+    }
 
     function autoLayout() {
       var counters = {};
@@ -205,19 +351,32 @@
       function check() { request(apiBase + "ai/jobs/" + id + "/").then(function (job) { if (["queued", "running", "retry_wait", "cancel_requested"].includes(job.status)) return setTimeout(check, 1500); setBusy(false); setJobId(null); if (job.status === "succeeded") completed(job); else setNotice({kind: "warning", text: job.error?.message || "AI 작업이 실패했습니다."}); }).catch(function (error) { setBusy(false); setNotice({kind: "danger", text: error.message}); }); }
       check();
     }
-    function runAi(kind) {
+    function loadClassificationResult() {
       setBusy(true); setNotice(null);
-      request(apiBase + "ai/" + kind + "/", {method: "POST", headers: {"Idempotency-Key": key()}, body: "{}"}).then(function (result) {
-        if (!result.job) { setBusy(false); setNotice({kind: "info", text: result.message}); return; }
-        pollJob(result.id, function (job) { setAiPanel({type: kind, job: job}); });
-      }).catch(function (error) { setBusy(false); setNotice({kind: "danger", text: error.message}); });
-    }
-    function applyClassification() {
-      var recs = aiPanel.job.output.recommendations || [];
-      refresh(request(apiBase + "ai/classification/apply/", {method: "POST", headers: {"Idempotency-Key": key()}, body: JSON.stringify({job_id: aiPanel.job.id, selections: recs.map(function (row) { return {node_id: row.node_id, section_id: row.section_id, version: row.node_version}; })})}), function () { setAiPanel(null); });
+      request(apiBase + "canvas/", {headers: {"Idempotency-Key": key()}})
+        .then(function (serverState) {
+          var result = {
+            counts: {
+              total: serverState.counts.total,
+              classified: serverState.counts.accepted,
+              unclassified: serverState.counts.unclassified,
+              held: serverState.counts.held
+            },
+            sections: serverState.sections.map(function (section) {
+              return Object.assign({}, section, {
+                note_count: serverState.nodes.filter(function (node) {
+                  return node.node_type === "note" && node.section_id === section.id;
+                }).length
+              });
+            })
+          };
+          setAiPanel({type: "classification_result", result: result});
+        })
+        .catch(function (error) { setNotice({kind: "danger", text: error.message}); })
+        .finally(function () { setBusy(false); });
     }
     function previewPrd() {
-      var selectedDefaults = state.nodes.filter(function (node) { return node.status === "default" && defaults[node.id]; }).map(function (node) { return {node_id: node.id, version: node.version}; });
+      var selectedDefaults = [];
       setBusy(true); request(apiBase + "ai/prd-apply/preview/", {method: "POST", headers: {"Idempotency-Key": key()}, body: JSON.stringify({selected_default_nodes: selectedDefaults})}).then(function (result) { if (!result.job) { setBusy(false); return setNotice({kind: "info", text: result.message}); } pollJob(result.id, function (job) { setAiPanel({type: "prd", job: job}); }); }).catch(function (error) { setBusy(false); setNotice({kind: "danger", text: error.message}); });
     }
     function applyPrd() {
@@ -234,7 +393,7 @@
     function line(connection) {
       var a = positions[connection.node_a_id], b = positions[connection.node_b_id]; if (!a || !b) return null;
       var x1 = a.x + NODE_W / 2, y1 = a.y + NODE_H / 2, x2 = b.x + NODE_W / 2, y2 = b.y + NODE_H / 2;
-      return h("g", {key: connection.id}, h("path", {d: "M " + x1 + " " + y1 + " C " + (x1 + x2) / 2 + " " + y1 + ", " + (x1 + x2) / 2 + " " + y2 + ", " + x2 + " " + y2, className: "brain-connection"}), canEdit ? h("circle", {cx: (x1 + x2) / 2, cy: (y1 + y2) / 2, r: 9, className: "brain-connection-delete", onClick: function () { refresh(request(apiBase + "connections/" + connection.id + "/", {method: "DELETE", body: JSON.stringify({version: connection.version})})); }}) : null);
+      return h("g", {key: connection.id}, h("path", {d: "M " + x1 + " " + y1 + " C " + (x1 + x2) / 2 + " " + y1 + ", " + (x1 + x2) / 2 + " " + y2 + ", " + x2 + " " + y2, className: "brain-connection" + (connection.pending ? " pending" : "")}), canEdit && !connection.pending ? h("circle", {cx: (x1 + x2) / 2, cy: (y1 + y2) / 2, r: 9, className: "brain-connection-delete", onClick: function () { deleteConnection(connection); }}) : null);
     }
     function note(node) {
       var p = positions[node.id], selected = focused === node.id, connect = source?.id === node.id;
@@ -245,10 +404,8 @@
         h("footer", null, h("span", null, "v" + node.version), h("span", {title: assignee ? "담당자 " + assignee.display_name : "담당자 없음"}, assignee ? "담당 " + assignee.display_name : "담당자 없음")),
         selected && canEdit ? h("div", {className: "brain-note-actions", onMouseDown: function (event) { event.stopPropagation(); }},
           h("button", {type: "button", onClick: function () { editNode(node); }}, "수정"),
-          h("button", {type: "button", className: node.status === "accepted" ? "active" : "", onClick: function () { statusNode(node, node.status === "accepted" ? "default" : "accepted"); }}, node.status === "accepted" ? "채택 취소" : "채택"),
           h("button", {type: "button", onClick: function () { statusNode(node, "held"); }}, "보류"),
-          h("label", {className: "brain-assignee"}, h("span", null, "담당자"), h("select", {value: String(node.assignee_id || ""), onChange: function (event) { assignNode(node, event.target.value); }}, (state.participants || []).map(function (participant) { return h("option", {key: participant.user_id, value: String(participant.user_id)}, participant.display_name); }))),
-          node.status === "default" && node.section_id ? h("label", null, h("input", {type: "checkbox", checked: !!defaults[node.id], onChange: function (event) { var changed = {}; changed[node.id] = event.target.checked; setDefaults(Object.assign({}, defaults, changed)); }}), " PRD 추가") : null) : null);
+          assigneeButton(node)) : null);
     }
 
     function member(userId) {
@@ -257,6 +414,53 @@
 
     function initials(name) {
       return String(name || "?").trim().slice(0, 2);
+    }
+
+    function participantColor(userId) {
+      var colors = ["#4f46e5", "#0284c7", "#059669", "#d97706", "#db2777", "#7c3aed", "#ea580c"];
+      return colors[Math.abs(Number(userId) || 0) % colors.length];
+    }
+
+    function roleLabel(role) {
+      return {owner: "소유자", editor: "편집자", tutor: "튜터", viewer: "조회자"}[role] || role || "참여자";
+    }
+
+    function openAssigneeMenu(event, node) {
+      event.preventDefault(); event.stopPropagation();
+      var rect = event.currentTarget.getBoundingClientRect();
+      var width = 244, height = Math.min(360, 82 + (state.participants || []).length * 48);
+      var left = Math.max(10, Math.min(rect.right - width, window.innerWidth - width - 10));
+      var above = rect.bottom + height > window.innerHeight - 12;
+      setAssigneeMenu({node: node, left: left, top: above ? null : rect.bottom + 7, bottom: above ? window.innerHeight - rect.top + 7 : null});
+    }
+
+    function assigneeButton(node) {
+      var assigned = member(node.assignee_id);
+      return h("button", {type: "button", className: "brain-assignee-trigger", onMouseDown: function (event) { event.stopPropagation(); }, onClick: function (event) { openAssigneeMenu(event, node); }, title: "담당자 변경"},
+        h("b", {style: {background: participantColor(assigned?.user_id)}}, initials(assigned?.display_name)),
+        h("span", null, h("small", null, "담당자"), h("strong", null, assigned?.display_name || "담당자 없음")),
+        h("i", {className: "bi bi-chevron-down"})
+      );
+    }
+
+    function renderAssigneeMenu() {
+      if (!assigneeMenu) return null;
+      var node = assigneeMenu.node;
+      return window.ReactDOM.createPortal(h(window.React.Fragment, null,
+        h("button", {type: "button", className: "brain-assignee-dismiss", onMouseDown: function () { setAssigneeMenu(null); }, "aria-label": "담당자 메뉴 닫기"}),
+        h("aside", {className: "brain-assignee-menu", style: {left: assigneeMenu.left, top: assigneeMenu.top, bottom: assigneeMenu.bottom}, onMouseDown: function (event) { event.stopPropagation(); }},
+          h("header", null, h("div", null, h("span", null, "ASSIGNEE"), h("strong", null, "담당자 지정")), h("button", {type: "button", onClick: function () { setAssigneeMenu(null); }, "aria-label": "닫기"}, "×")),
+          h("p", null, "PRD 참여자 중 이 아이디어를 맡을 팀원을 선택하세요."),
+          h("div", null, (state.participants || []).map(function (participant) {
+            var selected = participant.user_id === node.assignee_id;
+            return h("button", {key: participant.user_id, type: "button", className: selected ? "selected" : "", onClick: function () { setAssigneeMenu(null); assignNode(node, participant.user_id); }},
+              h("b", {style: {background: participantColor(participant.user_id)}}, initials(participant.display_name)),
+              h("span", null, h("strong", null, participant.display_name), h("small", null, roleLabel(participant.role))),
+              selected ? h("i", {className: "bi bi-check-lg"}) : null
+            );
+          }))
+        )
+      ), document.body);
     }
 
     function moveToSection(node, sectionId) {
@@ -274,6 +478,13 @@
       var nodeId = event.dataTransfer.getData("text/brain-node");
       var node = state.nodes.find(function (item) { return item.id === nodeId; });
       if (node && canEdit) moveToSection(node, sectionId);
+    }
+
+    function dropHeld(event) {
+      event.preventDefault();
+      var nodeId = event.dataTransfer.getData("text/brain-node");
+      var node = state.nodes.find(function (item) { return item.id === nodeId; });
+      if (node && canEdit) holdNode(node);
     }
 
     function compactCard(node) {
@@ -297,10 +508,8 @@
         h("span", {className: "brain-person assignee", title: "담당자 " + (assignee?.display_name || "없음")}, h("i", null, "→"), h("b", null, initials(assignee?.display_name)), h("small", null, assignee?.display_name || "담당자 없음"))
       ),
       canEdit ? h("div", {className: "brain-card-controls"},
-        h("button", {type: "button", className: node.status === "accepted" ? "active" : "", onClick: function () { statusNode(node, node.status === "accepted" ? "default" : "accepted"); }}, node.status === "accepted" ? "채택 취소" : "채택"),
         h("button", {type: "button", onClick: function () { statusNode(node, "held"); }}, "보류"),
-        h("select", {value: String(node.assignee_id || ""), title: "담당자 변경", onChange: function (event) { assignNode(node, event.target.value); }}, (state.participants || []).map(function (participant) { return h("option", {key: participant.user_id, value: String(participant.user_id)}, "담당 · " + participant.display_name); })),
-        node.status === "default" && node.section_id ? h("label", null, h("input", {type: "checkbox", checked: !!defaults[node.id], onChange: function (event) { var changed = {}; changed[node.id] = event.target.checked; setDefaults(Object.assign({}, defaults, changed)); }}), " PRD 반영 후보") : null
+        assigneeButton(node)
       ) : null);
     }
 
@@ -342,11 +551,12 @@
     }
 
     function renderCanvas() {
-      return h("main", {className: "brain-stage", onMouseDown: pan},
+      return h("main", {className: "brain-stage", onMouseDown: pan, onWheel: wheelCanvas},
+        h("div", {className: "brain-canvas-hint"}, h("i", {className: "bi bi-arrows-move"}), " 빈 공간을 드래그해 이동 · 휠로 패닝 · Ctrl+휠로 확대/축소"),
         h("div", {className: "brain-zoom"}, h("button", {onClick: function () { zoom(.1); }}, "+"), h("span", null, Math.round(view.zoom * 100) + "%"), h("button", {onClick: function () { zoom(-.1); }}, "−"), h("button", {onClick: function () { var next = {x: 0, y: 0, zoom: 1}; setView(next); saveView(next); }}, "⌂")),
         h("div", {className: "brain-canvas", style: {width: canvasWidth(), height: CANVAS_H, transform: "translate(" + view.x + "px," + view.y + "px) scale(" + view.zoom + ")"}},
-          h("section", {className: "brain-free-zone", style: {width: canvasWidth() - 80}}, h("div", null, h("strong", null, "미분류 아이디어"), h("span", null, state.counts.unclassified)), h("p", null, "메모를 자유롭게 작성한 뒤 아래 섹션으로 드래그하거나 AI로 분류하세요")),
-          state.sections.map(function (section, index) { var color = laneColors[index % laneColors.length], count = visible.filter(function (node) { return node.section_id === section.id; }).length; return h("section", {key: section.id, className: "brain-lane", style: {left: 40 + index * (LANE_W + LANE_GAP), top: LANE_TOP, width: LANE_W, height: 1330, background: color[0], borderColor: color[1]}}, h("header", {style: {background: color[1], color: color[2]}}, h("span", null, String(index + 1).padStart(2, "0")), h("strong", null, section.title), h("small", null, count + "개 아이디어")), state.permissions.can_apply_ai && !state.permissions.is_completed ? h("button", {className: "brain-lane-apply", style: {color: color[2], borderColor: color[1]}, onClick: previewPrd}, "✦ AI PRD 적용") : null); }),
+          h("section", {className: "brain-free-zone", style: {width: canvasWidth() - 80}}, h("div", null, h("strong", null, "미분류 아이디어"), h("span", null, state.counts.unclassified)), h("p", null, "메모를 자유롭게 작성한 뒤 아래 섹션으로 드래그해 분류하세요")),
+          state.sections.map(function (section, index) { var color = laneColors[index % laneColors.length], count = visible.filter(function (node) { return node.section_id === section.id; }).length; return h("section", {key: section.id, className: "brain-lane", style: {left: 40 + index * (LANE_W + LANE_GAP), top: LANE_TOP, width: LANE_W, height: LANE_H, background: color[0], borderColor: color[1]}}, h("header", {style: {background: color[1], color: color[2]}}, h("span", null, String(index + 1).padStart(2, "0")), h("strong", null, section.title), h("small", null, count + "개 아이디어")), state.permissions.can_apply_ai && !state.permissions.is_completed ? h("button", {className: "brain-lane-apply", style: {color: color[2], borderColor: color[1]}, onClick: previewPrd}, "✦ AI PRD 적용") : null); }),
           h("svg", {className: "brain-lines", width: canvasWidth(), height: CANVAS_H}, state.connections.map(line)),
           visible.map(note)));
     }
@@ -370,21 +580,19 @@
     function renderAiPanel() {
       if (!aiPanel) return null;
       var body;
-      if (aiPanel.type === "analysis") {
+      if (aiPanel.type === "classification_result") {
+        var result = aiPanel.result, counts = result.counts;
         body = h("div", null,
-          h("p", {className: "lead"}, aiPanel.job.output.summary),
-          h("h3", null, "섹션별 분석"),
-          h("ul", null, (aiPanel.job.output.section_findings || []).map(function (row, index) { return h("li", {key: index}, row.finding); })),
-          h("h3", null, "부족한 주제"),
-          h("ul", null, (aiPanel.job.output.missing_topics || []).map(function (row, index) { return h("li", {key: index}, row.topic + " — " + row.reason); }))
-        );
-      } else if (aiPanel.type === "classification") {
-        body = h("div", null,
-          (aiPanel.job.output.recommendations || []).map(function (row) {
-            var section = state.sections.find(function (item) { return item.id === row.section_id; });
-            return h("article", {key: row.node_id}, h("strong", null, row.node_content), h("p", null, "추천: " + ((section && section.title) || row.section_id) + " · " + row.reason));
-          }),
-          h("button", {className: "btn btn-primary w-100", onClick: applyClassification}, "추천 전체 반영")
+          h("p", {className: "lead"}, "활성 메모 " + counts.total + "개 중 " + counts.classified + "개가 섹션에 분류되어 있습니다."),
+          h("div", {className: "brain-result-counts"},
+            h("span", null, "분류됨 ", h("strong", null, counts.classified)),
+            h("span", null, "미분류 ", h("strong", null, counts.unclassified)),
+            h("span", null, "보류 ", h("strong", null, counts.held))
+          ),
+          h("h3", null, "섹션별 분류 결과"),
+          h("ul", null, result.sections.map(function (row) {
+            return h("li", {key: row.id}, h("span", null, String(row.position).padStart(2, "0") + " " + row.title), h("strong", null, row.note_count + "개"));
+          }))
         );
       } else {
         body = h("div", null,
@@ -394,7 +602,7 @@
       }
       return h("aside", {className: "brain-ai-panel"},
         h("header", null,
-          h("div", null, h("span", null, "AI RESULT"), h("h2", null, aiPanel.type === "analysis" ? "브레인스토밍 분석" : aiPanel.type === "classification" ? "AI 항목 분류" : "PRD 반영 미리보기")),
+          h("div", null, h("span", null, aiPanel.type === "classification_result" ? "CLASSIFICATION RESULT" : "AI RESULT"), h("h2", null, aiPanel.type === "classification_result" ? "분류 결과" : "PRD 반영 미리보기")),
           h("button", {type: "button", onClick: function () { setAiPanel(null); }}, "×")
         ),
         h("div", {className: "brain-ai-body"}, body)
@@ -417,16 +625,15 @@
         h("div", {className: "brain-counts"}, h("span", null, state.counts.total + "개 메모"), h("span", {className: "warn"}, "미분류 " + state.counts.unclassified), h("span", {className: "good"}, "✓ " + state.counts.accepted + "개 채택")),
         boardView === "canvas" ? h("div", {className: "brain-tools"}, toolButton("select", "bi bi-cursor", "선택"), toolButton("connect", "bi bi-bezier2", "연결")) : null,
         canEdit ? h("button", {type: "button", className: "brain-add", onClick: createNote}, h("i", {className: "bi bi-plus-lg"}), " 메모 추가") : null,
-        h("div", {className: "brain-filter"}, ["all", "accepted", "default"].map(function (value) { return h("button", {key: value, type: "button", className: filter === value ? "active" : "", onClick: function () { setFilter(value); }}, {all: "전체", accepted: "채택됨", default: "기본"}[value]); })),
+        h("div", {className: "brain-filter"}, ["all", "accepted", "default"].map(function (value) { return h("button", {key: value, type: "button", className: filter === value ? "active" : "", onClick: function () { setFilter(value); }}, {all: "전체", accepted: "채택됨", default: "미분류"}[value]); })),
         boardView === "canvas" && canEdit ? h("button", {type: "button", className: "btn btn-sm brain-auto", disabled: busy, onClick: autoLayout}, h("i", {className: "bi bi-grid-3x3-gap"}), " 자동 정렬") : null,
-        h("a", {className: "btn btn-sm brain-auto", href: apiBase + "export/markdown/"}, h("i", {className: "bi bi-filetype-md"}), " Markdown"),
-        h("div", {className: "brain-ai-actions"}, state.permissions.can_request_ai && !state.permissions.is_completed ? h("button", {type: "button", disabled: busy, onClick: function () { runAi("analysis"); }}, "✦ AI 분석") : null, state.permissions.can_request_ai && !state.permissions.is_completed ? h("button", {type: "button", disabled: busy, onClick: function () { runAi("classification"); }}, "AI 항목 분류") : null)
+        h("div", {className: "brain-ai-actions"}, h("button", {type: "button", disabled: busy, onClick: loadClassificationResult}, h("i", {className: "bi bi-diagram-3"}), " 분류 결과"))
       ),
       boardView === "canvas" && tool === "connect" ? h("div", {className: "brain-connect-banner"}, source ? "두 번째 메모를 선택해 주세요" : "연결할 첫 번째 메모를 선택해 주세요", h("button", {onClick: function () { setTool("select"); setSource(null); }}, "취소")) : null,
       notice ? h("div", {className: "brain-notice alert alert-" + notice.kind}, notice.text, h("button", {type: "button", className: "btn-close", onClick: function () { setNotice(null); }})) : null,
       boardView === "board" ? renderBoard() : boardView === "canvas" ? renderCanvas() : renderList(),
-      h("section", {className: "brain-held"}, h("header", null, h("strong", null, "⏸ 보류 구역"), h("span", null, state.held_nodes.length), h("small", null, "보류 메모는 아이디어에서 제외되며 필요할 때 다시 미분류로 돌릴 수 있습니다")), h("div", null, state.held_nodes.map(function (node) { return h("article", {key: node.id, "data-color": node.color}, h("p", null, node.content), canEdit ? h("button", {onClick: function () { statusNode(node, "default"); }}, "미분류로 이동 →") : null); }))),
-      renderEditor(), renderAiPanel(),
+      h("section", {className: "brain-held", onDragOver: function (event) { if (canEdit) event.preventDefault(); }, onDrop: dropHeld}, h("header", null, h("strong", null, "⏸ 보류 구역"), h("span", null, state.held_nodes.length), h("small", null, "메모를 이곳으로 끌어오거나 보류 버튼을 누르면 보류됩니다")), h("div", null, state.held_nodes.map(function (node) { return h("article", {key: node.id, "data-color": node.color}, h("p", null, node.content), canEdit ? h("button", {onClick: function () { statusNode(node, "default"); }}, "미분류로 이동 →") : null); }))),
+      renderEditor(), renderAssigneeMenu(), renderAiPanel(),
       busy ? h("div", {className: "brain-busy"}, h("span", {className: "spinner-border spinner-border-sm"}), jobId ? " AI 작업 처리 중" : " 저장 중") : null);
   }
 

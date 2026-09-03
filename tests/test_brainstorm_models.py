@@ -85,7 +85,7 @@ class BrainstormModelTests(TestCase):
             "section": self.section,
             "author_id": 7,
             "assignee_id": 7,
-            "status": BrainstormNodeStatus.DEFAULT,
+            "status": BrainstormNodeStatus.ACCEPTED,
         }
         values.update(overrides)
         return BrainstormNode.objects.create(**values)

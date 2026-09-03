@@ -99,6 +99,7 @@ class PrdCreationApiTests(TestCase):
         session["selected_round_id"] = 3
         session.save()
 
+        PrdTemplate.objects.all().delete()
         template = PrdTemplate.objects.create(
             prd_type=PrdType.NEW_PRODUCT,
             name="신규 프로젝트 템플릿",

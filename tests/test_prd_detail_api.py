@@ -301,6 +301,7 @@ class PrdDetailApiTests(TestCase):
             color="yellow",
             position_x=0,
             position_y=0,
+            section=self.section,
             author_id=7,
             assignee_id=11,
             status=BrainstormNodeStatus.ACCEPTED,

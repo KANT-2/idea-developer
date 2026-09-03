@@ -1,7 +1,6 @@
 from django.conf import settings
-from django.db import DatabaseError
 
-from apps.integration.models import AxUserTeamLoginView
+from apps.integration.repository import get_default_integration_repository
 
 
 def runtime_settings(request):
@@ -29,35 +28,24 @@ def session_identity(request):
         return {"session_identity": identity}
 
     try:
-        row = (
-            AxUserTeamLoginView.objects.using(settings.INTEGRATION_DB_ALIAS)
-            .filter(user_id=external_user_id)
-            .values(
-                "display_name_snapshot",
-                "first_name",
-                "last_name",
-                "primary_email",
-                "user_email",
-                "role",
-                "is_staff",
-                "is_superuser",
-            )
-            .first()
+        repository = get_default_integration_repository()
+        parent_user = repository.get_user(external_user_id)
+        summary = repository.get_user_summaries(user_ids=(external_user_id,)).get(
+            external_user_id
         )
-    except DatabaseError:
-        row = None
+    except Exception:
+        parent_user = None
+        summary = None
 
-    if row:
-        full_name = " ".join(
-            part.strip() for part in (row["first_name"], row["last_name"]) if part and part.strip()
+    if parent_user:
+        if summary:
+            identity["display_name"] = summary.display_name
+        identity["email"] = (
+            parent_user.primary_email or parent_user.user_email or identity["email"]
         )
-        identity["display_name"] = (
-            (row["display_name_snapshot"] or "").strip() or full_name or fallback_name
-        )
-        identity["email"] = row["primary_email"] or row["user_email"] or identity["email"]
-        parent_role = (row["role"] or "").strip().lower()
+        parent_role = (parent_user.parent_role or "").strip().lower()
         tutor_roles = {"tutor", "teacher", "mentor", "instructor"}
-        if row["is_staff"] or row["is_superuser"] or parent_role in tutor_roles:
+        if parent_user.is_staff or parent_user.is_superuser or parent_role in tutor_roles:
             identity["role_label"] = "튜터"
 
     return {"session_identity": identity}

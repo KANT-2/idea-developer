@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from apps.accounts.permissions import ParticipantAction, role_permission_policy
 from apps.integration.context import IntegrationContext
-from apps.integration.repository import DjangoViewIntegrationRepository, IntegrationRepository
+from apps.integration.repository import IntegrationRepository, get_default_integration_repository
 from apps.prds.detail import PrdAccess, PrdAccessService
 from apps.prds.models import PrdParticipant, PrdSection
 
@@ -85,7 +85,7 @@ class BrainstormAccessService:
 
 class BrainstormMutationService:
     def __init__(self, repository: IntegrationRepository | None = None):
-        self.repository = repository or DjangoViewIntegrationRepository()
+        self.repository = repository or get_default_integration_repository()
 
     @staticmethod
     def _validate_version(version) -> int:
@@ -198,9 +198,13 @@ class BrainstormMutationService:
     ):
         expected = self._validate_version(version)
         try:
+            # ``section`` is nullable.  Joining it here makes PostgreSQL reject
+            # SELECT ... FOR UPDATE because the nullable side of an outer join
+            # cannot be locked.  Lock only the node and its required relations;
+            # Django can fetch section separately when a caller needs it.
             node = (
                 BrainstormNode.objects.select_for_update()
-                .select_related("canvas__prd", "section")
+                .select_related("canvas__prd")
                 .get(pk=node_id, canvas=canvas)
             )
         except (BrainstormNode.DoesNotExist, ValidationError, ValueError) as exc:
@@ -414,13 +418,28 @@ class BrainstormMutationService:
             "x": str(node.position_x),
             "y": str(node.position_y),
             "section_id": node.section_id,
+            "status": node.status,
             "version": node.version,
         }
         node.position_x = x
         node.position_y = y
         node.section = section
+        node.status = (
+            BrainstormNodeStatus.ACCEPTED
+            if section is not None
+            else BrainstormNodeStatus.DEFAULT
+        )
         node.version += 1
-        node.save(update_fields=["position_x", "position_y", "section", "version", "updated_at"])
+        node.save(
+            update_fields=[
+                "position_x",
+                "position_y",
+                "section",
+                "status",
+                "version",
+                "updated_at",
+            ]
+        )
         self._record(
             canvas=canvas,
             actor_user_id=actor_user_id,
@@ -432,6 +451,7 @@ class BrainstormMutationService:
                 "x": str(x),
                 "y": str(y),
                 "section_id": node.section_id,
+                "status": node.status,
                 "version": node.version,
             },
         )
@@ -506,9 +526,9 @@ class BrainstormMutationService:
             x, y = self._unclassified_restore_position(canvas, exclude_node_id=node.pk)
             node.restore_from_hold(position_x=x, position_y=y)
         else:
-            node.status = status
-            node.version += 1
-            node.save(update_fields=["status", "version", "updated_at"])
+            raise ValidationError(
+                {"status": "채택 여부는 메모의 섹션 위치에 따라 자동으로 결정됩니다."}
+            )
         self._record(
             canvas=canvas,
             actor_user_id=actor_user_id,

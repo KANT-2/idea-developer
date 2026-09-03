@@ -244,7 +244,7 @@ def _canvas_counts(canvas_row):
     counts = regular_notes.aggregate(
         total=Count("id"),
         unclassified=Count("id", filter=Q(section__isnull=True)),
-        accepted=Count("id", filter=Q(status=BrainstormNodeStatus.ACCEPTED)),
+        accepted=Count("id", filter=Q(section__isnull=False)),
     )
     counts["held"] = active_nodes.filter(
         node_type=BrainstormNodeType.NOTE,
@@ -279,8 +279,13 @@ def canvas(request, prd_id):
             status=BrainstormNodeStatus.HELD,
         )
         if state_filter != "all":
+            position_filter = (
+                Q(section__isnull=False)
+                if state_filter == BrainstormNodeStatus.ACCEPTED
+                else Q(section__isnull=True)
+            )
             visible_nodes = visible_nodes.filter(
-                Q(node_type=BrainstormNodeType.TITLE) | Q(status=state_filter)
+                Q(node_type=BrainstormNodeType.TITLE) | position_filter
             )
         visible_nodes = list(visible_nodes.order_by("created_at", "id"))
         visible_ids = [node.pk for node in visible_nodes]
