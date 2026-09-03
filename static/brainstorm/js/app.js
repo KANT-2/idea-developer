@@ -136,6 +136,10 @@
     var prdScopePair = window.React.useState("all");
     var prdScope = prdScopePair[0];
     var setPrdScope = prdScopePair[1];
+    var canvasRequestKeyRef = window.React.useRef(requestKey());
+    var filterPair = window.React.useState("all");
+    var nodeFilter = filterPair[0];
+    var setNodeFilter = filterPair[1];
 
     function schedule(delay) {
       window.clearTimeout(timerRef.current);
@@ -144,7 +148,10 @@
 
     function fullSync() {
       setSyncStatus("loading");
-      return window.fetch(apiBase + "canvas/", { credentials: "same-origin" })
+      return window.fetch(apiBase + "canvas/", {
+        credentials: "same-origin",
+        headers: { "Idempotency-Key": canvasRequestKeyRef.current },
+      })
         .then(function (response) {
           if (!response.ok) throw new Error("full_sync_failed");
           return response.json();
@@ -391,6 +398,75 @@
       });
     }
 
+    function refreshAfter(action) {
+      return action.then(function () {
+        cursorRef.current = null;
+        return fullSync();
+      }).catch(function (error) {
+        setAiStatus({ busy: false, jobId: null, error: error.message });
+        if (error.code === "version_conflict") {
+          cursorRef.current = null;
+          fullSync();
+        }
+      });
+    }
+
+    function createNote() {
+      var content = window.prompt("새 메모 내용을 입력해 주세요.");
+      if (!content || !content.trim()) return;
+      refreshAfter(requestJson(apiBase + "nodes/", {
+        method: "POST",
+        headers: { "Idempotency-Key": requestKey() },
+        body: JSON.stringify({
+          content: content.trim(), color: "yellow",
+          x: 40 + (state.nodes.length % 6) * 40,
+          y: 40 + Math.floor(state.nodes.length / 6) * 40,
+          section_id: null,
+        }),
+      }));
+    }
+
+    function editNote(node) {
+      var content = window.prompt("메모 내용을 수정해 주세요.", node.content);
+      if (content === null || !content.trim()) return;
+      refreshAfter(requestJson(apiBase + "nodes/" + node.id + "/content/", {
+        method: "PATCH", body: JSON.stringify({ content: content.trim(), version: node.version }),
+      }));
+    }
+
+    function changeNodeStatus(node, status) {
+      var payload = { status: status, version: node.version };
+      if (status === "held") {
+        payload.connection_versions = state.connections.filter(function (connection) {
+          return connection.node_a_id === node.id || connection.node_b_id === node.id;
+        }).map(function (connection) { return { id: connection.id, version: connection.version }; });
+      }
+      refreshAfter(requestJson(apiBase + "nodes/" + node.id + "/status/", {
+        method: "PATCH", body: JSON.stringify(payload),
+      }));
+    }
+
+    function moveNode(node, rawSectionId) {
+      refreshAfter(requestJson(apiBase + "nodes/" + node.id + "/position/", {
+        method: "PATCH",
+        body: JSON.stringify({
+          version: node.version, section_id: rawSectionId ? Number(rawSectionId) : null,
+          x: node.x, y: node.y,
+        }),
+      }));
+    }
+
+    function deleteNode(node) {
+      if (!window.confirm("이 메모를 삭제하시겠습니까? 30일 동안 복원할 수 있습니다.")) return;
+      refreshAfter(requestJson(apiBase + "nodes/" + node.id + "/", {
+        method: "DELETE", body: JSON.stringify({ version: node.version }),
+      }));
+    }
+
+    function restoreHeld(node) {
+      changeNodeStatus(node, "default");
+    }
+
     window.React.useEffect(function () {
       function reconnect() {
         cursorRef.current = null;
@@ -420,6 +496,9 @@
       h("div", { className: "d-flex justify-content-between align-items-center mb-3" },
         h("h1", { className: "h4 mb-0" }, "브레인스토밍"),
         h("div", { className: "d-flex align-items-center gap-2" },
+          state.permissions.can_edit && !state.permissions.is_completed ? h("button", {
+            type: "button", className: "btn btn-primary btn-sm", onClick: createNote,
+          }, "+ 메모") : null,
           canRequestAi ? h("button", {
             type: "button", className: "btn btn-outline-primary btn-sm",
             disabled: aiStatus.busy, onClick: function () { requestAi("analysis"); },
@@ -444,6 +523,7 @@
           aiStatus.busy && aiStatus.jobId ? h("button", {
             type: "button", className: "btn btn-outline-secondary btn-sm", onClick: cancelAi,
           }, "취소") : null,
+          h("a", { className: "btn btn-outline-secondary btn-sm", href: apiBase + "export/markdown/" }, "Markdown"),
           h("span", { className: statusClass, role: "status" },
             syncStatus === "connected" ? "동기화됨" : "재연결 중"))
       ),
@@ -460,6 +540,13 @@
           h("div", { className: "border rounded p-2 bg-white" },
             h("span", { className: "text-muted me-2" }, entry[0]), h("strong", null, String(entry[1]))));
       })),
+      h("div", { className: "d-flex justify-content-between align-items-center mb-3" },
+        h("select", {
+          className: "form-select form-select-sm w-auto", value: nodeFilter,
+          onChange: function (event) { setNodeFilter(event.target.value); },
+          "aria-label": "메모 상태 필터",
+        }, [h("option", { value: "all", key: "all" }, "모든 메모"), h("option", { value: "default", key: "default" }, "기본"), h("option", { value: "accepted", key: "accepted" }, "채택")]),
+        h("small", { className: "text-muted" }, "최종 위치·섹션·상태 변경만 서버에 저장됩니다.")),
       analysis ? h("section", { className: "card mb-3", "aria-label": "AI 분석 결과" },
         h("div", { className: "card-header" }, "AI 분석 결과"),
         h("div", { className: "card-body brainstorm-ai-result" },
@@ -557,8 +644,12 @@
             }),
             onClick: applyPrdPreview,
           }, "승인한 질문만 PRD에 저장"))) : null,
-      h("div", { className: "list-group" }, state.nodes.map(function (node) {
-        return h("div", { className: "list-group-item", key: node.id },
+      h("div", { className: "row g-3" }, state.nodes.filter(function (node) {
+        return node.node_type === "title" || nodeFilter === "all" || node.status === nodeFilter;
+      }).map(function (node) {
+        return h("div", { className: "col-md-6 col-xl-4", key: node.id },
+          h("article", { className: "card h-100 brainstorm-note", "data-color": node.color },
+          h("div", { className: "card-body" },
           canApplyAi && node.node_type === "note" && node.status === "default" && node.section_id ?
             h("label", { className: "float-end small" },
               h("input", {
@@ -571,10 +662,24 @@
                   });
                 },
               }), "PRD 반영에 추가") : null,
-          h("strong", null, node.content),
+          h("strong", { className: "d-block mb-2" }, node.content),
           h("small", { className: "d-block text-muted" },
-            "version " + node.version + (node.section_id ? " · section " + node.section_id : " · 미분류")));
-      }))
+            "version " + node.version + (node.section_id ? " · section " + node.section_id : " · 미분류")),
+          state.permissions.can_edit && !state.permissions.is_completed && node.node_type === "note" ? h("div", { className: "mt-3 d-flex flex-wrap gap-1" },
+            h("button", { type: "button", className: "btn btn-sm btn-outline-secondary", onClick: function () { editNote(node); } }, "수정"),
+            h("select", { className: "form-select form-select-sm brainstorm-section-select", value: node.section_id || "", onChange: function (event) { moveNode(node, event.target.value); }, "aria-label": "메모 섹션" },
+              [h("option", { value: "", key: "none" }, "미분류")].concat(state.sections.map(function (section) { return h("option", { value: String(section.id), key: section.id }, section.title); }))),
+            node.status !== "accepted" ? h("button", { type: "button", className: "btn btn-sm btn-outline-success", onClick: function () { changeNodeStatus(node, "accepted"); } }, "채택") : h("button", { type: "button", className: "btn btn-sm btn-outline-secondary", onClick: function () { changeNodeStatus(node, "default"); } }, "채택 취소"),
+            h("button", { type: "button", className: "btn btn-sm btn-outline-warning", onClick: function () { changeNodeStatus(node, "held"); } }, "보류"),
+            h("button", { type: "button", className: "btn btn-sm btn-outline-danger", onClick: function () { deleteNode(node); } }, "삭제")) : null)));
+      })),
+      state.held_nodes.length ? h("section", { className: "mt-4" },
+        h("h2", { className: "h5" }, "보류 메모"),
+        h("div", { className: "list-group" }, state.held_nodes.map(function (node) {
+          return h("div", { className: "list-group-item d-flex justify-content-between align-items-center gap-2", key: node.id },
+            h("span", null, node.content),
+            state.permissions.can_edit && !state.permissions.is_completed ? h("button", { type: "button", className: "btn btn-sm btn-outline-primary", onClick: function () { restoreHeld(node); } }, "미분류로 복원") : null);
+        }))) : null
     );
   }
 

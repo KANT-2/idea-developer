@@ -24,3 +24,12 @@
   border: 1px solid var(--bs-border-color);
   border-radius: var(--bs-border-radius);
 }
+
+.brainstorm-note { border-left: .35rem solid #facc15; }
+.brainstorm-note[data-color="blue"] { border-left-color: #60a5fa; }
+.brainstorm-note[data-color="green"] { border-left-color: #34d399; }
+.brainstorm-note[data-color="pink"] { border-left-color: #f472b6; }
+.brainstorm-note[data-color="purple"] { border-left-color: #a78bfa; }
+.brainstorm-note[data-color="orange"] { border-left-color: #fb923c; }
+.brainstorm-note[data-color="gray"] { border-left-color: #94a3b8; }
+.brainstorm-section-select { max-width: 11rem; }

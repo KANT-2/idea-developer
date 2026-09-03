@@ -9,7 +9,7 @@
 
 {% block breadcrumb %}
   <nav aria-label="breadcrumb">
-    <ol class="breadcrumb"><li class="breadcrumb-item active">브레인스토밍</li></ol>
+    <ol class="breadcrumb"><li class="breadcrumb-item"><a href="{% url 'ideas:home' %}">PRD</a></li>{% if prd_id %}<li class="breadcrumb-item"><a href="{% url 'prd-write-page' prd_id %}">{{ prd_title }}</a></li>{% endif %}<li class="breadcrumb-item active">브레인스토밍</li></ol>
   </nav>
 {% endblock %}
 
