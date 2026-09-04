@@ -12,6 +12,7 @@ urlpatterns = [
     path("evaluation/run/", views.request_evaluation, name="request-evaluation"),
     path("drafts/<uuid:job_id>/apply/", views.apply_draft, name="apply-draft"),
     path("chat/<uuid:job_id>/apply/", views.apply_chat_proposal, name="apply-chat-proposal"),
+    path("chat/<uuid:job_id>/decline/", views.decline_chat_proposal, name="decline-chat-proposal"),
     path("jobs/<uuid:job_id>/", views.job_status, name="job-status"),
     path("jobs/<uuid:job_id>/cancel/", views.cancel_job, name="cancel-job"),
     path("jobs/<uuid:job_id>/retry/", views.retry_job, name="retry-job"),
