@@ -101,7 +101,10 @@ class PrdAiContextBuilder:
                 context["truncated"] = True
                 break
             context["sections"].append(section_data)
-            for question in current_section.questions.filter(is_deleted=False).order_by(
+            for question in current_section.questions.filter(
+                is_deleted=False,
+                is_held=False,
+            ).order_by(
                 "position", "id"
             ):
                 try:
@@ -314,6 +317,7 @@ class AiDraftService:
                 section__prd=job.prd,
                 section__is_deleted=False,
                 is_deleted=False,
+                is_held=False,
             )
         except PrdQuestion.DoesNotExist as exc:
             raise ValidationError({"question_id": "질문을 찾을 수 없습니다."}) from exc

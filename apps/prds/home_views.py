@@ -55,6 +55,7 @@ def _parse_filters(request):
     except ValueError as exc:
         raise ValidationError({"pagination": "페이지 값은 정수여야 합니다."}) from exc
     return HomeFilters(
+        scope=request.GET.get("scope", "all"),
         tab=request.GET.get("tab", "all"),
         statuses=_multiple_values(request, "status"),
         prd_types=_multiple_values(request, "prd_type"),

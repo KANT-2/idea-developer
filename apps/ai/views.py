@@ -22,6 +22,7 @@ from .coaching import (
     AiDraftService,
     AiDraftVersionConflict,
 )
+from .evaluation import EVALUATION_PERSONAS, PrdEvaluationService
 from .exceptions import (
     AiJobNotCancellable,
     AiJobNotRetryable,
@@ -119,6 +120,7 @@ def _question(access, value):
             section__prd=access.prd,
             section__is_deleted=False,
             is_deleted=False,
+            is_held=False,
         )
     except PrdQuestion.DoesNotExist as exc:
         raise ValidationError({"question_id": "현재 PRD의 질문이 아닙니다."}) from exc
@@ -241,6 +243,75 @@ def request_draft(request, prd_id):
             prd=access.prd,
             question=question,
             user_id=context.user_id,
+            idempotency_key=_idempotency_key(request, payload),
+        )
+        return api_success(
+            _serialize_job(job),
+            status=202 if created else 200,
+            request_id=_request_id(request),
+        )
+    except (
+        PrdNotFound,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+        AiPromptNotConfigured,
+        AiUsageLimitExceeded,
+    ) as exc:
+        return _error(request, exc)
+
+
+@require_GET
+def latest_evaluation(request, prd_id):
+    if response := _authentication_error(request):
+        return response
+    try:
+        context, access = _access(request, prd_id)
+        service = PrdEvaluationService()
+        jobs_by_persona = service.latest_by_persona(
+            prd=access.prd,
+            user_id=context.user_id,
+        )
+        job = service.latest(
+            prd=access.prd,
+            user_id=context.user_id,
+            jobs_by_persona=jobs_by_persona,
+        )
+        return api_success(
+            {
+                "job": _serialize_job(job) if job else None,
+                "is_current": service.is_current(job) if job else False,
+                "jobs": {
+                    persona: _serialize_job(persona_job)
+                    for persona, persona_job in jobs_by_persona.items()
+                },
+                "is_current_by_persona": {
+                    persona: service.is_current(persona_job)
+                    for persona, persona_job in jobs_by_persona.items()
+                },
+                "personas": [
+                    {"id": key, "label": value["label"]}
+                    for key, value in EVALUATION_PERSONAS.items()
+                ],
+            },
+            request_id=_request_id(request),
+        )
+    except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
+        return _error(request, exc)
+
+
+@require_POST
+def request_evaluation(request, prd_id):
+    if response := _authentication_error(request):
+        return response
+    try:
+        payload = _parse_json(request)
+        context, access = _access(request, prd_id)
+        _enforce(access, ParticipantAction.REQUEST_AI)
+        job, created = PrdEvaluationService().request(
+            prd=access.prd,
+            user_id=context.user_id,
+            persona=payload.get("persona"),
             idempotency_key=_idempotency_key(request, payload),
         )
         return api_success(

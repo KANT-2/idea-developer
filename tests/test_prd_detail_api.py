@@ -1,7 +1,9 @@
 import json
 from unittest.mock import Mock, patch
 
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -218,6 +220,37 @@ class PrdDetailApiTests(TestCase):
         self.assertTrue(data["permissions"]["can_comment"])
         self.assertFalse(data["permissions"]["can_view_contributions"])
 
+    def test_exports_prd_as_utf8_markdown_and_excludes_held_questions(self):
+        held_question = PrdQuestion.objects.create(
+            section=self.section,
+            prompt="보류 질문",
+            position=3,
+            is_completed=True,
+            is_held=True,
+        )
+        PrdAnswer.objects.create(
+            question=held_question,
+            content="내보내면 안 되는 답변",
+            updated_by_user_id=7,
+        )
+
+        response = self.client.get(
+            reverse("prd_api:export-markdown", args=[self.prd.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "text/markdown; charset=utf-8")
+        self.assertEqual(response["X-Content-Type-Options"], "nosniff")
+        self.assertIn("filename*=UTF-8''prd-", response["Content-Disposition"])
+        content = response.content.decode("utf-8")
+        self.assertIn(f"# {self.prd.title}", content)
+        self.assertIn("## 1. 문제 정의", content)
+        self.assertIn("**어떤 문제인가요?**", content)
+        self.assertIn("사용자 문제입니다.", content)
+        self.assertNotIn("보류 질문", content)
+        self.assertNotIn("내보내면 안 되는 답변", content)
+        self.assertNotIn("삭제 질문", content)
+
     def test_contribution_results_are_admin_only(self):
         url = reverse("prd_api:contributions", args=[self.prd.id])
 
@@ -279,6 +312,68 @@ class PrdDetailApiTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.answer.refresh_from_db()
         self.assertEqual(self.answer.content, "사용자 문제입니다.")
+
+    def test_owner_can_hold_and_restore_question_without_losing_answer(self):
+        url = reverse("prd_api:question-hold", args=[self.prd.id, self.question.id])
+
+        with CaptureQueriesContext(connection) as queries:
+            held = self.patch_json(url, {"is_held": True, "version": 1})
+
+        self.assertEqual(held.status_code, 200)
+        self.assertFalse(
+            any(
+                'FROM "prds_prdquestion"' in query["sql"]
+                and 'JOIN "prds_prdanswer"' in query["sql"]
+                for query in queries.captured_queries
+            ),
+            "The locked question query must not include the optional answer relation.",
+        )
+        self.assertTrue(held.json()["data"]["question"]["is_held"])
+        self.assertEqual(held.json()["data"]["completion_rate"], 0)
+        self.assertEqual(
+            held.json()["data"]["question"]["answer"]["content"],
+            "사용자 문제입니다.",
+        )
+        blocked_answer = self.patch_json(
+            reverse("prd_api:question-answer", args=[self.prd.id, self.question.id]),
+            {"content": "보류 중 수정", "version": 2},
+        )
+        self.assertEqual(blocked_answer.status_code, 400)
+
+        restored = self.patch_json(url, {"is_held": False, "version": 2})
+        self.assertEqual(restored.status_code, 200)
+        self.assertFalse(restored.json()["data"]["question"]["is_held"])
+        self.assertEqual(restored.json()["data"]["completion_rate"], 100)
+        self.assertEqual(
+            list(
+                self.prd.change_history.filter(event_type="question_hold_changed")
+                .order_by("created_at")
+                .values_list("after_data__is_held", flat=True)
+            ),
+            [True, False],
+        )
+
+    def test_question_hold_checks_version_permission_and_completion_lock(self):
+        url = reverse("prd_api:question-hold", args=[self.prd.id, self.question.id])
+        self.assertEqual(
+            self.patch_json(url, {"is_held": True, "version": 99}).status_code,
+            409,
+        )
+
+        self.login_as(10, role=PrdParticipantRole.VIEWER)
+        self.assertEqual(
+            self.patch_json(url, {"is_held": True, "version": 1}).status_code,
+            403,
+        )
+
+        self.login_as(7, role=PrdParticipantRole.OWNER)
+        self.prd.status = PrdStatus.COMPLETED
+        self.prd.completed_at = timezone.now()
+        self.prd.save(update_fields=["status", "completed_at", "updated_at"])
+        self.assertEqual(
+            self.patch_json(url, {"is_held": True, "version": 1}).status_code,
+            403,
+        )
 
     def test_owner_manages_participants_and_removal_restores_assignee_atomically(self):
         participants_url = reverse("prd_api:participants", args=[self.prd.id])
@@ -730,6 +825,7 @@ class PrdDetailApiTests(TestCase):
     def test_every_detail_endpoint_rechecks_prd_access(self):
         endpoints = (
             reverse("prd_api:detail", args=[self.private_other_team.id]),
+            reverse("prd_api:export-markdown", args=[self.private_other_team.id]),
             reverse("prd_api:comments", args=[self.private_other_team.id]),
             reverse("prd_api:ai-usage", args=[self.private_other_team.id]),
             reverse("prd_api:ai-chats", args=[self.private_other_team.id]),

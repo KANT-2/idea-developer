@@ -205,6 +205,7 @@ class ContributionEvaluationService:
                 section__prd=prd,
                 section__is_deleted=False,
                 is_deleted=False,
+                is_held=False,
             )
             .select_related("section", "answer")
             .order_by("section__position", "position", "id")

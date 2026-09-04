@@ -322,6 +322,19 @@ class HomeApiTests(TestCase):
         self.assertEqual(team_ids, {self.collaborative.id, self.team_shared.id})
         self.assertEqual(personal_ids, {self.personal.id, self.dropped.id})
 
+    def test_home_scope_separates_explicit_viewer_participation(self):
+        mine = self.get_home(scope="mine").json()["data"]
+        viewer = self.get_home(scope="viewer").json()["data"]
+
+        self.assertEqual(
+            {item["id"] for item in mine["items"]},
+            {self.personal.id, self.team_shared.id, self.dropped.id},
+        )
+        self.assertEqual([item["id"] for item in viewer["items"]], [self.collaborative.id])
+        self.assertEqual(viewer["items"][0]["my_role"], PrdParticipantRole.VIEWER)
+        self.assertEqual(viewer["applied_filters"]["scope"], "viewer")
+        self.assertEqual(mine["kpis"], viewer["kpis"])
+
     def test_status_or_filter_and_all_statuses_behavior(self):
         response = self.client.get(
             reverse("home_api:home"),
@@ -390,6 +403,7 @@ class HomeApiTests(TestCase):
 
         for params in (
             {"tab": "unknown"},
+            {"scope": "unknown"},
             {"status": "pending"},
             {"sort": "oldest"},
             {"deadline_from": "2026/09/02"},

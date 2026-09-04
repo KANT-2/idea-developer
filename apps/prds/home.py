@@ -15,9 +15,10 @@ from apps.ai.models import AiActionType, AiFeatureType, AiUsageLog, AiUsageStatu
 from apps.integration.context import IntegrationContext
 from apps.integration.repository import IntegrationRepository
 
-from .models import Prd, PrdParticipant, PrdStatus, PrdType
+from .models import Prd, PrdParticipant, PrdParticipantRole, PrdStatus, PrdType
 
 HOME_TABS = {"all", "project", "team", "personal"}
+HOME_SCOPES = {"all", "mine", "viewer"}
 HOME_SORTS = {
     "default",
     "deadline_asc",
@@ -29,6 +30,7 @@ HOME_SORTS = {
 
 @dataclass(frozen=True, slots=True)
 class HomeFilters:
+    scope: str = "all"
     tab: str = "all"
     statuses: tuple[str, ...] = ()
     prd_types: tuple[str, ...] = ()
@@ -42,6 +44,8 @@ class HomeFilters:
 
     def validate(self, *, context: IntegrationContext):
         errors = {}
+        if self.scope not in HOME_SCOPES:
+            errors["scope"] = "지원하지 않는 PRD 조회 범위입니다."
         if self.tab not in HOME_TABS:
             errors["tab"] = "지원하지 않는 탭입니다."
         invalid_statuses = set(self.statuses) - set(PrdStatus.values)
@@ -156,6 +160,13 @@ class HomeQueryService:
 
     @staticmethod
     def _apply_filters(queryset, *, filters: HomeFilters, context: IntegrationContext):
+        if filters.scope == "mine":
+            queryset = queryset.filter(
+                Q(my_role__isnull=True) | ~Q(my_role=PrdParticipantRole.VIEWER)
+            )
+        elif filters.scope == "viewer":
+            queryset = queryset.filter(my_role=PrdParticipantRole.VIEWER)
+
         if filters.tab == "project":
             queryset = queryset.filter(prd_type=PrdType.NEW_PRODUCT)
         elif filters.tab == "team":
@@ -300,6 +311,7 @@ class HomeQueryService:
     @staticmethod
     def _serialize_filters(filters):
         return {
+            "scope": filters.scope,
             "tab": filters.tab,
             "statuses": list(filters.statuses),
             "prd_types": list(filters.prd_types),

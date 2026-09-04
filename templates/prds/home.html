@@ -4,7 +4,7 @@
 {% block title %}PRD 홈 | 아이디어 디벨로퍼{% endblock %}
 
 {% block extra_head %}
-  <link href="{% static 'prds/css/home.css' %}" rel="stylesheet">
+  <link href="{% static 'prds/css/home.css' %}?v=20260904-2" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
@@ -31,7 +31,12 @@
     <section class="home-library" aria-labelledby="prd-list-title">
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
         <div>
-          <h2 id="prd-list-title" class="home-section-title mb-3">내 PRD</h2>
+          <h2 id="prd-list-title" class="visually-hidden">PRD 목록</h2>
+          <div class="home-scope-tabs" role="tablist" aria-label="PRD 참여 역할">
+            <button class="home-scope-tab active" type="button" role="tab" aria-selected="true" data-scope="mine"><i class="bi bi-folder2-open"></i><span>내 PRD</span></button>
+            <button class="home-scope-tab" type="button" role="tab" aria-selected="false" data-scope="viewer"><i class="bi bi-eye"></i><span>뷰어로 참여한 PRD</span></button>
+          </div>
+          <p id="home-scope-description" class="home-scope-description">작성하거나 편집에 참여하는 PRD입니다.</p>
           <div class="btn-group home-tabs" role="group" aria-label="PRD 범위">
             <button class="btn btn-primary home-tab" data-tab="all">전체</button>
             <button class="btn btn-outline-primary home-tab" data-tab="project">프로젝트</button>
@@ -49,11 +54,11 @@
         </div>
       </div>
       <div id="home-loading" class="text-center py-5"><span class="spinner-border text-primary" aria-hidden="true"></span><span class="visually-hidden">불러오는 중</span></div>
-      <div id="home-empty" class="card border-0 shadow-sm text-center py-5 d-none"><div class="card-body"><div class="display-6 mb-2">📭</div><h3 class="h6">조건에 맞는 PRD가 없습니다.</h3><a href="{{ new_prd_url }}" class="btn btn-sm btn-primary mt-2">첫 PRD 만들기</a></div></div>
+      <div id="home-empty" class="card border-0 shadow-sm text-center py-5 d-none"><div class="card-body"><div class="display-6 mb-2">📭</div><h3 id="home-empty-title" class="h6">조건에 맞는 PRD가 없습니다.</h3><a id="home-empty-create" href="{{ new_prd_url }}" class="btn btn-sm btn-primary mt-2">첫 PRD 만들기</a></div></div>
       <div id="home-list" class="row g-3" aria-live="polite"></div>
       <nav class="mt-4" aria-label="PRD 페이지"><ul id="home-pagination" class="pagination pagination-sm justify-content-center"></ul></nav>
     </section>
   </div>
 {% endblock %}
 
-{% block extra_js %}<script src="{% static 'prds/js/home.js' %}"></script>{% endblock %}
+{% block extra_js %}<script src="{% static 'prds/js/home.js' %}?v=20260904-2"></script>{% endblock %}

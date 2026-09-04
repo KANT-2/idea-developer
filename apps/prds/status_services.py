@@ -42,6 +42,7 @@ class PrdStatusService:
         has_incomplete_questions = prd.sections.filter(
             is_deleted=False,
             questions__is_deleted=False,
+            questions__is_held=False,
             questions__is_completed=False,
         ).exists()
         if has_incomplete_questions and confirm_incomplete is not True:
