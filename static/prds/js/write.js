@@ -44,8 +44,13 @@
   let currentParticipants = [];
   let canManageParticipants = false;
   let canCreateComments = false;
+  let canRequestAi = false;
   let commentPage = 1;
   const commentPageSize = 10;
+  let conversationToken = 0;
+  const pollIntervalMs = 1500;
+  const pollTimeoutMs = 120000;
+  const pollNetworkRetryLimit = 3;
 
   function decodeSafeText(value) {
     const area = document.createElement("textarea");
@@ -195,7 +200,7 @@
     scope.replaceChildren(new Option("전체 PRD", ""));
     const previousCommentTarget = commentTarget.value;
     commentTarget.replaceChildren(new Option("PRD 전체", ""));
-    const canRequestAi = data.permissions.can_request_ai && data.prd.status !== "completed";
+    canRequestAi = data.permissions.can_request_ai && data.prd.status !== "completed";
     input.disabled = !canRequestAi;
     submit.disabled = !canRequestAi;
     if (!canRequestAi) input.placeholder = "현재 권한 또는 PRD 상태에서는 AI를 요청할 수 없습니다.";
@@ -265,24 +270,61 @@
     }
   }
 
+  // 인라인 서식(**굵게**, `코드`)만 DOM 노드로 만든다. textContent만 쓰므로 HTML은 삽입되지 않는다.
+  function appendInline(target, text) {
+    const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+    let cursor = 0;
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      if (match.index > cursor) target.append(text.slice(cursor, match.index));
+      const token = match[0];
+      if (token.startsWith("`")) target.append(element("code", null, token.slice(1, -1)));
+      else target.append(element("strong", null, token.slice(2, -2)));
+      cursor = match.index + token.length;
+    }
+    if (cursor < text.length) target.append(text.slice(cursor));
+  }
+
+  function renderCoachMarkdown(container, raw) {
+    const lines = decodeSafeText(raw).split(/\r?\n/);
+    let list = null;
+    lines.forEach(function (line) {
+      const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+      if (bullet) {
+        if (!list) { list = element("ul", "coach-md-list"); container.append(list); }
+        const item = element("li");
+        appendInline(item, bullet[1]);
+        list.append(item);
+        return;
+      }
+      list = null;
+      if (!line.trim()) return;
+      const paragraph = element("p", "coach-md-p");
+      appendInline(paragraph, line);
+      container.append(paragraph);
+    });
+    if (!container.childNodes.length) container.textContent = decodeSafeText(raw);
+  }
+
   async function loadConversation() {
+    const token = ++conversationToken;
     messagesRoot.replaceChildren(element("p", "text-secondary", "대화를 불러오는 중입니다."));
     try {
       const query = scope.value ? "?section_id=" + encodeURIComponent(scope.value) : "";
       const data = await api(aiBase + "conversation/" + query);
+      if (token !== conversationToken) return;
       messagesRoot.replaceChildren();
       if (!data.messages.length) {
         messagesRoot.append(element("p", "text-secondary", "이 범위에서 AI 코치와 나눈 대화가 없습니다."));
       }
       data.messages.forEach(function (message) {
         const wrap = element("div", "mb-2");
-        const bubble = element(
-          "div",
-          "coach-message coach-message-" + message.role,
-          decodeSafeText(message.content)
-        );
+        const bubble = element("div", "coach-message coach-message-" + message.role);
+        if (message.role === "assistant") renderCoachMarkdown(bubble, message.content);
+        else bubble.textContent = decodeSafeText(message.content);
         wrap.append(bubble);
-        if (message.role === "user" && ["failed", "timed_out"].includes(message.job?.status)) {
+        const stuck = ["failed", "timed_out", "cancelled", "queued", "running", "retry_wait"];
+        if (message.role === "user" && canRequestAi && stuck.includes(message.job?.status)) {
           const retry = element("button", "btn btn-link btn-sm float-end", "다시 시도");
           retry.type = "button";
           retry.addEventListener("click", function () { retryJob(message.job.id); });
@@ -292,25 +334,53 @@
       });
       messagesRoot.scrollTop = messagesRoot.scrollHeight;
     } catch (error) {
+      if (token !== conversationToken) return;
       messagesRoot.replaceChildren(element("p", "text-danger", error.message));
     }
   }
 
   function setBusy(busy, jobId) {
-    submit.disabled = busy;
-    input.disabled = busy;
+    // 권한이 없으면 작업이 끝나도 입력창을 다시 열지 않는다.
+    submit.disabled = busy || !canRequestAi;
+    input.disabled = busy || !canRequestAi;
     activeJobId = jobId || null;
     cancel.classList.toggle("d-none", !busy || !jobId);
   }
 
   async function pollJob(jobId, onSuccess) {
+    const pending = ["queued", "running", "retry_wait", "cancel_requested"];
+    const deadline = Date.now() + pollTimeoutMs;
+    let networkFailures = 0;
     for (;;) {
-      await new Promise(function (resolve) { setTimeout(resolve, 1500); });
-      const job = await api(aiBase + "jobs/" + jobId + "/");
-      if (["queued", "running", "retry_wait", "cancel_requested"].includes(job.status)) continue;
-      if (job.status === "succeeded") onSuccess(job);
-      else showAlert(job.error?.message || "AI 요청이 완료되지 않았습니다.");
-      return job;
+      await new Promise(function (resolve) { setTimeout(resolve, pollIntervalMs); });
+
+      let job;
+      try {
+        job = await api(aiBase + "jobs/" + jobId + "/");
+        networkFailures = 0;
+      } catch (error) {
+        // 일시적인 통신 오류로 폴링 전체를 중단하지 않는다. 서버에서는 작업이 계속 진행 중일 수 있다.
+        networkFailures += 1;
+        if (networkFailures >= pollNetworkRetryLimit) {
+          showAlert("서버와 연결이 끊겼습니다. 잠시 후 대화를 새로고침해 결과를 확인해 주세요.");
+          return null;
+        }
+        continue;
+      }
+
+      if (!pending.includes(job.status)) {
+        if (job.status === "succeeded") onSuccess(job);
+        else if (job.status === "cancelled") showAlert("AI 요청을 취소했습니다.", "secondary");
+        else showAlert(job.error?.message || "AI 요청이 완료되지 않았습니다.");
+        return job;
+      }
+
+      if (Date.now() > deadline) {
+        showAlert(
+          "AI 응답이 오지 않아 대기를 멈췄습니다. 작업 처리기(run_job_worker)가 실행 중인지 확인해 주세요."
+        );
+        return job;
+      }
     }
   }
 
@@ -340,12 +410,15 @@
   });
 
   cancel.addEventListener("click", async function () {
-    if (!activeJobId) return;
+    if (!activeJobId || cancel.disabled) return;
+    cancel.disabled = true;
     try {
       await api(aiBase + "jobs/" + activeJobId + "/cancel/", {method: "POST", body: "{}"});
       await loadConversation();
     } catch (error) {
       showAlert(error.message);
+    } finally {
+      cancel.disabled = false;
     }
   });
 
