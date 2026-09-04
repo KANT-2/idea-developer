@@ -30,6 +30,7 @@ class BackgroundDataCleanupService:
         )
         previews = self.clear_expired_ai_previews(
             cutoff=now - timedelta(days=settings.AI_PREVIEW_RETENTION_DAYS),
+            chat_cutoff=now - timedelta(days=settings.AI_CHAT_PAYLOAD_RETENTION_DAYS),
             dry_run=dry_run,
         )
         return CleanupResult(nodes=nodes, connections=connections, ai_previews=previews)
@@ -65,23 +66,34 @@ class BackgroundDataCleanupService:
 
     @staticmethod
     @transaction.atomic
-    def clear_expired_ai_previews(*, cutoff, dry_run=False):
-        preview_filter = (
+    def clear_expired_ai_previews(*, cutoff, chat_cutoff=None, dry_run=False):
+        """미리보기 성격의 결과를 비운다.
+
+        채팅 결과에는 코치의 수정 제안 전문이 들어 있어 대화와 같은 기간 동안 남긴다.
+        나머지 미리보기는 기존 보관 기간을 그대로 쓴다.
+        """
+        chat_cutoff = cutoff if chat_cutoff is None else chat_cutoff
+        preview_filter = Q(
             Q(
-                feature_type=AiFeatureType.BRAINSTORM_ANALYSIS,
-                action_type=AiActionType.ANALYSIS,
-            )
-            | Q(
-                feature_type=AiFeatureType.BRAINSTORM_CLASSIFICATION,
-                action_type=AiActionType.CLASSIFICATION,
-            )
-            | Q(
-                feature_type=AiFeatureType.BRAINSTORM_PRD_APPLY,
-                action_type=AiActionType.PRD_APPLY,
-            )
-            | Q(feature_type=AiFeatureType.COACHING, action_type=AiActionType.DRAFT)
-            # 채팅 결과에는 코치의 수정 제안 전문이 들어 있다. 초안과 같은 기간만 보관한다.
-            | Q(feature_type=AiFeatureType.COACHING, action_type=AiActionType.CHAT)
+                Q(
+                    feature_type=AiFeatureType.BRAINSTORM_ANALYSIS,
+                    action_type=AiActionType.ANALYSIS,
+                )
+                | Q(
+                    feature_type=AiFeatureType.BRAINSTORM_CLASSIFICATION,
+                    action_type=AiActionType.CLASSIFICATION,
+                )
+                | Q(
+                    feature_type=AiFeatureType.BRAINSTORM_PRD_APPLY,
+                    action_type=AiActionType.PRD_APPLY,
+                )
+                | Q(feature_type=AiFeatureType.COACHING, action_type=AiActionType.DRAFT)
+            ),
+            finished_at__lte=cutoff,
+        ) | Q(
+            feature_type=AiFeatureType.COACHING,
+            action_type=AiActionType.CHAT,
+            finished_at__lte=chat_cutoff,
         )
         ids = list(
             AiJob.objects.filter(
@@ -92,7 +104,6 @@ class BackgroundDataCleanupService:
                     AiJobStatus.CANCELLED,
                     AiJobStatus.TIMED_OUT,
                 ],
-                finished_at__lte=cutoff,
                 output_data__isnull=False,
             )
             .order_by("finished_at", "id")
