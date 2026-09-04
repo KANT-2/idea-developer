@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from math import ceil
 
 from django.conf import settings
@@ -9,6 +10,7 @@ from django.db import transaction
 from django.db.models import F, Prefetch
 from django.http import HttpResponse
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_GET, require_http_methods
 
 from apps.accounts.permissions import ParticipantAction, role_permission_policy
@@ -31,6 +33,7 @@ from .models import (
     PrdParticipantRole,
     PrdQuestion,
     PrdSection,
+    PrdStatus,
 )
 from .services import PrdParticipantService
 from .status_services import PrdStatusConflict, PrdStatusService
@@ -45,6 +48,11 @@ from .views import (
 class PrdQuestionVersionConflict(Exception):
     def __init__(self, question):
         self.question = question
+
+
+class PrdVersionConflict(Exception):
+    def __init__(self, prd):
+        self.prd = prd
 
 
 def _get_access(request, prd_id):
@@ -92,6 +100,20 @@ def _error_response(request, exc):
             message="다른 사용자가 먼저 답변을 변경했습니다. 최신 내용을 확인해 주세요.",
             status=409,
             details={"latest": _serialize_question(exc.question)},
+            request_id=_request_id(request),
+        )
+    if isinstance(exc, PrdVersionConflict):
+        return api_error(
+            code="version_conflict",
+            message="다른 사용자가 먼저 PRD를 변경했습니다. 최신 내용을 확인해 주세요.",
+            status=409,
+            details={
+                "latest": {
+                    "version": exc.prd.version,
+                    "status": exc.prd.status,
+                    "deadline": exc.prd.deadline.isoformat() if exc.prd.deadline else None,
+                }
+            },
             request_id=_request_id(request),
         )
     if isinstance(exc, PrdStatusConflict):
@@ -231,6 +253,93 @@ def prd_detail(request, prd_id):
         },
         request_id=_request_id(request),
     )
+
+
+def _parse_deadline(value) -> date | None:
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str):
+        raise ValidationError({"deadline": "마감일은 YYYY-MM-DD 형식이어야 합니다."})
+    parsed = parse_date(value)
+    if parsed is None:
+        raise ValidationError({"deadline": "마감일은 YYYY-MM-DD 형식이어야 합니다."})
+    return parsed
+
+
+@require_http_methods(["PATCH"])
+def prd_metadata(request, prd_id):
+    if response := _require_authentication(request):
+        return response
+    try:
+        context, access = _get_access(request, prd_id)
+        payload = _parse_json(request)
+        version = payload.get("version")
+        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+            raise ValidationError({"version": "PRD version이 올바르지 않습니다."})
+        supplied = {key for key in ("status", "deadline") if key in payload}
+        if not supplied:
+            raise ValidationError({"body": "수정할 상태 또는 마감일이 필요합니다."})
+
+        permissions = PrdPermissionPresenter().describe(access)
+        if "deadline" in supplied and not permissions["can_edit_deadline"]:
+            raise PermissionDenied("PRD 마감일을 수정할 권한이 없습니다.")
+        if "status" in supplied and not permissions["can_change_status"]:
+            raise PermissionDenied("PRD 상태를 변경할 권한이 없습니다.")
+
+        requested_status = payload.get("status")
+        if "status" in supplied:
+            if requested_status not in PrdStatus.values:
+                raise ValidationError({"status": "지원하지 않는 PRD 상태입니다."})
+            if requested_status == PrdStatus.COMPLETED:
+                raise ValidationError({"status": "PRD 완료는 완료 기능을 이용해 주세요."})
+
+        with transaction.atomic():
+            prd = Prd.objects.select_for_update().get(pk=access.prd.pk, is_deleted=False)
+            if prd.version != version:
+                raise PrdVersionConflict(prd)
+            if prd.status == PrdStatus.COMPLETED:
+                raise PermissionDenied("완료된 PRD는 다시 연 후 수정할 수 있습니다.")
+
+            before = {
+                "status": prd.status,
+                "deadline": prd.deadline.isoformat() if prd.deadline else None,
+            }
+            if "status" in supplied:
+                prd.status = requested_status
+            if "deadline" in supplied:
+                prd.deadline = _parse_deadline(payload.get("deadline"))
+            after = {
+                "status": prd.status,
+                "deadline": prd.deadline.isoformat() if prd.deadline else None,
+            }
+            if before != after:
+                prd.version += 1
+                prd.save(update_fields=[*supplied, "version", "updated_at"])
+                PrdChangeHistory.objects.create(
+                    prd=prd,
+                    actor_user_id=context.user_id,
+                    event_type="prd_metadata_updated",
+                    before_data=before,
+                    after_data=after,
+                )
+
+        return api_success(
+            {
+                "id": prd.id,
+                "status": prd.status,
+                "deadline": prd.deadline.isoformat() if prd.deadline else None,
+                "version": prd.version,
+            },
+            request_id=_request_id(request),
+        )
+    except (
+        PrdNotFound,
+        PrdVersionConflict,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+    ) as exc:
+        return _error_response(request, exc)
 
 
 @require_GET

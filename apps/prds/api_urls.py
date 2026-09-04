@@ -9,6 +9,7 @@ urlpatterns = [
     path("participants/team/", views.current_team_participants, name="current-team"),
     path("participants/search/", views.search_participants, name="participant-search"),
     path("<int:prd_id>/", detail_views.prd_detail, name="detail"),
+    path("<int:prd_id>/metadata/", detail_views.prd_metadata, name="metadata"),
     path(
         "<int:prd_id>/export/markdown/",
         detail_views.export_markdown,

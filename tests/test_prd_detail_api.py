@@ -220,6 +220,49 @@ class PrdDetailApiTests(TestCase):
         self.assertTrue(data["permissions"]["can_comment"])
         self.assertFalse(data["permissions"]["can_view_contributions"])
 
+    def test_owner_can_change_status_and_deadline_with_version_check(self):
+        url = reverse("prd_api:metadata", args=[self.prd.id])
+        updated = self.patch_json(
+            url,
+            {"status": PrdStatus.HELD, "deadline": "2027-04-30", "version": 1},
+        )
+
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.json()["data"]["version"], 2)
+        self.prd.refresh_from_db()
+        self.assertEqual(self.prd.status, PrdStatus.HELD)
+        self.assertEqual(self.prd.deadline.isoformat(), "2027-04-30")
+        history = PrdChangeHistory.objects.get(event_type="prd_metadata_updated")
+        self.assertEqual(history.before_data["status"], PrdStatus.IN_PROGRESS)
+        self.assertEqual(history.after_data["deadline"], "2027-04-30")
+
+        stale = self.patch_json(url, {"deadline": "2027-05-01", "version": 1})
+        self.assertEqual(stale.status_code, 409)
+        self.assertEqual(stale.json()["error"]["details"]["latest"]["version"], 2)
+
+    def test_editor_can_change_deadline_but_not_status_and_completed_prd_is_locked(self):
+        url = reverse("prd_api:metadata", args=[self.prd.id])
+        self.login_as(8, role=PrdParticipantRole.EDITOR)
+
+        deadline = self.patch_json(url, {"deadline": "2027-06-15", "version": 1})
+        denied_status = self.patch_json(url, {"status": PrdStatus.HELD, "version": 2})
+        self.assertEqual(deadline.status_code, 200)
+        self.assertEqual(denied_status.status_code, 403)
+
+        self.prd.status = PrdStatus.COMPLETED
+        self.prd.completed_at = timezone.now()
+        self.prd.save(update_fields=["status", "completed_at", "updated_at"])
+        locked = self.patch_json(url, {"deadline": None, "version": 2})
+        self.assertEqual(locked.status_code, 403)
+
+    def test_metadata_rejects_completed_status_and_invalid_deadline(self):
+        url = reverse("prd_api:metadata", args=[self.prd.id])
+        completed = self.patch_json(url, {"status": PrdStatus.COMPLETED, "version": 1})
+        invalid_date = self.patch_json(url, {"deadline": "04/30/2027", "version": 1})
+
+        self.assertEqual(completed.status_code, 400)
+        self.assertEqual(invalid_date.status_code, 400)
+
     def test_exports_prd_as_utf8_markdown_and_excludes_held_questions(self):
         held_question = PrdQuestion.objects.create(
             section=self.section,
