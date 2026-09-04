@@ -23,6 +23,7 @@ from .models import (
     PrdStatus,
     PrdType,
 )
+from .status_services import PrdStatusService
 
 HOME_TABS = {"all", "project", "team", "personal"}
 HOME_SCOPES = {"all", "mine", "viewer"}
@@ -87,6 +88,15 @@ class HomeQueryService:
             round_id=context.round_id,
             team_id=context.team_id,
         )
+        PrdStatusService().complete_overdue(
+            prd_ids=base.values_list("id", flat=True),
+            today=today,
+        )
+        base = Prd.objects.accessible_home(
+            user_id=context.user_id,
+            round_id=context.round_id,
+            team_id=context.team_id,
+        )
         kpis = self._get_kpis(base=base, today=today)
         queryset = self._apply_filters(
             base.with_home_metrics(user_id=context.user_id),
@@ -130,6 +140,7 @@ class HomeQueryService:
                     prd=prd,
                     participants=participants_by_prd.get(prd.id, []),
                     today=today,
+                    context=context,
                 )
                 for prd in page_prds
             ],
@@ -418,7 +429,7 @@ class HomeQueryService:
         return result
 
     @staticmethod
-    def _serialize_card(*, prd, participants, today):
+    def _serialize_card(*, prd, participants, today, context):
         can_edit = bool(
             prd.my_role
             and role_permission_policy.allows(
@@ -429,6 +440,7 @@ class HomeQueryService:
         )
         return {
             "id": prd.id,
+            "version": prd.version,
             "title": prd.title,
             "description": prd.description,
             "prd_type": prd.prd_type,
@@ -442,6 +454,9 @@ class HomeQueryService:
             "participant_count": prd.participant_count,
             "my_role": prd.my_role,
             "can_edit": can_edit,
+            "can_delete": bool(
+                prd.my_role == PrdParticipantRole.OWNER or context.is_staff or context.is_superuser
+            ),
             "ai_coaching_count": prd.ai_coaching_count,
         }
 

@@ -25,6 +25,11 @@ class PrdAccessService:
     """Single permission boundary shared by every PRD detail endpoint."""
 
     def get(self, *, prd_id: int, context: IntegrationContext) -> PrdAccess:
+        # Import locally because the status service also uses PrdAccess as its
+        # permission input for explicit completion/reopen operations.
+        from .status_services import PrdStatusService
+
+        PrdStatusService().complete_overdue(prd_ids=[prd_id])
         try:
             prd = Prd.objects.with_completion_rate().get(pk=prd_id, is_deleted=False)
         except Prd.DoesNotExist as exc:
@@ -44,9 +49,7 @@ class PrdAccessService:
             raise PermissionDenied("Only an explicit participant can access this personal PRD.")
 
         has_team_access = (
-            prd.round_id is not None
-            and prd.is_team_shared
-            and prd.team_id == context.team_id
+            prd.round_id is not None and prd.is_team_shared and prd.team_id == context.team_id
         )
         is_admin = context.is_staff or context.is_superuser
         if role is None and not has_team_access and not is_admin:
@@ -59,14 +62,16 @@ class PrdPermissionPresenter:
 
     def describe(self, access: PrdAccess):
         role = access.role
+        can_edit_completed_deadline = access.prd.status == PrdStatus.COMPLETED and bool(
+            access.is_admin or role == PrdParticipantRole.OWNER
+        )
         return {
             "role": role,
             "can_view": True,
             "can_edit": self._allows(access, ParticipantAction.EDIT),
-            "can_edit_deadline": self._allows(access, ParticipantAction.EDIT),
-            "can_change_status": bool(
-                access.is_admin or access.role == PrdParticipantRole.OWNER
-            ),
+            "can_edit_deadline": self._allows(access, ParticipantAction.EDIT)
+            or can_edit_completed_deadline,
+            "can_change_status": bool(access.is_admin or access.role == PrdParticipantRole.OWNER),
             "can_comment": self._allows(access, ParticipantAction.COMMENT),
             "can_review_comment": self._allows(access, ParticipantAction.REVIEW_COMMENT),
             "can_manage_participants": self._allows(access, ParticipantAction.MANAGE_PARTICIPANTS),
@@ -75,6 +80,7 @@ class PrdPermissionPresenter:
             "can_request_ai": self._allows(access, ParticipantAction.REQUEST_AI),
             "can_apply_ai": self._allows(access, ParticipantAction.APPLY_AI),
             "can_view_contributions": access.is_admin,
+            "can_delete": bool(access.is_admin or role == PrdParticipantRole.OWNER),
             "is_completed": access.prd.status == PrdStatus.COMPLETED,
         }
 

@@ -98,6 +98,24 @@ python manage.py run_job_worker
 python manage.py run_job_worker --once
 ```
 
+AI worker는 AI 작업만 처리합니다. PRD 자동 완료와 영구 삭제를 모두 정확히 자정에 처리하려면
+아래의 통합 유지보수 명령을 Windows 작업 스케줄러에 등록합니다. 이 명령은 마감일이 지난 진행
+중·보류 PRD를 완료하고, 30일 보관기간이 지난 PRD·메모도 같은 실행에서 영구 삭제합니다.
+처리할 항목이 없어도 성공하며 반복 실행해도 안전합니다.
+
+```powershell
+# 먼저 직접 한 번 검증
+python manage.py run_midnight_maintenance
+
+# 현재 프로젝트를 매일 00:00에 실행하도록 등록(최초 1회)
+powershell -ExecutionPolicy Bypass -File .\scripts\register_midnight_maintenance.ps1
+```
+
+자정에 PC가 꺼져 있으면 Windows의 `StartWhenAvailable` 설정으로 다음 부팅·로그인 후 누락된
+작업을 실행합니다. 홈 또는 상세 조회 시에도 기한 경과 PRD를 한 번 더 확인하므로 표시와 DB
+상태가 어긋나지 않습니다. 운영 Linux에서는 같은 management command를 cron의 매일 00:00
+작업으로 등록하면 됩니다.
+
 기본 `AI_PROVIDER_CLASS`는 Gemini Developer API 어댑터입니다. Google AI Studio에서 발급한
 키를 개인 `.env` 또는 배포 비밀 저장소의 `GEMINI_API_KEY`에만 주입합니다. 키가 비어 있으면
 worker는 외부 요청 없이 작업을 안전하게 실패 처리합니다. 사용할 Gemini 모델명은 기능별 활성
@@ -178,19 +196,20 @@ query parameter는 `scope=all|accepted`, `organization=section|flat`,
 `연결된 아이디어` 목록으로 표현합니다. 다운로드 파일명은 PRD ID와 안전하게 정규화한 제목,
 날짜로 구성합니다.
 
-다음 명령은 한 번에 설정된 batch 크기만큼 만료 데이터를 정리합니다.
+다음 명령은 자동 정리를 기다리지 않고 한 번에 설정된 batch 크기만큼 만료 데이터를 직접
+점검하거나 정리할 때 사용합니다.
 
 ```bash
 python manage.py cleanup_background_data --dry-run
 python manage.py cleanup_background_data
 ```
 
-기본적으로 소프트 삭제 후 30일이 지난 노드와 관련 연결선을 영구 삭제합니다. 복원 기간 안의
-데이터와 활성 데이터는 건드리지 않습니다. 완료된 임시 AI 분석·분류·PRD 반영·질문 초안 결과는
+기본적으로 소프트 삭제 후 30일이 지난 PRD와 노드 및 관련 연결선을 영구 삭제합니다. 복원 기간
+안의 데이터와 활성 데이터는 건드리지 않습니다. 완료된 임시 AI 분석·분류·PRD 반영·질문 초안 결과는
 기본 7일 후 `output_data`만 비우고 AI 작업, 사용량 및 적용 기록은 보존합니다. 보존기간과 batch
 크기는 `BRAINSTORM_DELETE_RETENTION_DAYS`, `AI_PREVIEW_RETENTION_DAYS`,
-`BACKGROUND_CLEANUP_BATCH_SIZE`로 조정합니다. 운영에서는 이 명령을 별도 scheduler로 주기적으로
-실행해야 합니다.
+`PRD_TRASH_RETENTION_DAYS`, `BACKGROUND_CLEANUP_BATCH_SIZE`로 조정합니다. 실행 중인 worker가
+`BACKGROUND_CLEANUP_INTERVAL_SECONDS` 주기로 이 정리를 호출합니다.
 
 ## AI PRD 반영
 

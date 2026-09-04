@@ -147,6 +147,7 @@ class PrdCreationApiTests(TestCase):
         data = response.json()["data"]
         self.assertEqual(data["round_id"], 3)
         self.assertEqual(data["team"]["team_id"], 30)
+        self.assertEqual(data["team"]["team_name"], "팀 30")
         self.assertEqual({row["user_id"] for row in data["users"]}, {7, 8})
         self.assertTrue(all(row["selected"] for row in data["users"]))
 

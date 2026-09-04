@@ -8,6 +8,7 @@
   const exportApi = root.dataset.exportApi;
   const participantsApi = root.dataset.participantsApi;
   const participantSearchApi = root.dataset.participantSearchApi;
+  const participantTeamApi = root.dataset.participantTeamApi;
   const commentsApi = root.dataset.commentsApi;
   const contributionsApi = root.dataset.contributionsApi;
   const aiBase = root.dataset.aiApiBase;
@@ -28,6 +29,12 @@
   const participantAlert = document.getElementById("participant-alert");
   const participantList = document.getElementById("participant-list");
   const participantResults = document.getElementById("participant-search-results");
+  const participantPicker = document.getElementById("participant-picker");
+  const participantPickerToggle = document.getElementById("manage-participants");
+  const participantSearchInput = document.getElementById("participant-search");
+  const participantSearchHelp = document.getElementById("participant-search-help");
+  const participantSearchSpinner = document.getElementById("participant-search-spinner");
+  const participantAddTeam = document.getElementById("participant-add-team");
   const commentList = document.getElementById("comment-list");
   const commentForm = document.getElementById("comment-form");
   const commentInput = document.getElementById("comment-input");
@@ -38,8 +45,12 @@
   const contributionList = document.getElementById("contribution-list");
   const contributionAlert = document.getElementById("contribution-alert");
   const saveAllButton = document.getElementById("save-all-answers");
+  const statusPicker = document.getElementById("prd-status-picker");
   const statusControl = document.getElementById("prd-status-control");
+  const statusControlLabel = document.getElementById("prd-status-control-label");
+  const statusOptions = Array.from(document.querySelectorAll("[data-prd-status-option]"));
   const deadlineInput = document.getElementById("write-deadline-input");
+  const deadlineWarning = document.getElementById("write-deadline-warning");
   const evaluationButton = document.getElementById("run-evaluation");
   const evaluationCancel = document.getElementById("cancel-evaluation");
   const evaluationAlert = document.getElementById("evaluation-alert");
@@ -48,6 +59,21 @@
   const exportPreviewState = document.getElementById("export-preview-state");
   const copyMarkdownButton = document.getElementById("copy-prd-markdown");
   const downloadMarkdownLink = document.getElementById("download-prd-markdown");
+  const settingsButton = document.getElementById("prd-settings-button");
+  const settingsModalElement = document.getElementById("prd-settings-modal");
+  const settingsModal = bootstrap.Modal.getOrCreateInstance(settingsModalElement);
+  const settingsEditSection = document.getElementById("prd-settings-edit-section");
+  const settingsDangerSection = document.getElementById("prd-settings-danger-section");
+  const summaryForm = document.getElementById("prd-summary-form");
+  const summaryTitleInput = document.getElementById("prd-summary-title");
+  const summaryDescriptionInput = document.getElementById("prd-summary-description");
+  const summarySaveButton = document.getElementById("prd-summary-save");
+  const summaryError = document.getElementById("prd-summary-error");
+  const deletePrdButton = document.getElementById("delete-prd");
+  const deleteConfirmElement = document.getElementById("write-delete-confirm-modal");
+  const deleteConfirmModal = bootstrap.Modal.getOrCreateInstance(deleteConfirmElement);
+  const confirmDeletePrdButton = document.getElementById("confirm-delete-prd");
+  const deleteError = document.getElementById("write-delete-error");
   let detail = null;
   let activeJobId = null;
   let currentDraft = null;
@@ -56,11 +82,16 @@
   let questionListMode = false;
   let currentParticipants = [];
   let canManageParticipants = false;
+  let participantTeamUsers = [];
+  let participantTeamLoaded = false;
+  let participantSearchTimer = null;
+  let participantSearchSequence = 0;
   let canCreateComments = false;
   let commentPage = 1;
   const commentPageSize = 10;
   const pendingAnswers = new Map();
   let savingAllAnswers = false;
+  const statusLabels = {in_progress: "진행 중", completed: "완료", held: "보류", dropped: "드랍"};
   const evaluationPersonas = ["pm", "engineering", "investor"];
   let evaluationPersona = "pm";
   let evaluationResults = {};
@@ -72,6 +103,31 @@
   const pollIntervalMs = 1500;
   const pollTimeoutMs = 120000;
   const pollNetworkRetryLimit = 3;
+
+  function localDateKey(date) {
+    return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
+  }
+
+  function isPastDeadline(prd) {
+    return Boolean(prd.deadline && prd.deadline < localDateKey(new Date()));
+  }
+
+  function renderDeadlineState(prd) {
+    const control = deadlineInput.closest(".write-deadline");
+    const today = localDateKey(new Date());
+    const isOpen = !["completed", "dropped"].includes(prd.status);
+    const overdue = isOpen && Boolean(prd.deadline && prd.deadline < today);
+    const dueToday = isOpen && prd.deadline === today;
+    control.classList.toggle("is-overdue", overdue);
+    control.classList.toggle("is-today", dueToday);
+    deadlineWarning.classList.toggle("d-none", !overdue && !dueToday);
+    deadlineWarning.textContent = overdue ? "마감 지남" : dueToday ? "오늘 마감" : "";
+    control.title = overdue
+      ? "마감 기한이 지났습니다."
+      : dueToday
+        ? "오늘이 마감일입니다."
+        : "목표 마감일";
+  }
 
   function decodeSafeText(value) {
     const area = document.createElement("textarea");
@@ -167,22 +223,31 @@
   function renderDetail(data) {
     detail = data;
     if (activeSectionId === undefined && data.sections.length) activeSectionId = data.sections[0].id;
+    document.getElementById("prd-heading").textContent = data.prd.title;
     document.getElementById("prd-description").textContent = data.prd.description || "한 줄 소개가 없습니다.";
+    document.title = data.prd.title + " | Idea Developer";
     const status = document.getElementById("prd-status");
-    const statusLabels = {in_progress: "진행 중", completed: "완료", held: "보류", dropped: "드랍"};
     status.textContent = statusLabels[data.prd.status] || data.prd.status;
     status.dataset.status = data.prd.status;
-    statusControl.value = data.prd.status;
     statusControl.dataset.status = data.prd.status;
-    Array.from(statusControl.options).forEach(function (option) {
-      option.disabled = (data.prd.status === "completed" && !["completed", "in_progress"].includes(option.value))
-        || (option.value === "completed" && !["in_progress", "completed"].includes(data.prd.status));
+    statusControlLabel.textContent = statusLabels[data.prd.status] || data.prd.status;
+    statusOptions.forEach(function (option) {
+      const value = option.dataset.prdStatusOption;
+      option.disabled = (data.prd.status === "completed" && !["completed", "in_progress"].includes(value))
+        || (value === "completed" && !["in_progress", "completed"].includes(data.prd.status));
+      option.classList.toggle("active", value === data.prd.status);
     });
-    statusControl.classList.toggle("d-none", !data.permissions.can_change_status);
+    statusPicker.classList.toggle("d-none", !data.permissions.can_change_status);
     status.classList.toggle("d-none", Boolean(data.permissions.can_change_status));
     deadlineInput.value = data.prd.deadline || "";
-    deadlineInput.disabled = !data.permissions.can_edit_deadline || data.prd.status === "completed";
+    deadlineInput.disabled = !data.permissions.can_edit_deadline;
+    deadlineInput.min = data.prd.auto_completed ? localDateKey(new Date()) : "";
+    const canEditSummary = data.permissions.can_edit && data.prd.status !== "completed";
+    settingsButton.classList.toggle("d-none", !canEditSummary && !data.permissions.can_delete);
+    settingsEditSection.classList.toggle("d-none", !canEditSummary);
+    settingsDangerSection.classList.toggle("d-none", !data.permissions.can_delete);
     document.getElementById("write-deadline-label").textContent = data.prd.deadline || "마감일 없음";
+    renderDeadlineState(data.prd);
     document.getElementById("active-section-count").textContent = data.sections.length + "개 활성 섹션";
     document.getElementById("complete-prd").classList.toggle("d-none", !data.permissions.can_complete || data.prd.status === "completed");
     document.getElementById("reopen-prd").classList.toggle("d-none", !data.permissions.can_reopen || data.prd.status !== "completed");
@@ -687,7 +752,7 @@
 
   function renderEvaluationEmpty() {
     document.getElementById("write-score-value").textContent = "—";
-    document.getElementById("write-score-ring").style.setProperty("--score", "0%");
+    document.getElementById("write-score-progress").style.strokeDashoffset = "100";
     document.getElementById("write-score-ring").classList.add("is-pending");
     document.getElementById("score-state").textContent = "진단 전";
     document.getElementById("write-score-label").textContent = "아직 진단하지 않았습니다";
@@ -703,7 +768,7 @@
     const score = Number(output.overall_score || 0);
     const ring = document.getElementById("write-score-ring");
     ring.classList.remove("is-pending");
-    ring.style.setProperty("--score", score + "%");
+    document.getElementById("write-score-progress").style.strokeDashoffset = String(100 - Math.max(0, Math.min(100, score)));
     document.getElementById("write-score-value").textContent = score;
     document.getElementById("score-state").textContent = isCurrent ? (output.persona_label || "AI 진단") : "업데이트 필요";
     document.getElementById("write-score-label").textContent = evaluationStateLabel(score);
@@ -965,6 +1030,8 @@
       method: "PATCH",
       body: JSON.stringify({...changes, version: detail.prd.version})
     });
+    detail.prd.title = data.title;
+    detail.prd.description = data.description;
     detail.prd.status = data.status;
     detail.prd.deadline = data.deadline;
     detail.prd.version = data.version;
@@ -972,9 +1039,71 @@
     return data;
   }
 
-  statusControl.addEventListener("change", async function () {
+  settingsModalElement.addEventListener("show.bs.modal", function () {
+    summaryTitleInput.value = detail?.prd.title || "";
+    summaryDescriptionInput.value = detail?.prd.description || "";
+    summaryError.classList.add("d-none");
+    summaryError.textContent = "";
+    summaryForm.classList.remove("was-validated");
+  });
+
+  summaryForm.addEventListener("submit", async function (event) {
+    event.preventDefault();
+    if (!summaryForm.checkValidity()) {
+      summaryForm.classList.add("was-validated");
+      return;
+    }
+    summarySaveButton.disabled = true;
+    summaryError.classList.add("d-none");
+    try {
+      await updateMetadata({
+        title: summaryTitleInput.value.trim(),
+        description: summaryDescriptionInput.value.trim()
+      });
+      settingsModal.hide();
+      showAlert("PRD 제목과 한 줄 소개를 수정했습니다.", "success");
+    } catch (error) {
+      summaryError.textContent = error.message;
+      summaryError.classList.remove("d-none");
+    } finally {
+      summarySaveButton.disabled = false;
+    }
+  });
+
+  function showAfterHidden(currentElement, nextModal) {
+    currentElement.addEventListener("hidden.bs.modal", function showNext() {
+      currentElement.removeEventListener("hidden.bs.modal", showNext);
+      nextModal.show();
+    });
+    bootstrap.Modal.getOrCreateInstance(currentElement).hide();
+  }
+
+  deletePrdButton.addEventListener("click", function () {
+    document.getElementById("write-delete-prd-title").textContent = detail.prd.title;
+    deleteError.classList.add("d-none");
+    deleteError.textContent = "";
+    confirmDeletePrdButton.disabled = false;
+    showAfterHidden(settingsModalElement, deleteConfirmModal);
+  });
+
+  confirmDeletePrdButton.addEventListener("click", async function () {
+    confirmDeletePrdButton.disabled = true;
+    deleteError.classList.add("d-none");
+    try {
+      await api(detailApi + "delete/", {
+        method: "DELETE",
+        body: JSON.stringify({version: detail.prd.version})
+      });
+      window.location.href = "/ideas/?deleted=1";
+    } catch (error) {
+      confirmDeletePrdButton.disabled = false;
+      deleteError.textContent = error.message;
+      deleteError.classList.remove("d-none");
+    }
+  });
+
+  async function changePrdStatus(requested) {
     const previous = detail.prd.status;
-    const requested = statusControl.value;
     statusControl.disabled = true;
     try {
       if (requested === "completed") {
@@ -990,6 +1119,11 @@
         showAlert("PRD를 완료했습니다.", "success");
       } else if (previous === "completed") {
         if (requested !== "in_progress") throw new Error("완료된 PRD는 먼저 진행 중으로 다시 열어 주세요.");
+        if (detail.prd.auto_completed && isPastDeadline(detail.prd)) {
+          showAlert("자동 완료된 PRD입니다. 먼저 마감 기한을 오늘 이후로 변경해 주세요.", "warning");
+          deadlineInput.focus();
+          return;
+        }
         const reason = window.prompt("PRD를 다시 여는 이유를 입력해 주세요.");
         if (!reason || !reason.trim()) return;
         await api(detailApi + "reopen/", {method: "POST", body: JSON.stringify({reason: reason.trim()})});
@@ -1000,12 +1134,24 @@
         showAlert("PRD 상태를 변경했습니다.", "success");
       }
     } catch (error) {
-      statusControl.value = previous;
       showAlert(error.message);
     } finally {
       statusControl.disabled = false;
-      if (detail) statusControl.value = detail.prd.status;
+      if (detail) {
+        statusControl.dataset.status = detail.prd.status;
+        statusControlLabel.textContent = statusLabels[detail.prd.status] || detail.prd.status;
+      } else {
+        statusControl.dataset.status = previous;
+      }
     }
+  }
+
+  statusOptions.forEach(function (option) {
+    option.addEventListener("click", function () {
+      if (!option.disabled && option.dataset.prdStatusOption !== detail.prd.status) {
+        changePrdStatus(option.dataset.prdStatusOption);
+      }
+    });
   });
 
   deadlineInput.addEventListener("change", async function () {
@@ -1018,7 +1164,7 @@
       deadlineInput.value = previous;
       showAlert(error.message);
     } finally {
-      deadlineInput.disabled = !detail.permissions.can_edit_deadline || detail.prd.status === "completed";
+      deadlineInput.disabled = !detail.permissions.can_edit_deadline;
     }
   });
 
@@ -1043,6 +1189,11 @@
   });
 
   document.getElementById("reopen-prd").addEventListener("click", async function (event) {
+    if (detail.prd.auto_completed && isPastDeadline(detail.prd)) {
+      showAlert("자동 완료된 PRD입니다. 먼저 마감 기한을 오늘 이후로 변경해 주세요.", "warning");
+      deadlineInput.focus();
+      return;
+    }
     const reason = window.prompt("PRD를 다시 여는 이유를 입력해 주세요.");
     if (!reason || !reason.trim()) return;
     const button = event.currentTarget;
@@ -1075,12 +1226,12 @@
   }
 
   function showParticipantAlert(message, kind) {
-    participantAlert.className = "alert alert-" + (kind || "danger");
+    participantAlert.className = "write-participant-alert " + (kind || "danger");
     participantAlert.textContent = message;
   }
 
   function clearParticipantAlert() {
-    participantAlert.className = "alert d-none";
+    participantAlert.className = "write-participant-alert d-none";
     participantAlert.textContent = "";
   }
 
@@ -1170,9 +1321,39 @@
       currentParticipants = data.items;
       renderMemberAvatars(data.pagination.total_items);
       renderParticipantManager();
+      participantTeamState();
     } catch (error) {
       document.getElementById("write-members").title = error.message;
       showParticipantAlert(error.message);
+    }
+  }
+
+  function participantTeamState() {
+    if (!participantTeamLoaded) return;
+    const currentIds = new Set(currentParticipants.map(function (participant) { return Number(participant.user_id); }));
+    const available = participantTeamUsers.filter(function (user) { return !currentIds.has(Number(user.user_id)); });
+    participantAddTeam.disabled = available.length === 0;
+    document.getElementById("participant-team-state").textContent = available.length ? available.length + "명 추가" : "전원 추가됨";
+  }
+
+  async function loadParticipantTeam() {
+    if (!participantTeamApi || participantTeamLoaded) { participantTeamState(); return; }
+    try {
+      const params = new URLSearchParams({
+        selected_user_ids: currentParticipants.map(function (participant) { return participant.user_id; }).join(",")
+      });
+      const data = await api(participantTeamApi + "?" + params.toString());
+      participantTeamUsers = data.users || [];
+      participantTeamLoaded = true;
+      document.getElementById("participant-team-name").textContent = data.team?.team_name || "현재 팀";
+      document.getElementById("participant-team-description").textContent = data.team ? "현재 회차의 팀원을 한 번에 추가합니다." : (data.message || "연결된 회차 팀이 없습니다.");
+      participantTeamState();
+    } catch (error) {
+      participantTeamUsers = [];
+      participantTeamLoaded = true;
+      participantAddTeam.disabled = true;
+      document.getElementById("participant-team-description").textContent = "팀 정보를 불러오지 못했습니다. 이름으로 검색해 주세요.";
+      document.getElementById("participant-team-state").textContent = "사용 불가";
     }
   }
 
@@ -1207,15 +1388,19 @@
     return row;
   }
 
-  document.getElementById("participant-search-form").addEventListener("submit", async function (event) {
-    event.preventDefault();
+  async function searchParticipants() {
     clearParticipantAlert();
-    const query = document.getElementById("participant-search").value.trim();
+    const query = participantSearchInput.value.trim();
+    const sequence = ++participantSearchSequence;
+    participantResults.replaceChildren();
     if (query.length < 2) {
-      showParticipantAlert("이름을 2자 이상 입력해 주세요.", "warning");
+      participantSearchHelp.classList.remove("d-none");
+      participantSearchHelp.textContent = "이름을 2자 이상 입력해 주세요.";
+      participantSearchSpinner.classList.add("d-none");
       return;
     }
-    participantResults.replaceChildren(element("div", "participant-empty", "검색 중…"));
+    participantSearchHelp.classList.add("d-none");
+    participantSearchSpinner.classList.remove("d-none");
     try {
       const params = new URLSearchParams({
         q: query,
@@ -1223,16 +1408,79 @@
         selected_user_ids: currentParticipants.map(function (participant) { return participant.user_id; }).join(",")
       });
       const data = await api(participantSearchApi + "?" + params.toString());
+      if (sequence !== participantSearchSequence) return;
       participantResults.replaceChildren();
       data.results.forEach(function (user) { participantResults.append(searchResultRow(user)); });
-      if (!data.results.length) participantResults.append(element("div", "participant-empty", "검색 결과가 없습니다."));
+      if (!data.results.length) {
+        participantSearchHelp.classList.remove("d-none");
+        participantSearchHelp.textContent = "검색 결과가 없습니다.";
+      }
     } catch (error) {
+      if (sequence !== participantSearchSequence) return;
       participantResults.replaceChildren();
+      participantSearchHelp.classList.remove("d-none");
+      participantSearchHelp.textContent = error.message;
+    } finally {
+      if (sequence === participantSearchSequence) participantSearchSpinner.classList.add("d-none");
+    }
+  }
+
+  function scheduleParticipantSearch(delay) {
+    window.clearTimeout(participantSearchTimer);
+    participantSearchTimer = window.setTimeout(searchParticipants, delay === undefined ? 280 : delay);
+  }
+
+  function setParticipantPicker(open) {
+    participantPicker.classList.toggle("d-none", !open);
+    participantPickerToggle.setAttribute("aria-expanded", String(open));
+    if (open) {
+      positionParticipantPicker();
+      Promise.all([loadParticipants(), loadParticipantTeam()]).then(participantTeamState);
+      window.setTimeout(function () { participantSearchInput.focus(); }, 0);
+    }
+  }
+
+  function positionParticipantPicker() {
+    if (participantPicker.classList.contains("d-none")) return;
+    const buttonRect = participantPickerToggle.getBoundingClientRect();
+    const right = Math.max(12, window.innerWidth - buttonRect.right);
+    participantPicker.style.top = Math.round(buttonRect.bottom + 8) + "px";
+    participantPicker.style.right = Math.round(right) + "px";
+  }
+
+  participantPickerToggle.addEventListener("click", function () {
+    setParticipantPicker(participantPicker.classList.contains("d-none"));
+  });
+  document.addEventListener("mousedown", function (event) {
+    if (!participantPicker.classList.contains("d-none") && !event.target.closest("#write-members-wrap")) setParticipantPicker(false);
+  });
+  window.addEventListener("resize", positionParticipantPicker);
+  participantSearchInput.addEventListener("input", function () { scheduleParticipantSearch(); });
+  participantSearchInput.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") { event.preventDefault(); scheduleParticipantSearch(0); }
+    if (event.key === "Escape") setParticipantPicker(false);
+  });
+  participantAddTeam.addEventListener("click", async function () {
+    const currentIds = new Set(currentParticipants.map(function (participant) { return Number(participant.user_id); }));
+    const available = participantTeamUsers.filter(function (user) { return !currentIds.has(Number(user.user_id)); });
+    if (!available.length) return;
+    participantAddTeam.disabled = true;
+    document.getElementById("participant-team-state").textContent = "추가 중…";
+    let added = 0;
+    try {
+      for (const user of available) {
+        const result = await api(participantsApi, {method: "POST", body: JSON.stringify({user_id: user.user_id, role: "editor"})});
+        if (result.created) added += 1;
+      }
+      await loadParticipants();
+      participantTeamState();
+      showParticipantAlert(added + "명의 팀원을 추가했습니다.", "success");
+    } catch (error) {
+      await loadParticipants();
+      participantTeamState();
       showParticipantAlert(error.message);
     }
   });
-
-  document.getElementById("participant-modal").addEventListener("show.bs.modal", loadParticipants);
 
   function showCommentAlert(message, kind) {
     commentPanelAlert.className = "alert alert-" + (kind || "danger") + " comment-panel-alert";

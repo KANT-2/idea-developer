@@ -209,6 +209,8 @@ class Prd(models.Model):
     creation_idempotency_key = models.CharField(max_length=128)
     is_deleted = models.BooleanField(default=False)
     deleted_at = models.DateTimeField(null=True, blank=True)
+    purge_requested_at = models.DateTimeField(null=True, blank=True)
+    purge_requested_by_user_id = models.PositiveBigIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -224,6 +226,11 @@ class Prd(models.Model):
             models.Index(
                 fields=["round_id", "team_id", "is_team_shared"],
                 name="prd_team_shared_idx",
+            ),
+            models.Index(
+                fields=["deleted_at"],
+                name="prd_deleted_purge_idx",
+                condition=Q(is_deleted=True),
             ),
         ]
         constraints = [
@@ -274,6 +281,17 @@ class Prd(models.Model):
                 ),
                 name="prd_deleted_fields_consistent",
             ),
+            models.CheckConstraint(
+                condition=(
+                    Q(purge_requested_at__isnull=True, purge_requested_by_user_id__isnull=True)
+                    | Q(
+                        purge_requested_at__isnull=False,
+                        purge_requested_by_user_id__isnull=False,
+                        is_deleted=True,
+                    )
+                ),
+                name="prd_purge_request_consistent",
+            ),
         ]
 
     @staticmethod
@@ -306,6 +324,47 @@ class Prd(models.Model):
             raise ValidationError({"team_id": "A PRD without a round cannot have a team."})
         if self.is_deleted != (self.deleted_at is not None):
             raise ValidationError({"deleted_at": "is_deleted and deleted_at must change together."})
+
+
+class PrdDeletionAction(models.TextChoices):
+    TRASHED = "trashed", "휴지통 이동"
+    RESTORED = "restored", "복구"
+    DELETE_COMPLETED = "delete_completed", "삭제 완료"
+    PURGED = "purged", "영구 삭제"
+
+
+class PrdDeletionAuditLog(models.Model):
+    """Deletion facts retained even after the PRD row is physically removed."""
+
+    prd_id = models.PositiveBigIntegerField()
+    title_snapshot = models.CharField(max_length=255)
+    creator_user_id = models.PositiveBigIntegerField()
+    actor_user_id = models.PositiveBigIntegerField(null=True, blank=True)
+    action = models.CharField(max_length=24, choices=PrdDeletionAction.choices)
+    details = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "prd_deletion_audit_logs"
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["prd_id", "-created_at"], name="prd_delete_audit_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(condition=Q(prd_id__gt=0), name="prd_delete_audit_prd_positive"),
+            models.CheckConstraint(
+                condition=Q(creator_user_id__gt=0),
+                name="prd_delete_audit_creator_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(actor_user_id__isnull=True) | Q(actor_user_id__gt=0),
+                name="prd_delete_audit_actor_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(action__in=PrdDeletionAction.values),
+                name="prd_delete_audit_action_valid",
+            ),
+        ]
 
 
 class PrdParticipant(models.Model):

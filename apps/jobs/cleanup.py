@@ -10,10 +10,12 @@ from django.utils import timezone
 
 from apps.ai.models import AiActionType, AiFeatureType, AiJob, AiJobStatus
 from apps.brainstorm.models import BrainstormConnection, BrainstormNode
+from apps.prds.models import Prd, PrdDeletionAction, PrdDeletionAuditLog
 
 
 @dataclass(frozen=True, slots=True)
 class CleanupResult:
+    prds: int = 0
     nodes: int = 0
     connections: int = 0
     ai_previews: int = 0
@@ -24,6 +26,10 @@ class BackgroundDataCleanupService:
 
     def run(self, *, now=None, dry_run=False) -> CleanupResult:
         now = now or timezone.now()
+        prds = self.purge_deleted_prds(
+            cutoff=now - timedelta(days=settings.PRD_TRASH_RETENTION_DAYS),
+            dry_run=dry_run,
+        )
         nodes, connections = self.purge_deleted_brainstorm_data(
             cutoff=now - timedelta(days=settings.BRAINSTORM_DELETE_RETENTION_DAYS),
             dry_run=dry_run,
@@ -33,7 +39,35 @@ class BackgroundDataCleanupService:
             chat_cutoff=now - timedelta(days=settings.AI_CHAT_PAYLOAD_RETENTION_DAYS),
             dry_run=dry_run,
         )
-        return CleanupResult(nodes=nodes, connections=connections, ai_previews=previews)
+        return CleanupResult(
+            prds=prds,
+            nodes=nodes,
+            connections=connections,
+            ai_previews=previews,
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def purge_deleted_prds(*, cutoff, dry_run=False):
+        prds = list(
+            Prd.objects.select_for_update(skip_locked=True)
+            .filter(is_deleted=True, deleted_at__lte=cutoff)
+            .order_by("deleted_at", "id")[: settings.BACKGROUND_CLEANUP_BATCH_SIZE]
+        )
+        if dry_run:
+            return len(prds)
+        for prd in prds:
+            PrdDeletionAuditLog.objects.create(
+                prd_id=prd.pk,
+                title_snapshot=prd.title,
+                creator_user_id=prd.creator_user_id,
+                actor_user_id=None,
+                action=PrdDeletionAction.PURGED,
+                details={"deleted_at": prd.deleted_at.isoformat()},
+            )
+        if prds:
+            Prd.objects.filter(pk__in=[prd.pk for prd in prds]).delete()
+        return len(prds)
 
     @staticmethod
     @transaction.atomic

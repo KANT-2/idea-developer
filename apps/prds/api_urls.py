@@ -6,10 +6,18 @@ app_name = "prd_api"
 
 urlpatterns = [
     path("", views.create_prd, name="create"),
+    path("trash/", detail_views.trash_prds, name="trash"),
+    path("trash/<int:prd_id>/restore/", detail_views.restore_prd, name="trash-restore"),
+    path(
+        "trash/<int:prd_id>/delete/",
+        detail_views.confirm_prd_deletion,
+        name="trash-delete",
+    ),
     path("participants/team/", views.current_team_participants, name="current-team"),
     path("participants/search/", views.search_participants, name="participant-search"),
     path("<int:prd_id>/", detail_views.prd_detail, name="detail"),
     path("<int:prd_id>/metadata/", detail_views.prd_metadata, name="metadata"),
+    path("<int:prd_id>/delete/", detail_views.delete_prd, name="delete"),
     path(
         "<int:prd_id>/export/markdown/",
         detail_views.export_markdown,

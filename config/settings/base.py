@@ -206,6 +206,9 @@ AI_RESULT_PROCESSOR_CLASS = os.getenv(
     "apps.ai.brainstorm.BrainstormAiResultRouter",
 )
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+# Development can opt into a deterministic PRD-evaluation cache while no provider
+# key is available. Production keeps this disabled unless explicitly configured.
+AI_EVALUATION_DEMO_CACHE = env_bool("AI_EVALUATION_DEMO_CACHE", False)
 AI_JOB_TIMEOUT_SECONDS = int(os.getenv("AI_JOB_TIMEOUT_SECONDS", "30"))
 AI_JOB_MAX_ATTEMPTS = int(os.getenv("AI_JOB_MAX_ATTEMPTS", "3"))
 AI_JOB_RETRY_BASE_SECONDS = int(os.getenv("AI_JOB_RETRY_BASE_SECONDS", "5"))
@@ -238,7 +241,11 @@ BRAINSTORM_ALLOWED_COLORS = tuple(
 BRAINSTORM_DELETE_RETENTION_DAYS = int(
     os.getenv("BRAINSTORM_DELETE_RETENTION_DAYS", "30")
 )
+PRD_TRASH_RETENTION_DAYS = int(os.getenv("PRD_TRASH_RETENTION_DAYS", "30"))
 BACKGROUND_CLEANUP_BATCH_SIZE = int(os.getenv("BACKGROUND_CLEANUP_BATCH_SIZE", "500"))
+BACKGROUND_CLEANUP_INTERVAL_SECONDS = int(
+    os.getenv("BACKGROUND_CLEANUP_INTERVAL_SECONDS", "86400")
+)
 
 REACT_VERSION = "18.3.1"
 REACT_CDN_URL = f"https://cdn.jsdelivr.net/npm/react@{REACT_VERSION}/umd/react.production.min.js"

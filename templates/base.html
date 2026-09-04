@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/pretendard.min.css">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.2/font/bootstrap-icons.min.css" rel="stylesheet">
-  <link href="{% static 'css/base.css' %}" rel="stylesheet">
+  <link href="{% static 'css/base.css' %}?v=20260904-1" rel="stylesheet">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -26,10 +26,7 @@
         {% if request.user.is_authenticated %}
           <button class="navbar-toggler border-0 shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#studio-navigation" aria-controls="studio-navigation" aria-expanded="false" aria-label="메뉴 열기"><i class="bi bi-list fs-3"></i></button>
           <div class="collapse navbar-collapse" id="studio-navigation">
-            <div class="navbar-nav studio-links mx-lg-auto">
-              <a class="nav-link" href="{% url 'ideas:home' %}"><i class="bi bi-grid-1x2"></i> 내 PRD</a>
-            </div>
-            <div class="studio-actions d-flex align-items-center gap-2">
+            <div class="studio-actions d-flex align-items-center gap-2 ms-lg-auto">
               <a class="btn btn-primary studio-create" href="{% url 'ideas:new-prd' %}"><i class="bi bi-plus-lg"></i> 새 PRD</a>
               <div class="dropdown">
                 <button class="btn studio-profile" data-bs-toggle="dropdown" aria-expanded="false" aria-label="사용자 메뉴">
@@ -58,6 +55,7 @@
   </main>
   {% block modals %}{% endblock %}
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+  <script src="{% static 'js/controls.js' %}?v=20260904-1"></script>
   {% block extra_js %}{% endblock %}
 </body>
 </html>

@@ -287,11 +287,13 @@ class HomeApiTests(TestCase):
             ],
         )
         personal = data["items"][0]
+        self.assertEqual(personal["version"], self.personal.version)
         self.assertTrue(personal["show_new_badge"])
         self.assertEqual(personal["completion_rate"], 50)
         self.assertEqual(personal["d_day"], "D-Day")
         self.assertEqual(personal["my_role"], "owner")
         self.assertTrue(personal["can_edit"])
+        self.assertTrue(personal["can_delete"])
         collaborative = data["items"][1]
         self.assertFalse(collaborative["show_new_badge"])
         self.assertEqual(collaborative["d_day"], "D-6")
@@ -299,9 +301,11 @@ class HomeApiTests(TestCase):
         self.assertEqual(len(collaborative["participants"]), 4)
         self.assertEqual(collaborative["ai_coaching_count"], 2)
         self.assertFalse(collaborative["can_edit"])
+        self.assertFalse(collaborative["can_delete"])
         team_shared = data["items"][2]
         self.assertIsNone(team_shared["my_role"])
         self.assertFalse(team_shared["can_edit"])
+        self.assertFalse(team_shared["can_delete"])
 
     def test_home_activity_uses_only_prds_where_user_is_a_participant(self):
         own_change = PrdChangeHistory.objects.create(

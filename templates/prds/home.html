@@ -4,11 +4,11 @@
 {% block title %}PRD 홈 | 아이디어 디벨로퍼{% endblock %}
 
 {% block extra_head %}
-  <link href="{% static 'prds/css/home.css' %}?v=20260904-4" rel="stylesheet">
+  <link href="{% static 'prds/css/home.css' %}?v=20260904-11" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
-  <div id="prd-home-app" data-api-url="{{ home_api_url }}" data-recent-activity-api-url="{{ recent_activity_api_url }}" data-new-url="{{ new_prd_url }}">
+  <div id="prd-home-app" data-api-url="{{ home_api_url }}" data-recent-activity-api-url="{{ recent_activity_api_url }}" data-new-url="{{ new_prd_url }}" data-trash-api-url="{{ trash_api_url }}" data-delete-api-url-template="{{ delete_api_url_template }}">
     <div id="home-alert" class="alert d-none" role="alert"></div>
     <div class="home-hero d-flex flex-wrap justify-content-between align-items-center gap-4 mb-4">
       <div>
@@ -16,14 +16,14 @@
         <h1 id="home-greeting" class="home-title">PRD를 불러오는 중입니다.</h1>
         <p class="home-subtitle mb-0">흩어진 아이디어를 팀과 함께 실행 가능한 제품 문서로 발전시켜 보세요.</p>
       </div>
-      <a href="{{ new_prd_url }}" class="btn btn-primary home-create"><i class="bi bi-plus-lg"></i> 새 PRD 만들기</a>
+      <div class="home-hero-actions"><a href="{{ new_prd_url }}" class="btn btn-primary home-create"><i class="bi bi-plus-lg"></i> 새 PRD 만들기</a></div>
     </div>
 
     <section class="row g-3 mb-4" aria-label="PRD 요약">
       <div class="col-6 col-md-4 col-xl-2"><button class="home-kpi w-100 text-start h-100" data-status=""><span class="kpi-icon kpi-indigo"><i class="bi bi-collection"></i></span><span>전체 PRD</span><strong id="kpi-total">-</strong></button></div>
       <div class="col-6 col-md-4 col-xl-2"><button class="home-kpi w-100 text-start h-100" data-status="in_progress"><span class="kpi-icon kpi-blue"><i class="bi bi-lightning-charge"></i></span><span>진행 중</span><strong id="kpi-progress">-</strong></button></div>
-      <div class="col-6 col-md-4 col-xl-2"><div class="home-kpi h-100"><span class="kpi-icon kpi-cyan"><i class="bi bi-bar-chart"></i></span><span>평균 완성도</span><strong id="kpi-average">-</strong></div></div>
       <div class="col-6 col-md-4 col-xl-2"><button class="home-kpi w-100 text-start h-100" data-status="completed"><span class="kpi-icon kpi-green"><i class="bi bi-check2-circle"></i></span><span>완료됨</span><strong id="kpi-completed">-</strong></button></div>
+      <div class="col-6 col-md-4 col-xl-2"><div class="home-kpi h-100"><span class="kpi-icon kpi-cyan"><i class="bi bi-bar-chart"></i></span><span>평균 완성도</span><strong id="kpi-average">-</strong></div></div>
       <div class="col-6 col-md-4 col-xl-2"><div class="home-kpi h-100"><span class="kpi-icon kpi-purple"><i class="bi bi-stars"></i></span><span>AI 코칭</span><strong id="kpi-ai">-</strong></div></div>
       <div class="col-6 col-md-4 col-xl-2"><div class="home-kpi h-100"><span class="kpi-icon kpi-rose"><i class="bi bi-calendar2-week"></i></span><span>이번 주 마감</span><strong id="kpi-due">-</strong></div></div>
     </section>
@@ -37,6 +37,7 @@
           <div class="home-scope-tabs" role="tablist" aria-label="PRD 참여 역할">
             <button class="home-scope-tab active" type="button" role="tab" aria-selected="true" data-scope="mine"><i class="bi bi-folder2-open"></i><span>내 PRD</span></button>
             <button class="home-scope-tab" type="button" role="tab" aria-selected="false" data-scope="viewer"><i class="bi bi-eye"></i><span>뷰어로 참여한 PRD</span></button>
+            <button class="home-trash-icon" type="button" data-bs-toggle="modal" data-bs-target="#prd-trash-modal" aria-label="삭제한 PRD 열기"><i class="bi bi-trash3"></i><span>삭제한 PRD</span></button>
           </div>
           <p id="home-scope-description" class="home-scope-description">작성하거나 편집에 참여하는 PRD입니다.</p>
           <div class="btn-group home-tabs" role="group" aria-label="PRD 범위">
@@ -82,6 +83,21 @@
 {% endblock %}
 
 {% block modals %}
+  <div class="modal fade" id="prd-trash-modal" tabindex="-1" aria-labelledby="prd-trash-modal-title" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content trash-modal-content">
+      <div class="modal-header"><div><span class="home-modal-eyebrow">DELETED PRDS</span><h2 class="modal-title" id="prd-trash-modal-title">삭제한 PRD</h2><p>삭제한 PRD는 30일 동안 보관된 후 자동으로 영구 삭제됩니다.</p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button></div>
+      <div class="modal-body"><div id="prd-trash-alert" class="alert alert-danger d-none" role="alert"></div><div id="prd-trash-loading" class="text-center py-5"><span class="spinner-border spinner-border-sm text-primary" aria-hidden="true"></span></div><div id="prd-trash-list" class="trash-list" aria-live="polite"></div></div>
+      <div class="modal-footer"><small>영구 삭제는 보관 기간이 끝난 뒤 시스템에서만 처리합니다.</small><button type="button" class="btn btn-light" data-bs-dismiss="modal">닫기</button></div>
+    </div></div>
+  </div>
+
+  <div class="modal fade" id="home-delete-confirm-modal" tabindex="-1" aria-labelledby="home-delete-confirm-title" aria-hidden="true">
+    <div class="modal-dialog modal-sm modal-dialog-centered"><div class="modal-content delete-confirm-content">
+      <div class="modal-body text-center"><span class="delete-confirm-icon"><i class="bi bi-trash3"></i></span><h2 id="home-delete-confirm-title">PRD를 삭제할까요?</h2><p><strong id="home-delete-prd-title"></strong><br>삭제 후 30일 동안 휴지통에서 복구할 수 있습니다.</p><div id="home-delete-error" class="alert alert-danger d-none" role="alert"></div></div>
+      <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">취소</button><button id="home-delete-confirm" type="button" class="btn btn-danger">삭제</button></div>
+    </div></div>
+  </div>
+
   <div class="modal fade" id="recent-activity-modal" tabindex="-1" aria-labelledby="recent-activity-modal-title" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
       <div class="modal-content recent-activity-modal-content">
@@ -100,4 +116,4 @@
   </div>
 {% endblock %}
 
-{% block extra_js %}<script src="{% static 'prds/js/home.js' %}?v=20260904-4"></script>{% endblock %}
+{% block extra_js %}<script src="{% static 'prds/js/home.js' %}?v=20260904-8"></script>{% endblock %}
