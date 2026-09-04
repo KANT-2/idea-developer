@@ -11,6 +11,7 @@ urlpatterns = [
     path("evaluation/", views.latest_evaluation, name="latest-evaluation"),
     path("evaluation/run/", views.request_evaluation, name="request-evaluation"),
     path("drafts/<uuid:job_id>/apply/", views.apply_draft, name="apply-draft"),
+    path("chat/<uuid:job_id>/apply/", views.apply_chat_proposal, name="apply-chat-proposal"),
     path("jobs/<uuid:job_id>/", views.job_status, name="job-status"),
     path("jobs/<uuid:job_id>/cancel/", views.cancel_job, name="cancel-job"),
     path("jobs/<uuid:job_id>/retry/", views.retry_job, name="retry-job"),

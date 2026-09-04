@@ -172,6 +172,8 @@ class BackgroundCleanupTests(BrainstormExportCleanupBase):
         self.now = timezone.now()
 
     def prompt(self, feature_type):
+        # 마이그레이션이 미리 심어둔 프롬프트가 있으면 치운다(활성 프롬프트는 기능당 하나뿐).
+        AiPrompt.objects.filter(feature_type=feature_type).delete()
         return AiPrompt.objects.create(
             feature_type=feature_type,
             version=1,
