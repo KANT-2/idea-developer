@@ -2,12 +2,12 @@
 {% load static %}
 
 {% block title %}새 PRD 만들기 | 아이디어 디벨로퍼{% endblock %}
-{% block extra_head %}<link href="{% static 'prds/css/new.css' %}" rel="stylesheet">{% endblock %}
+{% block extra_head %}<link href="{% static 'prds/css/new.css' %}?v=20260904-2" rel="stylesheet">{% endblock %}
 
 {% block breadcrumb %}<nav aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="{% url 'ideas:home' %}">PRD</a></li><li class="breadcrumb-item active">새 PRD 만들기</li></ol></nav>{% endblock %}
 
 {% block content %}
-<div id="new-prd-app" data-create-api="{{ create_api_url }}" data-team-api="{{ team_api_url }}" data-search-api="{{ search_api_url }}">
+<div id="new-prd-app" data-create-api="{{ create_api_url }}" data-team-api="{{ team_api_url }}" data-search-api="{{ search_api_url }}" data-current-user-id="{{ request.user.external_user_id }}" data-current-user-name="{{ session_identity.display_name|default:'나' }}">
   <div class="new-shell row justify-content-center"><div class="col-xl-10 col-xxl-9">
     <div id="new-alert" class="alert d-none" role="alert"></div>
     <div class="new-heading d-flex align-items-center gap-3 mb-4"><a class="new-back" href="{% url 'ideas:home' %}" aria-label="홈으로 돌아가기"><i class="bi bi-arrow-left"></i></a><div><span class="new-eyebrow">CREATE PRODUCT BRIEF</span><h1 class="mb-1">새 PRD 만들기</h1><p class="text-secondary mb-0">좋은 문서는 명확한 문제 정의에서 시작합니다.</p></div></div>
@@ -24,14 +24,25 @@
         <div class="mb-3"><label for="prd-title" class="form-label fw-semibold">제목 <span class="text-danger">*</span></label><input id="prd-title" class="form-control" maxlength="200" required autocomplete="off"><div class="invalid-feedback">제목을 입력해 주세요.</div></div>
         <div class="mb-3"><label for="prd-description" class="form-label fw-semibold">한 줄 소개</label><input id="prd-description" class="form-control" maxlength="500" autocomplete="off"><div class="form-text">줄바꿈 없이 핵심 목적을 간결하게 적어 주세요.</div></div>
         <div class="mb-4"><label for="prd-deadline" class="form-label fw-semibold">목표 마감일</label><input id="prd-deadline" type="date" class="form-control new-date-input"></div>
-        <fieldset class="participant-field"><legend class="h6 fw-semibold">참여자</legend><p class="small text-secondary">로그인 사용자는 owner로 항상 포함되며, 추가한 사용자는 초대 수락 없이 즉시 참여합니다.</p>
-          <div class="d-flex flex-wrap gap-2 mb-3"><button id="load-team" type="button" class="btn btn-sm btn-outline-primary">현재 팀 불러오기</button><button id="add-team" type="button" class="btn btn-sm btn-outline-primary" disabled>팀원 모두 추가</button></div>
-          <div id="selected-participants" class="d-flex flex-wrap gap-2 mb-3" aria-live="polite"><span class="participant-owner"><i class="bi bi-person-check"></i> 현재 로그인 사용자 · owner</span></div>
-          <label for="participant-search" class="form-label small fw-semibold">개별 사용자 검색</label><div class="input-group"><input id="participant-search" class="form-control" minlength="2" placeholder="이름 2자 이상"><button id="search-button" class="btn btn-outline-secondary" type="button">검색</button></div><div id="participant-results" class="list-group mt-2"></div>
+        <fieldset class="participant-field"><legend class="h6 fw-semibold">PRD 참여자 선택</legend><p class="small text-secondary">본인은 소유자로 항상 포함됩니다. 추가한 사용자는 승인 절차 없이 바로 편집자로 참여합니다.</p>
+          <div class="participant-picker-wrap">
+            <div id="selected-participants" class="selected-participants" aria-live="polite"></div>
+            <div class="participant-add-wrap">
+              <button id="participant-picker-toggle" class="participant-add-button" type="button" aria-expanded="false" aria-controls="participant-picker" aria-label="참여자 추가"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
+              <div id="participant-picker" class="participant-picker d-none">
+                <div class="participant-search-box"><i class="bi bi-search" aria-hidden="true"></i><input id="participant-search" type="search" minlength="2" autocomplete="off" placeholder="이름으로 검색" aria-label="참여자 이름 검색"><span id="participant-search-spinner" class="spinner-border spinner-border-sm d-none" aria-hidden="true"></span></div>
+                <div class="participant-picker-scroll">
+                  <section class="participant-picker-section"><p class="participant-picker-label">내가 속한 팀</p><button id="add-team" class="team-add-row" type="button" disabled><span class="team-add-icon"><i class="bi bi-people-fill"></i></span><span class="team-add-copy"><strong id="team-name">현재 팀</strong><small id="team-description">팀 정보를 불러오는 중입니다.</small></span><span id="team-add-state" class="team-add-state">불러오는 중</span></button></section>
+                  <div class="participant-picker-divider"></div>
+                  <section class="participant-picker-section"><p class="participant-picker-label">개별 추가</p><p id="participant-search-help" class="participant-search-help">이름을 2자 이상 입력해 주세요.</p><div id="participant-results" class="participant-results"></div></section>
+                </div>
+              </div>
+            </div>
+          </div>
         </fieldset>
       </div></div><div class="d-flex justify-content-between mt-4"><button id="back-to-types" type="button" class="btn btn-outline-secondary">이전</button><button id="create-prd" type="submit" class="btn btn-primary px-4">PRD 생성</button></div></form>
     </section>
   </div></div><form class="d-none">{% csrf_token %}</form>
 </div>
 {% endblock %}
-{% block extra_js %}<script src="{% static 'prds/js/new.js' %}"></script>{% endblock %}
+{% block extra_js %}<script src="{% static 'prds/js/new.js' %}?v=20260904-2"></script>{% endblock %}

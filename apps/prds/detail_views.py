@@ -229,6 +229,15 @@ def prd_detail(request, prd_id):
     except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
         return _error_response(request, exc)
 
+    latest_completion_reason = None
+    if access.prd.status == PrdStatus.COMPLETED:
+        latest_completion_reason = (
+            access.prd.status_audit_logs.filter(action="completed")
+            .order_by("-created_at", "-id")
+            .values_list("reason", flat=True)
+            .first()
+        )
+
     return api_success(
         {
             "prd": {
@@ -239,6 +248,9 @@ def prd_detail(request, prd_id):
                 "status": access.prd.status,
                 "completed_at": (
                     access.prd.completed_at.isoformat() if access.prd.completed_at else None
+                ),
+                "auto_completed": (
+                    latest_completion_reason == PrdStatusService.AUTO_COMPLETION_REASON
                 ),
                 "version": access.prd.version,
                 "contribution_status": access.prd.contribution_status,
@@ -278,9 +290,7 @@ def prd_metadata(request, prd_id):
         version = payload.get("version")
         if isinstance(version, bool) or not isinstance(version, int) or version < 1:
             raise ValidationError({"version": "PRD version이 올바르지 않습니다."})
-        supplied = {
-            key for key in ("title", "description", "status", "deadline") if key in payload
-        }
+        supplied = {key for key in ("title", "description", "status", "deadline") if key in payload}
         if not supplied:
             raise ValidationError({"body": "수정할 PRD 기본 정보가 필요합니다."})
 
@@ -325,7 +335,8 @@ def prd_metadata(request, prd_id):
             prd = Prd.objects.select_for_update().get(pk=access.prd.pk, is_deleted=False)
             if prd.version != version:
                 raise PrdVersionConflict(prd)
-            if prd.status == PrdStatus.COMPLETED:
+            completed_deadline_only = prd.status == PrdStatus.COMPLETED and supplied == {"deadline"}
+            if prd.status == PrdStatus.COMPLETED and not completed_deadline_only:
                 raise PermissionDenied("완료된 PRD는 다시 연 후 수정할 수 있습니다.")
 
             before = {
@@ -341,7 +352,14 @@ def prd_metadata(request, prd_id):
             if "status" in supplied:
                 prd.status = requested_status
             if "deadline" in supplied:
-                prd.deadline = _parse_deadline(payload.get("deadline"))
+                parsed_deadline = _parse_deadline(payload.get("deadline"))
+                if prd.status == PrdStatus.COMPLETED and (
+                    parsed_deadline is None or parsed_deadline < timezone.localdate()
+                ):
+                    raise ValidationError(
+                        {"deadline": "다시 열려면 마감 기한을 오늘 이후로 변경해 주세요."}
+                    )
+                prd.deadline = parsed_deadline
             after = {
                 "title": prd.title,
                 "description": prd.description,
@@ -483,9 +501,7 @@ def trash_prds(request):
             queryset = queryset.filter(creator_user_id=context.user_id)
         total_items = queryset.count()
         rows = list(
-            queryset.order_by("-deleted_at", "-id")[
-                (page - 1) * page_size : page * page_size
-            ]
+            queryset.order_by("-deleted_at", "-id")[(page - 1) * page_size : page * page_size]
         )
         now = timezone.now()
         items = []
@@ -684,9 +700,7 @@ def participants(request, prd_id):
                 "items": [
                     _serialize_participant(
                         row,
-                        display_name=(
-                            summaries.get(row.user_id)
-                        ),
+                        display_name=(summaries.get(row.user_id)),
                     )
                     for row in rows
                 ],
@@ -1225,8 +1239,7 @@ def contribution_results(request, prd_id):
         return api_success(
             {
                 "items": [
-                    _serialize_contribution(row, display_names=display_names)
-                    for row in evaluations
+                    _serialize_contribution(row, display_names=display_names) for row in evaluations
                 ]
             },
             request_id=_request_id(request),

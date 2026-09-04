@@ -25,6 +25,48 @@ class PrdStatusConflict(Exception):
 
 
 class PrdStatusService:
+    AUTO_COMPLETION_REASON = "deadline_elapsed"
+
+    @transaction.atomic
+    def complete_overdue(self, *, prd_ids=None, today=None) -> list[int]:
+        """Complete elapsed PRDs idempotently from midnight maintenance or access fallback."""
+        queryset = Prd.objects.select_for_update().filter(
+            is_deleted=False,
+            status__in=[PrdStatus.IN_PROGRESS, PrdStatus.HELD],
+            deadline__lt=today or timezone.localdate(),
+        )
+        if prd_ids is not None:
+            queryset = queryset.filter(pk__in=prd_ids)
+
+        completed_ids = []
+        completed_at = timezone.now()
+        for prd in queryset.order_by("pk"):
+            previous_status = prd.status
+            prd.status = PrdStatus.COMPLETED
+            prd.completed_at = completed_at
+            prd.contribution_status = PrdContributionStatus.PENDING
+            prd.save(update_fields=["status", "completed_at", "contribution_status", "updated_at"])
+            audit = self._record(
+                prd=prd,
+                actor_user_id=prd.creator_user_id,
+                action=PrdStatusAuditAction.COMPLETED,
+                previous_status=previous_status,
+                new_status=prd.status,
+                reason=self.AUTO_COMPLETION_REASON,
+                previous_completed_at=None,
+            )
+            transaction.on_commit(
+                lambda prd_id=prd.pk, audit_id=audit.pk, actor_id=prd.creator_user_id: (
+                    self._schedule_contribution(
+                        prd_id=prd_id,
+                        completion_audit_id=audit_id,
+                        actor_user_id=actor_id,
+                    )
+                )
+            )
+            completed_ids.append(prd.pk)
+        return completed_ids
+
     @transaction.atomic
     def complete(
         self,
@@ -86,6 +128,20 @@ class PrdStatusService:
             raise PrdStatusConflict(current_status=prd.status)
         if access.role != PrdParticipantRole.OWNER and not access.is_admin:
             raise PermissionDenied("Only the PRD owner or an administrator can reopen it.")
+        latest_completion_reason = (
+            prd.status_audit_logs.filter(
+                action=PrdStatusAuditAction.COMPLETED,
+            )
+            .order_by("-created_at", "-id")
+            .values_list("reason", flat=True)
+            .first()
+        )
+        if latest_completion_reason == self.AUTO_COMPLETION_REASON and (
+            prd.deadline is None or prd.deadline < timezone.localdate()
+        ):
+            raise ValidationError(
+                {"deadline": "자동 완료된 PRD를 다시 열려면 마감 기한을 오늘 이후로 변경해 주세요."}
+            )
 
         previous_status = prd.status
         previous_completed_at = prd.completed_at
