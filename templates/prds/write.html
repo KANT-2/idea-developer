@@ -116,14 +116,5 @@
   <div class="modal-footer export-modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">닫기</button><div><button id="copy-prd-markdown" type="button" class="btn btn-outline-secondary" disabled><i class="bi bi-clipboard"></i> 복사</button><a id="download-prd-markdown" class="btn btn-primary" href="#"><i class="bi bi-download"></i> .md 다운로드</a></div></div>
 </div></div></div>
 
-<div class="modal fade" id="participant-modal" tabindex="-1" aria-labelledby="participant-modal-title" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content participant-modal-content">
-  <div class="modal-header participant-modal-head"><div><span>PRD MEMBERS</span><h2 class="modal-title" id="participant-modal-title">참여자 추가 및 관리</h2><p>추가한 사용자는 초대 승인 없이 바로 PRD에 참여합니다.</p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button></div>
-  <div class="modal-body participant-modal-body">
-    <div id="participant-alert" class="alert d-none" role="alert"></div>
-    <section aria-labelledby="participant-current-title"><div class="participant-section-head"><h3 id="participant-current-title">현재 참여자</h3><span id="participant-count">0명</span></div><div id="participant-list" class="participant-list"><div class="text-center py-4"><span class="spinner-border spinner-border-sm text-primary"></span></div></div></section>
-    <section id="participant-add-section" class="participant-search-section" aria-labelledby="participant-search-title"><div class="participant-section-head"><div><h3 id="participant-search-title">팀원 추가</h3><p>이름을 2자 이상 입력해 검색하세요.</p></div></div><form id="participant-search-form" class="input-group"><input id="participant-search" class="form-control" type="search" minlength="2" autocomplete="off" placeholder="추가할 사용자 이름"><button class="btn btn-primary" type="submit"><i class="bi bi-search"></i> 검색</button></form><div id="participant-search-results" class="participant-search-results" aria-live="polite"></div></section>
-  </div>
-  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">닫기</button></div>
-</div></div></div>
 {% endblock %}
 {% block extra_js %}<script src="{% static 'prds/js/write.js' %}?v=20260904-22"></script>{% endblock %}
