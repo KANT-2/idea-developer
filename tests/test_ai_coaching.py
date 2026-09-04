@@ -230,6 +230,17 @@ class AiCoachingApiTests(TestCase):
         again = self.client.get(self.url("conversation")).json()["data"]["messages"]
         self.assertNotIn("proposal", again[1])
 
+        # API를 직접 두 번 호출해도 같은 제안이 다시 반영되지 않는다.
+        repeated = self.post(
+            "apply-chat-proposal",
+            {"question_version": proposal["question_version"], "content": proposal["content"]},
+            job_id=assistant["job"]["id"],
+        )
+        self.assertEqual(repeated.status_code, 400)
+        self.assertEqual(PrdAnswer.objects.filter(question=self.question).count(), 1)
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.version, 2)
+
     def test_coach_proposal_pointing_at_another_prd_question_is_rejected(self):
         other_prd = Prd.objects.create(
             title="다른 PRD",

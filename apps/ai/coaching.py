@@ -281,9 +281,13 @@ class AiChatProposalService:
             or job.status != AiJobStatus.SUCCEEDED
         ):
             raise ValidationError({"job": "반영할 수 있는 코치 제안이 아닙니다."})
-        proposal = (job.output_data or {}).get("proposal")
+        output = job.output_data or {}
+        proposal = output.get("proposal")
         if not isinstance(proposal, dict):
             raise ValidationError({"job": "이 답변에는 반영할 제안이 없습니다."})
+        if output.get("applied_at"):
+            # 버전 검사에도 걸리지만, 여기서 막아야 이유가 분명한 메시지가 나간다.
+            raise ValidationError({"job": "이미 반영한 제안입니다."})
         return _apply_answer(
             prd=job.prd,
             question_id=proposal.get("question_id"),
