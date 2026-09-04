@@ -82,12 +82,8 @@ class GeminiAiProvider:
                 }
             ],
             "generationConfig": {
-                "responseFormat": {
-                    "text": {
-                        "mimeType": "application/json",
-                        "schema": GeminiAiProvider._gemini_schema(request.output_schema),
-                    }
-                }
+                "responseMimeType": "application/json",
+                "responseSchema": GeminiAiProvider._gemini_schema(request.output_schema),
             },
         }
 
