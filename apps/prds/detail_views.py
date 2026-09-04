@@ -16,7 +16,7 @@ from django.views.decorators.http import require_GET, require_http_methods
 from apps.accounts.permissions import ParticipantAction, role_permission_policy
 from apps.ai.contribution import ContributionEvaluationService
 from apps.ai.exceptions import AiJobNotRetryable, AiPromptNotConfigured, AiUsageLimitExceeded
-from apps.ai.models import AiChatHistory, AiUsageLog, ContributionEvaluation
+from apps.ai.models import AiCoachChatLog, AiUsageLog, ContributionEvaluation
 from apps.common.responses import api_error, api_success
 from apps.integration.exceptions import IntegrationError
 
@@ -891,7 +891,7 @@ def ai_chat_history(request, prd_id):
     return _paginated_detail_endpoint(
         request,
         prd_id,
-        lambda prd: AiChatHistory.objects.filter(prd=prd),
+        lambda prd: AiCoachChatLog.objects.filter(prd=prd),
         lambda row: {
             "id": row.id,
             "user_id": row.user_id,

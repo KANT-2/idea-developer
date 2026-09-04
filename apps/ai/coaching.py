@@ -23,7 +23,7 @@ from apps.prds.models import (
 from .exceptions import AiOutputValidationError
 from .models import (
     AiActionType,
-    AiChatHistory,
+    AiCoachChatLog,
     AiCoachConversation,
     AiCoachMessage,
     AiConversationMessageRole,
@@ -51,6 +51,15 @@ def escape_user_message(value: Any) -> str:
             {"message": f"메시지는 {settings.AI_CHAT_MESSAGE_MAX_LENGTH}자 이하여야 합니다."}
         )
     return html.escape(normalized, quote=False)
+
+
+def model_text(value: str) -> str:
+    """저장·표시용 이스케이프를 풀어 모델에 보낼 원문으로 되돌린다.
+
+    저장할 때는 화면 안전을 위해 &lt; 같은 형태로 두지만, 그대로 모델에 보내면
+    프롬프트에 실체 없는 기호가 섞여 답변 품질이 떨어진다.
+    """
+    return html.unescape(value or "")
 
 
 def sanitize_ai_markdown(value: Any) -> str:
@@ -230,7 +239,8 @@ class AiCoachConversationService:
                 "kind": "coach_chat",
                 "conversation_id": conversation.pk,
                 "user_message_id": user_message.pk,
-                "current_message": safe_message,
+                # 저장은 이스케이프된 형태로, 모델에는 원문으로 보낸다.
+                "current_message": model_text(safe_message),
                 "recent_turns": history,
                 "prd_context": context,
             },
@@ -264,7 +274,13 @@ class AiCoachConversationService:
                 role=AiConversationMessageRole.USER,
             ).first()
             if user_message:
-                turns.append({"user": user_message.content, "assistant": assistant.content})
+                # 지난 턴도 모델에는 원문으로 전달한다.
+                turns.append(
+                    {
+                        "user": model_text(user_message.content),
+                        "assistant": model_text(assistant.content),
+                    }
+                )
         return turns
 
 
@@ -459,7 +475,7 @@ class AiResultProcessor:
                 job=job,
                 role=AiConversationMessageRole.USER,
             ).first()
-            AiChatHistory.objects.create(
+            AiCoachChatLog.objects.create(
                 prd=job.prd,
                 user_id=job.user_id,
                 prompt=user_message.content if user_message else "",
@@ -529,4 +545,22 @@ def delete_expired_conversations() -> int:
     if not expired_ids:
         return 0
     deleted, _ = AiCoachConversation.objects.filter(pk__in=expired_ids).delete()
+    return deleted
+
+
+def delete_expired_chat_history() -> int:
+    """대화 열람 이력도 대화와 같은 30일 뒤에 지운다.
+
+    이 표는 화면이 아니라 PRD 상세의 ai-chats 조회에 쓰이는데,
+    같이 지우지 않으면 대화창에서 사라진 뒤에도 계속 조회된다.
+    """
+    cutoff = timezone.now() - AiCoachConversationService.TTL
+    expired_ids = list(
+        AiCoachChatLog.objects.filter(created_at__lte=cutoff)
+        .order_by("created_at", "id")
+        .values_list("pk", flat=True)[: settings.AI_TTL_DELETE_BATCH_SIZE]
+    )
+    if not expired_ids:
+        return 0
+    deleted, _ = AiCoachChatLog.objects.filter(pk__in=expired_ids).delete()
     return deleted

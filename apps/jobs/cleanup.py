@@ -80,6 +80,8 @@ class BackgroundDataCleanupService:
                 action_type=AiActionType.PRD_APPLY,
             )
             | Q(feature_type=AiFeatureType.COACHING, action_type=AiActionType.DRAFT)
+            # 채팅 결과에는 코치의 수정 제안 전문이 들어 있다. 초안과 같은 기간만 보관한다.
+            | Q(feature_type=AiFeatureType.COACHING, action_type=AiActionType.CHAT)
         )
         ids = list(
             AiJob.objects.filter(

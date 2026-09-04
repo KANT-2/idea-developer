@@ -11,11 +11,14 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.accounts.models import LocalUserMapping
+from apps.ai.coaching import delete_expired_chat_history
 from apps.ai.exceptions import AiProviderError
 from apps.ai.models import (
     AiActionType,
+    AiCoachChatLog,
     AiCoachConversation,
     AiCoachMessage,
+    AiConversationMessageRole,
     AiFeatureType,
     AiJob,
     AiJobStatus,
@@ -194,6 +197,34 @@ class AiCoachingApiTests(TestCase):
         self.assertContains(page, "AI 코치")
         question = detail.json()["data"]["sections"][0]["questions"][0]
         self.assertEqual(question["version"], 1)
+
+    def test_chat_history_is_purged_with_the_conversation_after_thirty_days(self):
+        self.assertEqual(self.request_chat(key="ttl-chat").status_code, 202)
+        self.run_job()
+        self.assertEqual(AiCoachChatLog.objects.filter(prd=self.prd).count(), 1)
+
+        # 30일이 지나기 전에는 남아 있어야 한다.
+        AiCoachChatLog.objects.update(created_at=timezone.now() - timedelta(days=29))
+        delete_expired_chat_history()
+        self.assertEqual(AiCoachChatLog.objects.filter(prd=self.prd).count(), 1)
+
+        AiCoachChatLog.objects.update(created_at=timezone.now() - timedelta(days=31))
+        delete_expired_chat_history()
+        self.assertEqual(AiCoachChatLog.objects.filter(prd=self.prd).count(), 0)
+
+    def test_user_message_reaches_the_model_without_html_escaping(self):
+        self.assertEqual(
+            self.request_chat(message="<b>범위</b> & 일정", key="escape-key").status_code,
+            202,
+        )
+        self.run_job()
+
+        sent = CoachingProvider.requests[-1].user_data["untrusted_user_data"]
+        self.assertEqual(sent["current_message"], "<b>범위</b> & 일정")
+
+        # 저장과 화면 표시는 이스케이프된 형태를 유지한다.
+        stored = AiCoachMessage.objects.get(role=AiConversationMessageRole.USER)
+        self.assertEqual(stored.content, "&lt;b&gt;범위&lt;/b&gt; &amp; 일정")
 
     def test_coach_proposal_is_preview_only_until_the_user_approves(self):
         CoachingProvider.proposal = {
