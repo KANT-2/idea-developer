@@ -58,6 +58,16 @@ class BrainstormAccessService:
             is_completed=access.prd.status == "completed",
         )
 
+    @staticmethod
+    def enforce_create_note(access: PrdAccess) -> None:
+        if access.role is None:
+            raise PermissionDenied("Only a PRD participant can create a note.")
+        role_permission_policy.enforce(
+            access.role,
+            ParticipantAction.BRAINSTORM_CREATE_NOTE,
+            is_completed=access.prd.status == "completed",
+        )
+
     def get_or_create_canvas(
         self,
         *,
@@ -69,7 +79,7 @@ class BrainstormAccessService:
             canvas = BrainstormCanvas.objects.get(prd=access.prd)
             created = False
         except BrainstormCanvas.DoesNotExist:
-            self.enforce_write(access)
+            self.enforce_create_note(access)
             key = BrainstormMutationService._validate_idempotency_key(idempotency_key)
             try:
                 canvas, created = BrainstormCanvas.objects.get_or_create(
@@ -302,7 +312,7 @@ class BrainstormMutationService:
 
     @transaction.atomic
     def create_note(self, *, canvas, access, context, payload, idempotency_key):
-        BrainstormAccessService.enforce_write(access)
+        BrainstormAccessService.enforce_create_note(access)
         canvas = self._lock_canvas(canvas)
         key = self._validate_idempotency_key(idempotency_key)
         content = self._validate_content(payload.get("content"))
@@ -425,9 +435,7 @@ class BrainstormMutationService:
         node.position_y = y
         node.section = section
         node.status = (
-            BrainstormNodeStatus.ACCEPTED
-            if section is not None
-            else BrainstormNodeStatus.DEFAULT
+            BrainstormNodeStatus.ACCEPTED if section is not None else BrainstormNodeStatus.DEFAULT
         )
         node.version += 1
         node.save(

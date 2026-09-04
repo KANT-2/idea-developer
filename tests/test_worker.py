@@ -39,14 +39,8 @@ class PeriodicCleanupRunnerTests(SimpleTestCase):
 
 class JobWorkerCommandTests(SimpleTestCase):
     @override_settings(JOB_RUNNER_CLASS="apps.jobs.runners.NoopJobRunner")
-    @patch(
-        "apps.jobs.management.commands.run_job_worker."
-        "PeriodicCleanupRunner.run_if_due",
-        return_value=True,
-    )
     @patch("apps.jobs.runners.NoopJobRunner.run_once", return_value=False)
-    def test_once_runs_cleanup_and_a_single_job_iteration(self, run_once, cleanup):
+    def test_once_runs_a_single_job_iteration(self, run_once):
         call_command("run_job_worker", once=True, stdout=StringIO())
 
-        cleanup.assert_called_once_with()
         run_once.assert_called_once_with()

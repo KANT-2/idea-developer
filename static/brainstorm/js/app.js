@@ -387,6 +387,7 @@
 
     if (!state) return h("div", {className: "brain-loading"}, h("span", {className: "spinner-border text-primary"}), h("p", null, "React 캔버스를 불러오는 중입니다."));
     var canEdit = state.permissions.can_edit && !state.permissions.is_completed;
+    var canCreateNote = state.permissions.can_create_note && !state.permissions.is_completed;
     var visible = state.nodes.filter(function (node) { return node.node_type === "title" || filter === "all" || node.status === filter; });
     var positions = {}; visible.forEach(function (node) { positions[node.id] = displayPosition(node); });
 
@@ -624,7 +625,7 @@
       h("div", {className: "brain-toolbar"},
         h("div", {className: "brain-counts"}, h("span", null, state.counts.total + "개 메모"), h("span", {className: "warn"}, "미분류 " + state.counts.unclassified), h("span", {className: "good"}, "✓ " + state.counts.accepted + "개 채택")),
         boardView === "canvas" ? h("div", {className: "brain-tools"}, toolButton("select", "bi bi-cursor", "선택"), toolButton("connect", "bi bi-bezier2", "연결")) : null,
-        canEdit ? h("button", {type: "button", className: "brain-add", onClick: createNote}, h("i", {className: "bi bi-plus-lg"}), " 메모 추가") : null,
+        canCreateNote ? h("button", {type: "button", className: "brain-add", onClick: createNote}, h("i", {className: "bi bi-plus-lg"}), " 메모 추가") : null,
         h("div", {className: "brain-filter"}, ["all", "accepted", "default"].map(function (value) { return h("button", {key: value, type: "button", className: filter === value ? "active" : "", onClick: function () { setFilter(value); }}, {all: "전체", accepted: "채택됨", default: "미분류"}[value]); })),
         boardView === "canvas" && canEdit ? h("button", {type: "button", className: "btn btn-sm brain-auto", disabled: busy, onClick: autoLayout}, h("i", {className: "bi bi-grid-3x3-gap"}), " 자동 정렬") : null,
         h("div", {className: "brain-ai-actions"}, h("button", {type: "button", disabled: busy, onClick: loadClassificationResult}, h("i", {className: "bi bi-diagram-3"}), " 분류 결과"))

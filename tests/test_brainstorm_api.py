@@ -217,6 +217,30 @@ class BrainstormApiTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+    def test_tutor_can_create_note_but_cannot_edit_existing_note(self):
+        self.prd.participants.filter(user_id=7).update(role=PrdParticipantRole.TUTOR)
+        self.initialize_canvas()
+
+        created = self.json_request(
+            "post",
+            "node-create",
+            {"content": "튜터 지도 메모", "color": "yellow", "x": 20, "y": 30},
+        )
+        node = BrainstormNode.objects.get(content="튜터 지도 메모")
+        edited = self.json_request(
+            "patch",
+            "node-content",
+            {"content": "수정 시도", "version": node.version},
+            node_id=node.pk,
+        )
+        permissions = self.client.get(self.url("canvas")).json()["data"]["permissions"]
+
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual((node.author_id, node.assignee_id), (7, 7))
+        self.assertEqual(edited.status_code, 403)
+        self.assertTrue(permissions["can_create_note"])
+        self.assertFalse(permissions["can_edit"])
+
     def test_note_creation_uses_context_identity_and_validates_section(self):
         self.initialize_canvas()
         response = self.json_request(

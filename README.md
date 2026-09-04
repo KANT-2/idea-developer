@@ -98,11 +98,23 @@ python manage.py run_job_worker
 python manage.py run_job_worker --once
 ```
 
-worker는 시작할 때 만료 데이터 정리를 한 번 실행하고, 계속 실행 중이면 기본 24시간마다 다시
-실행합니다. 별도 Windows 작업 스케줄러는 필요하지 않습니다. 삭제할 데이터가 없어도 오류가
-아니며 0건 처리 후 AI 작업을 계속 수행합니다. 주기는 `.env`의
-`BACKGROUND_CLEANUP_INTERVAL_SECONDS`로 조정할 수 있습니다. worker 프로세스가 꺼져 있는
-동안에는 정리되지 않으며, 다음 실행 시 보관기간이 지난 데이터를 정리합니다.
+AI worker는 AI 작업만 처리합니다. PRD 자동 완료와 영구 삭제를 모두 정확히 자정에 처리하려면
+아래의 통합 유지보수 명령을 Windows 작업 스케줄러에 등록합니다. 이 명령은 마감일이 지난 진행
+중·보류 PRD를 완료하고, 30일 보관기간이 지난 PRD·메모도 같은 실행에서 영구 삭제합니다.
+처리할 항목이 없어도 성공하며 반복 실행해도 안전합니다.
+
+```powershell
+# 먼저 직접 한 번 검증
+python manage.py run_midnight_maintenance
+
+# 현재 프로젝트를 매일 00:00에 실행하도록 등록(최초 1회)
+powershell -ExecutionPolicy Bypass -File .\scripts\register_midnight_maintenance.ps1
+```
+
+자정에 PC가 꺼져 있으면 Windows의 `StartWhenAvailable` 설정으로 다음 부팅·로그인 후 누락된
+작업을 실행합니다. 홈 또는 상세 조회 시에도 기한 경과 PRD를 한 번 더 확인하므로 표시와 DB
+상태가 어긋나지 않습니다. 운영 Linux에서는 같은 management command를 cron의 매일 00:00
+작업으로 등록하면 됩니다.
 
 기본 `AI_PROVIDER_CLASS`는 Gemini Developer API 어댑터입니다. Google AI Studio에서 발급한
 키를 개인 `.env` 또는 배포 비밀 저장소의 `GEMINI_API_KEY`에만 주입합니다. 키가 비어 있으면

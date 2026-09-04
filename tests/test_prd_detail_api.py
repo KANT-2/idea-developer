@@ -1,4 +1,5 @@
 import json
+from datetime import date, timedelta
 from unittest.mock import Mock, patch
 
 from django.db import connection
@@ -364,9 +365,7 @@ class PrdDetailApiTests(TestCase):
             updated_by_user_id=7,
         )
 
-        response = self.client.get(
-            reverse("prd_api:export-markdown", args=[self.prd.id])
-        )
+        response = self.client.get(reverse("prd_api:export-markdown", args=[self.prd.id]))
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "text/markdown; charset=utf-8")
@@ -622,6 +621,38 @@ class PrdDetailApiTests(TestCase):
             list(self.prd.change_history.values_list("event_type", flat=True)),
             ["prd_reopened", "prd_completed"],
         )
+
+    def test_elapsed_deadline_auto_completes_and_requires_new_deadline_before_reopen(self):
+        today = date(2026, 9, 4)
+        self.prd.deadline = today - timedelta(days=1)
+        self.prd.save(update_fields=["deadline", "updated_at"])
+
+        with patch("apps.prds.status_services.timezone.localdate", return_value=today):
+            detail_response = self.client.get(reverse("prd_api:detail", args=[self.prd.id]))
+            blocked_reopen = self.post_json(
+                reverse("prd_api:reopen", args=[self.prd.id]),
+                {"reason": "계속 작성"},
+            )
+            changed_deadline = self.patch_json(
+                reverse("prd_api:metadata", args=[self.prd.id]),
+                {"deadline": (today + timedelta(days=7)).isoformat(), "version": 1},
+            )
+            reopened = self.post_json(
+                reverse("prd_api:reopen", args=[self.prd.id]),
+                {"reason": "마감 기한 연장"},
+            )
+
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertTrue(detail_response.json()["data"]["prd"]["auto_completed"])
+        self.assertTrue(detail_response.json()["data"]["permissions"]["can_edit_deadline"])
+        self.assertEqual(blocked_reopen.status_code, 400)
+        self.assertIn("deadline", blocked_reopen.json()["error"]["details"])
+        self.assertEqual(changed_deadline.status_code, 200)
+        self.assertEqual(reopened.status_code, 200)
+        self.prd.refresh_from_db()
+        self.assertEqual(self.prd.status, PrdStatus.IN_PROGRESS)
+        completion = self.prd.status_audit_logs.get(action=PrdStatusAuditAction.COMPLETED)
+        self.assertEqual(completion.reason, "deadline_elapsed")
 
     def test_only_owner_completes_and_only_owner_or_admin_reopens(self):
         self.login_as(8, role=PrdParticipantRole.EDITOR)

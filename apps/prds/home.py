@@ -23,6 +23,7 @@ from .models import (
     PrdStatus,
     PrdType,
 )
+from .status_services import PrdStatusService
 
 HOME_TABS = {"all", "project", "team", "personal"}
 HOME_SCOPES = {"all", "mine", "viewer"}
@@ -82,6 +83,15 @@ class HomeQueryService:
     def get_home(self, *, context: IntegrationContext, filters: HomeFilters):
         filters.validate(context=context)
         today = timezone.localdate()
+        base = Prd.objects.accessible_home(
+            user_id=context.user_id,
+            round_id=context.round_id,
+            team_id=context.team_id,
+        )
+        PrdStatusService().complete_overdue(
+            prd_ids=base.values_list("id", flat=True),
+            today=today,
+        )
         base = Prd.objects.accessible_home(
             user_id=context.user_id,
             round_id=context.round_id,
@@ -445,9 +455,7 @@ class HomeQueryService:
             "my_role": prd.my_role,
             "can_edit": can_edit,
             "can_delete": bool(
-                prd.my_role == PrdParticipantRole.OWNER
-                or context.is_staff
-                or context.is_superuser
+                prd.my_role == PrdParticipantRole.OWNER or context.is_staff or context.is_superuser
             ),
             "ai_coaching_count": prd.ai_coaching_count,
         }

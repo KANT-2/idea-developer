@@ -50,6 +50,13 @@
   function localDateKey(date) {
     return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
   }
+  function deadlineState(item) {
+    if (!item.deadline || item.status === "completed" || item.status === "dropped") return "";
+    const today = localDateKey(new Date());
+    if (item.deadline < today) return "overdue";
+    if (item.deadline === today) return "today";
+    return "";
+  }
   function relativeTime(value) {
     const seconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000));
     if (seconds < 60) return "방금 전";
@@ -131,6 +138,9 @@
       const cardTop = el("div", "prd-card-top mb-2");
       const badges = el("div", "d-flex flex-wrap gap-2");
       badges.append(el("span", "badge text-bg-light", labels[item.prd_type] || item.prd_type), el("span", "badge " + (item.status === "completed" ? "text-bg-success" : item.status === "in_progress" ? "text-bg-warning" : "text-bg-secondary"), labels[item.status] || item.status)); if (item.my_role === "viewer") badges.append(el("span", "badge viewer-role-badge", "뷰어")); if (item.show_new_badge) badges.append(el("span", "badge text-bg-primary", "NEW"));
+      const dueState = deadlineState(item);
+      if (dueState === "overdue") badges.append(el("span", "badge deadline-alert-badge overdue", "마감 지남"));
+      if (dueState === "today") badges.append(el("span", "badge deadline-alert-badge today", "오늘 마감"));
       const brain = el("a", "prd-card-brainstorm", "아이디어 맵");
       brain.href = brainstormUrl(item.id);
       brain.prepend(el("i", "bi bi-lightbulb-fill"));
@@ -139,7 +149,7 @@
       const title = el("h3", "h6 fw-bold", item.title); const description = el("p", "small text-secondary prd-card-description", item.description || "한 줄 소개가 없습니다.");
       const progressText = el("div", "d-flex justify-content-between small mb-1"); progressText.append(el("span", "text-secondary", "완성도"), el("strong", "", item.completion_rate + "%")); const progress = el("div", "progress mb-3"); progress.style.height = "6px"; const bar = el("div", "progress-bar"); bar.style.width = item.completion_rate + "%"; progress.append(bar);
       const footer = el("div", "d-flex justify-content-between align-items-center mt-auto pt-2 border-top"); const avatars = el("div", "d-flex align-items-center"); item.participants.forEach(function (p) { const a = el("span", "participant-avatar avatar-color-" + avatarColor(p), (p.display_name || "?").slice(0, 2)); a.title = p.display_name; avatars.append(a); }); if (item.participant_count > 4) avatars.append(el("span", "small text-secondary ms-1", "+" + (item.participant_count - 4)));
-      const meta = el("div", "small text-secondary text-end", (item.d_day || "마감일 없음") + " · AI " + item.ai_coaching_count + "회"); footer.append(avatars, meta); body.append(cardTop, title, description, progressText, progress, footer); card.append(body);
+      const meta = el("div", "small text-secondary text-end prd-card-deadline" + (dueState ? " is-" + dueState : ""), (item.d_day || "마감일 없음") + " · AI " + item.ai_coaching_count + "회"); footer.append(avatars, meta); body.append(cardTop, title, description, progressText, progress, footer); card.append(body);
       card.addEventListener("click", function () { window.location.href = pageUrl(item.id); }); card.addEventListener("keydown", function (event) { if (event.key === "Enter") window.location.href = pageUrl(item.id); });
       if (item.can_delete) {
         const menuWrap = el("div", "dropdown prd-card-menu");
@@ -272,7 +282,7 @@
   document.querySelectorAll(".home-scope-tab").forEach(function (button) { button.addEventListener("click", function () { state.scope = button.dataset.scope; state.page = 1; document.querySelectorAll(".home-scope-tab").forEach(function (item) { const active = item === button; item.classList.toggle("active", active); item.setAttribute("aria-selected", String(active)); }); document.getElementById("home-scope-description").textContent = state.scope === "viewer" ? "읽기 권한으로 참여한 PRD를 모아봅니다." : "작성하거나 편집에 참여하는 PRD입니다."; fetchData(); }); });
   document.querySelectorAll(".home-tab").forEach(function (button) { button.addEventListener("click", function () { state.tab = button.dataset.tab; state.page = 1; document.querySelectorAll(".home-tab").forEach(function (item) { item.className = "btn " + (item === button ? "btn-primary" : "btn-outline-primary") + " home-tab"; }); fetchData(); }); });
   document.getElementById("home-status").addEventListener("change", function (event) { state.status = event.target.value; state.page = 1; fetchData(); }); document.getElementById("home-sort").addEventListener("change", function (event) { state.sort = event.target.value; state.page = 1; fetchData(); });
-  document.querySelectorAll(".home-kpi[data-status]").forEach(function (button) { button.addEventListener("click", function () { state.status = button.dataset.status; document.getElementById("home-status").value = state.status; state.page = 1; fetchData(); }); });
+  document.querySelectorAll(".home-kpi[data-status]").forEach(function (button) { button.addEventListener("click", function () { state.status = button.dataset.status; const statusSelect = document.getElementById("home-status"); statusSelect.value = state.status; window.StudioControls?.syncSelect(statusSelect); state.page = 1; fetchData(); }); });
   document.getElementById("recent-activity-modal")?.addEventListener("show.bs.modal", function () { fetchRecentActivity(1); });
   document.getElementById("prd-trash-modal")?.addEventListener("show.bs.modal", loadTrash);
   deleteConfirmButton.addEventListener("click", async function () {

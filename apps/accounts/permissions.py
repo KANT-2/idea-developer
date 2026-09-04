@@ -23,6 +23,7 @@ class ParticipantAction(StrEnum):
     APPLY_AI = "apply_ai"
     COMMENT = "comment"
     REVIEW_COMMENT = "review_comment"
+    BRAINSTORM_CREATE_NOTE = "brainstorm_create_note"
 
 
 ROLE_ACTIONS = {
@@ -36,6 +37,7 @@ ROLE_ACTIONS = {
             ParticipantAction.REQUEST_AI,
             ParticipantAction.APPLY_AI,
             ParticipantAction.COMMENT,
+            ParticipantAction.BRAINSTORM_CREATE_NOTE,
         }
     ),
     ParticipantRole.TUTOR: frozenset(
@@ -43,6 +45,7 @@ ROLE_ACTIONS = {
             ParticipantAction.VIEW,
             ParticipantAction.COMMENT,
             ParticipantAction.REVIEW_COMMENT,
+            ParticipantAction.BRAINSTORM_CREATE_NOTE,
         }
     ),
     ParticipantRole.VIEWER: frozenset({ParticipantAction.VIEW}),
