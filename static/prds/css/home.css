@@ -11,6 +11,7 @@ button.home-kpi:hover { transform:translateY(-3px); border-color:#c7d2fe; box-sh
 .kpi-indigo{color:#4f46e5;background:#eef2ff}.kpi-blue{color:#2563eb;background:#eff6ff}.kpi-cyan{color:#0891b2;background:#ecfeff}.kpi-green{color:#059669;background:#ecfdf5}.kpi-purple{color:#7c3aed;background:#f5f3ff}.kpi-rose{color:#e11d48;background:#fff1f2}
 .home-library { margin-top:34px; }
 .home-section-title { font-size:1.2rem; font-weight:800; letter-spacing:-.03em; }
+.home-scope-tabs{display:flex;align-items:center;gap:7px;margin-bottom:7px}.home-scope-tab{display:inline-flex;align-items:center;gap:7px;padding:7px 2px 9px;border:0;border-bottom:2px solid transparent;color:#8a93a4;background:transparent;font-size:18px;font-weight:800;letter-spacing:-.035em;transition:color .15s,border-color .15s}.home-scope-tab:hover{color:#5b6475}.home-scope-tab.active{border-bottom-color:#6366f1;color:#31394b}.home-scope-tab i{font-size:16px}.home-scope-tab+.home-scope-tab{margin-left:12px;font-size:15px}.home-scope-tab+.home-scope-tab.active{color:#5b21b6}.home-scope-description{margin:0 0 13px;color:#8a93a4;font-size:11px}.viewer-role-badge{color:#5b21b6!important;background:#ede9fe!important}
 .home-tabs { gap:5px; padding:4px; border:1px solid var(--studio-border); border-radius:12px; background:#fff; }
 .home-tabs .btn { border:0; border-radius:8px!important; padding:7px 13px; font-size:13px; }
 .home-tabs .btn-outline-primary { color:#737b8e; background:transparent; }

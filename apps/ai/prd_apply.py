@@ -82,6 +82,7 @@ class PrdApplyInputBuilder:
                 section_id__in=section_ids,
                 section__is_deleted=False,
                 is_deleted=False,
+                is_held=False,
             )
             .select_related("section", "answer")
             .order_by("section__position", "position", "id")
@@ -481,6 +482,7 @@ class PrdApplyService:
             if (
                 question is None
                 or question.is_deleted
+                or question.is_held
                 or question.section.is_deleted
                 or snapshot is None
                 or requested_version != snapshot["version"]

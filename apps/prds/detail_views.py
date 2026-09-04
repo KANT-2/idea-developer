@@ -6,7 +6,9 @@ from math import ceil
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError
 from django.db import transaction
-from django.db.models import Prefetch
+from django.db.models import F, Prefetch
+from django.http import HttpResponse
+from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods
 
 from apps.accounts.permissions import ParticipantAction, role_permission_policy
@@ -18,7 +20,9 @@ from apps.integration.exceptions import IntegrationError
 
 from .comment_services import PrdCommentService
 from .detail import PrdAccessService, PrdNotFound, PrdPermissionPresenter
+from .exporting import PrdMarkdownExporter
 from .models import (
+    Prd,
     PrdAnswer,
     PrdChangeHistory,
     PrdComment,
@@ -229,6 +233,21 @@ def prd_detail(request, prd_id):
     )
 
 
+@require_GET
+def export_markdown(request, prd_id):
+    if response := _require_authentication(request):
+        return response
+    try:
+        _, access = _get_access(request, prd_id)
+        exported = PrdMarkdownExporter().export(prd=access.prd)
+        response = HttpResponse(exported.content, content_type="text/markdown; charset=utf-8")
+        response["Content-Disposition"] = exported.content_disposition
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
+    except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
+        return _error_response(request, exc)
+
+
 @require_http_methods(["GET", "POST"])
 def participants(request, prd_id):
     if response := _require_authentication(request):
@@ -424,6 +443,7 @@ def _serialize_question(question):
         "prompt": question.prompt,
         "position": question.position,
         "is_completed": question.is_completed,
+        "is_held": question.is_held,
         "version": question.version,
         "answer": (
             {
@@ -473,6 +493,8 @@ def question_answer(request, prd_id, question_id):
                 raise PrdNotFound from exc
             if question.version != version:
                 raise PrdQuestionVersionConflict(question)
+            if question.is_held:
+                raise ValidationError({"question": "보류된 질문은 답변을 수정할 수 없습니다."})
             try:
                 previous = question.answer.content
             except ObjectDoesNotExist:
@@ -494,6 +516,76 @@ def question_answer(request, prd_id, question_id):
         question.answer = answer
         return api_success(
             _serialize_question(question),
+            request_id=_request_id(request),
+        )
+    except (
+        PrdNotFound,
+        PrdQuestionVersionConflict,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+    ) as exc:
+        return _error_response(request, exc)
+
+
+@require_http_methods(["PATCH"])
+def question_hold(request, prd_id, question_id):
+    if response := _require_authentication(request):
+        return response
+    try:
+        context, access = _get_access(request, prd_id)
+        if not PrdPermissionPresenter().describe(access)["can_edit"]:
+            raise PermissionDenied("질문 보류 상태를 변경할 권한이 없습니다.")
+        payload = _parse_json(request)
+        is_held = payload.get("is_held")
+        version = payload.get("version")
+        if not isinstance(is_held, bool):
+            raise ValidationError({"is_held": "보류 여부는 boolean이어야 합니다."})
+        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+            raise ValidationError({"version": "질문 version이 올바르지 않습니다."})
+        with transaction.atomic():
+            try:
+                question = (
+                    PrdQuestion.objects.select_for_update()
+                    .select_related("section__prd")
+                    .get(
+                        pk=question_id,
+                        section__prd=access.prd,
+                        section__is_deleted=False,
+                        is_deleted=False,
+                    )
+                )
+            except PrdQuestion.DoesNotExist as exc:
+                raise PrdNotFound from exc
+            if question.version != version:
+                raise PrdQuestionVersionConflict(question)
+            previous = question.is_held
+            if previous != is_held:
+                question.is_held = is_held
+                question.version += 1
+                question.save(update_fields=["is_held", "version", "updated_at"])
+                now = timezone.now()
+                Prd.objects.filter(pk=access.prd.pk).update(
+                    version=F("version") + 1,
+                    updated_at=now,
+                )
+                PrdChangeHistory.objects.create(
+                    prd=access.prd,
+                    actor_user_id=context.user_id,
+                    event_type="question_hold_changed",
+                    before_data={"question_id": question.id, "is_held": previous},
+                    after_data={
+                        "question_id": question.id,
+                        "is_held": question.is_held,
+                        "question_version": question.version,
+                    },
+                )
+        current_prd = Prd.objects.with_completion_rate().get(pk=access.prd.pk)
+        return api_success(
+            {
+                "question": _serialize_question(question),
+                "completion_rate": current_prd.completion_rate,
+            },
             request_id=_request_id(request),
         )
     except (
@@ -734,7 +826,9 @@ def contribution_results(request, prd_id):
         )
         user_ids = tuple(
             dict.fromkeys(
-                score.user_id for evaluation in evaluations for score in evaluation.user_scores.all()
+                score.user_id
+                for evaluation in evaluations
+                for score in evaluation.user_scores.all()
             )
         )
         display_names = _participant_summaries(

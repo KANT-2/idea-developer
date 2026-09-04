@@ -43,6 +43,7 @@ FEATURE_ACTIONS = {
     AiFeatureType.BRAINSTORM_PRD_APPLY: frozenset({AiActionType.PRD_APPLY}),
     AiFeatureType.CONTRIBUTION_EVALUATION: frozenset({AiActionType.CONTRIBUTION_EVALUATION}),
     AiFeatureType.COACHING: frozenset({AiActionType.CHAT, AiActionType.DRAFT}),
+    AiFeatureType.PRD_EVALUATION: frozenset({AiActionType.EVALUATION}),
 }
 
 
@@ -168,6 +169,7 @@ class AiReferenceValidator:
                 section__prd=prd,
                 pk__in=collected["question"],
                 is_deleted=False,
+                is_held=False,
                 section__is_deleted=False,
             ).values_list("pk", flat=True)
         }

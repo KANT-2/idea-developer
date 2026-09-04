@@ -71,6 +71,7 @@
     var aiPair = window.React.useState(null), aiPanel = aiPair[0], setAiPanel = aiPair[1];
     var editorPair = window.React.useState(null), editor = editorPair[0], setEditor = editorPair[1];
     var assigneeMenuPair = window.React.useState(null), assigneeMenu = assigneeMenuPair[0], setAssigneeMenu = assigneeMenuPair[1];
+    var heldExpandedPair = window.React.useState(true), heldExpanded = heldExpandedPair[0], setHeldExpanded = heldExpandedPair[1];
     var timerRef = window.React.useRef(null);
     var cursorRef = window.React.useRef(null);
     var initialViewport = window.React.useRef(false);
@@ -403,7 +404,6 @@
         h("p", null, node.content),
         h("footer", null, h("span", null, "v" + node.version), h("span", {title: assignee ? "담당자 " + assignee.display_name : "담당자 없음"}, assignee ? "담당 " + assignee.display_name : "담당자 없음")),
         selected && canEdit ? h("div", {className: "brain-note-actions", onMouseDown: function (event) { event.stopPropagation(); }},
-          h("button", {type: "button", onClick: function () { editNode(node); }}, "수정"),
           h("button", {type: "button", onClick: function () { statusNode(node, "held"); }}, "보류"),
           assigneeButton(node)) : null);
     }
@@ -632,7 +632,18 @@
       boardView === "canvas" && tool === "connect" ? h("div", {className: "brain-connect-banner"}, source ? "두 번째 메모를 선택해 주세요" : "연결할 첫 번째 메모를 선택해 주세요", h("button", {onClick: function () { setTool("select"); setSource(null); }}, "취소")) : null,
       notice ? h("div", {className: "brain-notice alert alert-" + notice.kind}, notice.text, h("button", {type: "button", className: "btn-close", onClick: function () { setNotice(null); }})) : null,
       boardView === "board" ? renderBoard() : boardView === "canvas" ? renderCanvas() : renderList(),
-      h("section", {className: "brain-held", onDragOver: function (event) { if (canEdit) event.preventDefault(); }, onDrop: dropHeld}, h("header", null, h("strong", null, "⏸ 보류 구역"), h("span", null, state.held_nodes.length), h("small", null, "메모를 이곳으로 끌어오거나 보류 버튼을 누르면 보류됩니다")), h("div", null, state.held_nodes.map(function (node) { return h("article", {key: node.id, "data-color": node.color}, h("p", null, node.content), canEdit ? h("button", {onClick: function () { statusNode(node, "default"); }}, "미분류로 이동 →") : null); }))),
+      h("section", {className: "brain-held" + (heldExpanded ? "" : " collapsed"), onDragOver: function (event) { if (canEdit) event.preventDefault(); }, onDrop: dropHeld},
+        h("header", null,
+          h("strong", null, "⏸ 보류 구역"),
+          h("span", null, state.held_nodes.length),
+          h("small", null, "메모를 이곳으로 끌어오거나 보류 버튼을 누르면 보류됩니다"),
+          h("button", {type: "button", className: "brain-held-toggle", "aria-expanded": heldExpanded, onClick: function () { setHeldExpanded(function (current) { return !current; }); }},
+            h("span", null, heldExpanded ? "접기" : "펼치기"),
+            h("i", {className: "bi " + (heldExpanded ? "bi-chevron-down" : "bi-chevron-up"), "aria-hidden": "true"})
+          )
+        ),
+        h("div", {className: "brain-held-list"}, state.held_nodes.map(function (node) { return h("article", {key: node.id, "data-color": node.color}, h("p", null, node.content), canEdit ? h("button", {onClick: function () { statusNode(node, "default"); }}, "미분류로 이동 →") : null); }))
+      ),
       renderEditor(), renderAssigneeMenu(), renderAiPanel(),
       busy ? h("div", {className: "brain-busy"}, h("span", {className: "spinner-border spinner-border-sm"}), jobId ? " AI 작업 처리 중" : " 저장 중") : null);
   }
