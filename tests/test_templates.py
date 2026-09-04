@@ -181,9 +181,11 @@ class TemplateContractTests(SimpleTestCase):
         )
 
         self.assertIn("data-participant-search-api=", template)
+        self.assertIn("data-participant-team-api=", template)
         self.assertIn('id="manage-participants"', template)
-        self.assertIn('id="participant-modal"', template)
-        self.assertIn('id="participant-search-form"', template)
+        self.assertIn('id="participant-picker"', template)
+        self.assertIn('id="participant-add-team"', template)
+        self.assertNotIn('id="participant-modal"', template)
         self.assertIn("can_manage_participants", script)
         self.assertIn('method: "DELETE"', script)
         self.assertIn("data-comments-api=", template)

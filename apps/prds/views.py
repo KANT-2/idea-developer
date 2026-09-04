@@ -146,7 +146,13 @@ def current_team_participants(request):
     return api_success(
         {
             "round_id": context.round_id,
-            "team": {"team_id": context.team_id},
+            "team": {
+                "team_id": context.team_id,
+                "team_name": next(
+                    (row.team_name for row in users if row.team_name),
+                    None,
+                ),
+            },
             "users": [_serialize_user(row, selected_user_ids) for row in users],
         },
         request_id=_request_id(request),

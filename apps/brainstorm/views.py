@@ -208,6 +208,14 @@ def _serialize_permissions(access):
             is_completed=access.prd.status == "completed",
         )
     )
+    permissions["can_create_note"] = bool(
+        access.role
+        and role_permission_policy.allows(
+            access.role,
+            ParticipantAction.BRAINSTORM_CREATE_NOTE,
+            is_completed=access.prd.status == "completed",
+        )
+    )
     return permissions
 
 
