@@ -15,6 +15,6 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"{prefix}: nodes={result.nodes}, connections={result.connections}, "
-                f"ai_previews={result.ai_previews}"
+                f"ai_previews={result.ai_previews}, prds={result.prds}"
             )
         )

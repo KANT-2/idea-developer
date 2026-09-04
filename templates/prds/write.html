@@ -2,7 +2,7 @@
 {% load static %}
 
 {% block title %}{{ prd.title }} | Idea Developer{% endblock %}
-{% block extra_head %}<link href="{% static 'prds/css/write.css' %}?v=20260904-19" rel="stylesheet">{% endblock %}
+{% block extra_head %}<link href="{% static 'prds/css/write.css' %}?v=20260904-31" rel="stylesheet">{% endblock %}
 
 {% block content %}
 <div id="prd-write-app" data-prd-id="{{ prd.id }}" data-detail-api="{{ detail_api_url }}" data-export-api="{% url 'prd_api:export-markdown' prd.id %}" data-participants-api="{{ participants_api_url }}" data-participant-search-api="{{ participant_search_api_url }}" data-comments-api="{{ comments_api_url }}" data-contributions-api="{{ contributions_api_url }}" data-ai-api-base="{{ ai_api_base }}">
@@ -10,8 +10,8 @@
   <header class="write-toolbar" aria-labelledby="prd-heading">
     <a class="write-back" href="{% url 'ideas:home' %}" aria-label="PRD 목록으로 돌아가기"><i class="bi bi-arrow-left"></i></a>
     <span class="write-doc-mark" aria-hidden="true">아</span>
-    <div class="write-doc-copy"><h1 id="prd-heading">{{ prd.title }}</h1><p id="prd-description"></p></div>
-    <div class="write-toolbar-meta"><div class="write-schedule-controls"><select id="prd-status-control" class="form-select write-status-control d-none" aria-label="PRD 상태"><option value="in_progress">진행 중</option><option value="held">보류</option><option value="dropped">드랍</option><option value="completed">완료</option></select><span id="prd-status" class="write-status"></span><label class="write-deadline" for="write-deadline-input"><i class="bi bi-calendar3"></i><input id="write-deadline-input" type="date" aria-label="목표 마감일"><span id="write-deadline-label">마감일 없음</span></label></div><div class="write-members-wrap"><div id="write-members" class="write-members" aria-label="PRD 참여자"></div><button id="manage-participants" class="write-member-manage d-none" type="button" data-bs-toggle="modal" data-bs-target="#participant-modal" aria-label="PRD 참여자 관리" title="참여자 추가 및 관리"><i class="bi bi-plus-lg"></i></button></div></div>
+    <div class="write-doc-copy"><div class="write-title-row"><h1 id="prd-heading">{{ prd.title }}</h1><button id="prd-settings-button" class="write-summary-edit d-none" type="button" data-bs-toggle="modal" data-bs-target="#prd-settings-modal" aria-label="PRD 설정 열기" title="PRD 설정"><i class="bi bi-gear"></i></button></div><p id="prd-description"></p></div>
+    <div class="write-toolbar-meta"><div class="write-schedule-controls"><div id="prd-status-picker" class="dropdown d-none"><button id="prd-status-control" class="write-status-control dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="PRD 상태 변경"><i class="status-current-dot"></i><span id="prd-status-control-label">진행 중</span></button><ul class="dropdown-menu write-status-menu"><li><button class="dropdown-item" type="button" data-prd-status-option="in_progress"><i class="status-option-dot in-progress"></i><span><strong>진행 중</strong><small>PRD를 작성하고 있어요</small></span><i class="bi bi-check-lg status-option-check"></i></button></li><li><button class="dropdown-item" type="button" data-prd-status-option="held"><i class="status-option-dot held"></i><span><strong>보류</strong><small>작업을 잠시 멈춰요</small></span><i class="bi bi-check-lg status-option-check"></i></button></li><li><button class="dropdown-item" type="button" data-prd-status-option="dropped"><i class="status-option-dot dropped"></i><span><strong>드랍</strong><small>이 PRD 작업을 종료해요</small></span><i class="bi bi-check-lg status-option-check"></i></button></li><li><button class="dropdown-item" type="button" data-prd-status-option="completed"><i class="status-option-dot completed"></i><span><strong>완료</strong><small>PRD 작성을 완료해요</small></span><i class="bi bi-check-lg status-option-check"></i></button></li></ul></div><span id="prd-status" class="write-status"></span><label class="write-deadline" for="write-deadline-input"><i class="bi bi-calendar3"></i><input id="write-deadline-input" type="date" aria-label="목표 마감일"><span id="write-deadline-label">마감일 없음</span></label></div><div class="write-members-wrap"><div id="write-members" class="write-members" aria-label="PRD 참여자"></div><button id="manage-participants" class="write-member-manage d-none" type="button" data-bs-toggle="modal" data-bs-target="#participant-modal" aria-label="PRD 참여자 관리" title="참여자 추가 및 관리"><i class="bi bi-plus-lg"></i></button></div></div>
     <div class="write-actions">
       <a class="btn btn-sm btn-outline-secondary brainstorm-launch" href="{% url 'brainstorm-page' prd.id %}" target="_blank" rel="noopener"><i class="bi bi-lightbulb-fill brainstorm-launch-icon"></i><span>브레인스토밍</span></a>
       <button id="comment-toggle" class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="offcanvas" data-bs-target="#write-comments-panel" aria-controls="write-comments-panel"><i class="bi bi-chat-square-text"></i><span>코멘트</span><b id="comment-count" class="comment-count d-none">0</b></button>
@@ -88,6 +88,24 @@
 {% endblock %}
 
 {% block modals %}
+<div class="modal fade" id="prd-settings-modal" tabindex="-1" aria-labelledby="prd-settings-modal-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered prd-settings-dialog"><div class="modal-content prd-settings-content">
+  <div class="modal-header"><div><span>PRD SETTINGS</span><h2 class="modal-title" id="prd-settings-modal-title">PRD 설정</h2><p>기본 정보를 수정하거나 PRD를 관리할 수 있습니다.</p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button></div>
+  <div class="modal-body">
+    <section id="prd-settings-edit-section" class="prd-settings-edit d-none"><h3>기본 정보</h3><form id="prd-summary-form">
+      <div><label class="form-label" for="prd-summary-title">제목 <span class="text-danger">*</span></label><input id="prd-summary-title" class="form-control" type="text" maxlength="255" required autocomplete="off"><div class="invalid-feedback">제목을 입력해 주세요.</div></div>
+      <div><label class="form-label" for="prd-summary-description">한 줄 소개</label><input id="prd-summary-description" class="form-control" type="text" maxlength="500" autocomplete="off"><div class="form-text">줄바꿈 없이 500자 이내로 입력할 수 있습니다.</div></div>
+      <div id="prd-summary-error" class="alert alert-danger d-none mb-0" role="alert"></div>
+      <div class="prd-settings-save"><button id="prd-summary-save" type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> 변경사항 저장</button></div>
+    </form></section>
+    <section id="prd-settings-danger-section" class="prd-settings-danger d-none"><h3>PRD 관리</h3><button id="delete-prd" class="prd-settings-action danger" type="button"><span><i class="bi bi-trash3"></i></span><div><strong>PRD 삭제</strong><small>휴지통으로 이동하며 30일 동안 복구할 수 있습니다.</small></div><i class="bi bi-chevron-right"></i></button></section>
+  </div>
+</div></div></div>
+
+<div class="modal fade" id="write-delete-confirm-modal" tabindex="-1" aria-labelledby="write-delete-confirm-title" aria-hidden="true"><div class="modal-dialog modal-sm modal-dialog-centered"><div class="modal-content write-delete-confirm-content">
+  <div class="modal-body text-center"><span class="write-delete-confirm-icon"><i class="bi bi-trash3"></i></span><h2 id="write-delete-confirm-title">이 PRD를 삭제할까요?</h2><p><strong id="write-delete-prd-title"></strong><br>삭제 후 30일 동안 휴지통에서 복구할 수 있습니다.</p><div id="write-delete-error" class="alert alert-danger d-none" role="alert"></div></div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">취소</button><button id="confirm-delete-prd" type="button" class="btn btn-danger">삭제</button></div>
+</div></div></div>
+
 <div class="modal fade" id="export-modal" tabindex="-1" aria-labelledby="export-modal-title" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content export-modal-content">
   <div class="modal-header export-modal-head"><div><span>PRD MARKDOWN</span><h2 class="modal-title" id="export-modal-title">PRD 완성도 점검 및 내보내기</h2><p id="export-prd-title"></p></div><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="닫기"></button></div>
   <div class="export-modal-tabs" role="tablist" aria-label="PRD 내보내기 보기"><button id="export-check-tab" class="active" type="button" role="tab" aria-selected="true"><i class="bi bi-check2-circle"></i> 완성도 점검</button><button id="export-preview-tab" type="button" role="tab" aria-selected="false"><i class="bi bi-file-earmark-text"></i> PRD 미리보기</button></div>
@@ -114,4 +132,4 @@
   <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">닫기</button></div>
 </div></div></div>
 {% endblock %}
-{% block extra_js %}<script src="{% static 'prds/js/write.js' %}?v=20260904-14"></script>{% endblock %}
+{% block extra_js %}<script src="{% static 'prds/js/write.js' %}?v=20260904-19"></script>{% endblock %}
