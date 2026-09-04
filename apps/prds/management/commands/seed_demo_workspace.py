@@ -243,6 +243,156 @@ DEMO_PRDS = (
     },
 )
 
+# These PRDs deliberately use real question completion flags so the dashboard
+# exercises every completion-rate band.  The values are deterministic (rather
+# than random at command runtime) so every teammate gets the same workspace.
+DEMO_PRDS += (
+    {
+        "slug": "progress-24-local-market",
+        "title": "동네 상권 빈자리 알림",
+        "description": "자주 찾는 매장의 한산한 시간을 알려주는 지역 생활 서비스",
+        "prd_type": PrdType.NEW_PRODUCT,
+        "status": PrdStatus.IN_PROGRESS,
+        "deadline_days": 35,
+        "creator_id": 21,
+        "members": (21, 24, 22, 2),
+        "member_roles": {24: PrdParticipantRole.EDITOR, 2: PrdParticipantRole.TUTOR},
+        "target_completion_rate": 24,
+        "answers": (),
+        "comments": ((24, "알림 기준을 사용자가 직접 조절할 수 있어야 합니다."),),
+        "notes": (
+            ("혼잡도 대신 예상 대기 시간을 표시", BrainstormNodeStatus.ACCEPTED, 24, 1, "yellow"),
+            ("즐겨찾는 매장만 알림 받기", BrainstormNodeStatus.DEFAULT, 22, None, "blue"),
+        ),
+    },
+    {
+        "slug": "progress-32-reading-club",
+        "title": "온라인 독서모임 운영 도구",
+        "description": "발제와 토론 기록을 한곳에 모아 모임 참여를 돕는 서비스",
+        "prd_type": PrdType.NEW_PRODUCT,
+        "status": PrdStatus.HELD,
+        "deadline_days": 42,
+        "creator_id": 22,
+        "members": (22, 24, 23, 25),
+        "member_roles": {24: PrdParticipantRole.VIEWER},
+        "target_completion_rate": 32,
+        "answers": (),
+        "comments": ((23, "지난 모임의 핵심 질문을 다음 모임과 연결하면 좋겠습니다."),),
+        "notes": (
+            ("책별 발제 질문 템플릿", BrainstormNodeStatus.ACCEPTED, 23, 2, "green"),
+            ("모임 종료 후 한 줄 회고", BrainstormNodeStatus.DEFAULT, 25, None, "pink"),
+        ),
+    },
+    {
+        "slug": "progress-46-campus-meal",
+        "title": "캠퍼스 식단 추천",
+        "description": "시간과 취향에 맞는 교내 식당 메뉴를 빠르게 고르는 서비스",
+        "prd_type": PrdType.NEW_PRODUCT,
+        "status": PrdStatus.IN_PROGRESS,
+        "deadline_days": 21,
+        "creator_id": 23,
+        "members": (23, 24, 21, 26),
+        "member_roles": {24: PrdParticipantRole.EDITOR},
+        "target_completion_rate": 46,
+        "answers": (),
+        "comments": ((24, "수업 종료 위치와 다음 수업까지 남은 시간을 함께 고려해 주세요."),),
+        "notes": (
+            ("이동 시간을 반영한 식당 추천", BrainstormNodeStatus.ACCEPTED, 24, 4, "orange"),
+            ("알레르기 메뉴 제외", BrainstormNodeStatus.ACCEPTED, 26, 5, "yellow"),
+        ),
+    },
+    {
+        "slug": "progress-54-volunteer-match",
+        "title": "주말 봉사활동 매칭",
+        "description": "관심 분야와 이동 거리로 참여 가능한 봉사활동을 찾는 서비스",
+        "prd_type": PrdType.NEW_PRODUCT,
+        "status": PrdStatus.IN_PROGRESS,
+        "deadline_days": 18,
+        "creator_id": 25,
+        "members": (25, 24, 27, 2),
+        "member_roles": {24: PrdParticipantRole.VIEWER, 2: PrdParticipantRole.TUTOR},
+        "target_completion_rate": 54,
+        "answers": (),
+        "comments": ((27, "신청 마감 여부를 목록에서 바로 확인하고 싶습니다."),),
+        "notes": (
+            ("대중교통 이동 시간 필터", BrainstormNodeStatus.ACCEPTED, 27, 4, "blue"),
+            ("활동 전 준비물 체크", BrainstormNodeStatus.DEFAULT, 25, None, "green"),
+        ),
+    },
+    {
+        "slug": "progress-66-shared-budget",
+        "title": "소모임 공동 예산 관리",
+        "description": "회비 사용 내역과 남은 예산을 구성원이 함께 확인하는 서비스",
+        "prd_type": PrdType.NEW_PRODUCT,
+        "status": PrdStatus.IN_PROGRESS,
+        "deadline_days": 16,
+        "creator_id": 26,
+        "members": (26, 24, 28, 29),
+        "member_roles": {24: PrdParticipantRole.EDITOR},
+        "target_completion_rate": 66,
+        "answers": (),
+        "comments": ((24, "지출 증빙과 승인 상태가 한 화면에서 보여야 합니다."),),
+        "notes": (
+            ("영수증 사진으로 지출 초안 생성", BrainstormNodeStatus.ACCEPTED, 24, 6, "purple"),
+            ("월별 예산 초과 경고", BrainstormNodeStatus.ACCEPTED, 28, 7, "pink"),
+        ),
+    },
+    {
+        "slug": "progress-73-study-room",
+        "title": "스터디룸 예약 도우미",
+        "description": "팀 일정과 위치를 비교해 적합한 스터디 공간을 추천하는 서비스",
+        "prd_type": PrdType.NEW_PRODUCT,
+        "status": PrdStatus.HELD,
+        "deadline_days": 30,
+        "creator_id": 27,
+        "members": (27, 24, 29, 30),
+        "member_roles": {24: PrdParticipantRole.VIEWER},
+        "target_completion_rate": 73,
+        "answers": (),
+        "comments": ((29, "예약 취소 수수료와 운영 시간을 함께 비교해 주세요."),),
+        "notes": (
+            ("팀원 중간 지점 추천", BrainstormNodeStatus.ACCEPTED, 29, 4, "yellow"),
+            ("화이트보드 등 시설 필터", BrainstormNodeStatus.DEFAULT, 30, None, "orange"),
+        ),
+    },
+    {
+        "slug": "progress-85-career-log",
+        "title": "프로젝트 경험 정리 노트",
+        "description": "활동 기록을 포트폴리오 문장으로 발전시키는 커리어 기록 서비스",
+        "prd_type": PrdType.NEW_PRODUCT,
+        "status": PrdStatus.IN_PROGRESS,
+        "deadline_days": 12,
+        "creator_id": 28,
+        "members": (28, 24, 21, 2),
+        "member_roles": {24: PrdParticipantRole.EDITOR, 2: PrdParticipantRole.TUTOR},
+        "target_completion_rate": 85,
+        "answers": (),
+        "comments": ((24, "성과 문장에는 행동과 수치 근거를 함께 남기면 좋겠습니다."),),
+        "notes": (
+            ("주간 활동에서 성과 후보 추출", BrainstormNodeStatus.ACCEPTED, 24, 3, "green"),
+            ("면접 질문별 경험 연결", BrainstormNodeStatus.ACCEPTED, 21, 5, "blue"),
+        ),
+    },
+    {
+        "slug": "progress-93-event-checkin",
+        "title": "교내 행사 체크인 개선",
+        "description": "대기 시간을 줄이고 현장 운영 상태를 공유하는 행사 체크인 서비스",
+        "prd_type": PrdType.NEW_PRODUCT,
+        "status": PrdStatus.IN_PROGRESS,
+        "deadline_days": 9,
+        "creator_id": 29,
+        "members": (29, 24, 22, 30),
+        "member_roles": {24: PrdParticipantRole.VIEWER},
+        "target_completion_rate": 93,
+        "answers": (),
+        "comments": ((30, "네트워크가 불안정한 현장에서도 체크인이 이어져야 합니다."),),
+        "notes": (
+            ("오프라인 체크인 후 재연결 동기화", BrainstormNodeStatus.ACCEPTED, 30, 6, "purple"),
+            ("시간대별 입장 인원 예측", BrainstormNodeStatus.ACCEPTED, 22, 7, "pink"),
+        ),
+    },
+)
+
 
 class Command(BaseCommand):
     help = "부모 VIEW 사용자를 참조하는 공용 PRD·브레인스토밍 데모 데이터를 생성합니다."
@@ -269,6 +419,7 @@ class Command(BaseCommand):
         with transaction.atomic():
             service = PrdCreationService(repository)
             for spec in DEMO_PRDS:
+                creator_user_id = spec.get("creator_id", OWNER_ID)
                 prd, created = service.create(
                     CreatePrdCommand(
                         title=spec["title"],
@@ -277,7 +428,7 @@ class Command(BaseCommand):
                         prd_type=spec["prd_type"],
                         round_id=None,
                         team_id=None,
-                        creator_user_id=OWNER_ID,
+                        creator_user_id=creator_user_id,
                         idempotency_key=f"{DEMO_PREFIX}:{spec['slug']}",
                         participant_user_ids=spec["members"],
                     )
@@ -297,10 +448,16 @@ class Command(BaseCommand):
     @staticmethod
     def _fill_prd(prd, spec):
         now = timezone.now()
+        actor_user_id = spec.get("creator_id", OWNER_ID)
         participants = {row.user_id: row for row in prd.participants.all()}
+        member_roles = dict(spec.get("member_roles", {}))
         if 2 in participants:
-            participants[2].role = PrdParticipantRole.TUTOR
-            participants[2].save(update_fields=["role"])
+            member_roles.setdefault(2, PrdParticipantRole.TUTOR)
+        for user_id, role in member_roles.items():
+            participant = participants.get(user_id)
+            if participant is not None and participant.role != PrdParticipantRole.OWNER:
+                participant.role = role
+                participant.save(update_fields=["role"])
 
         questions = list(prd.sections.order_by("position", "id").prefetch_related("questions"))
         flat_questions = [
@@ -315,17 +472,23 @@ class Command(BaseCommand):
                 for section in questions
                 for question in section.questions.all().order_by("position", "id")
             )
+        elif target_rate := spec.get("target_completion_rate"):
+            completed_count = round(len(flat_questions) * target_rate / 100)
+            answers = tuple(
+                Command._progress_answer(question=question, index=index)
+                for index, question in enumerate(flat_questions[:completed_count], start=1)
+            )
         for question, answer in zip(flat_questions, answers, strict=False):
             PrdAnswer.objects.create(
                 question=question,
                 content=answer,
-                updated_by_user_id=OWNER_ID,
+                updated_by_user_id=actor_user_id,
             )
             question.is_completed = True
             question.save(update_fields=["is_completed", "updated_at"])
             PrdChangeHistory.objects.create(
                 prd=prd,
-                actor_user_id=OWNER_ID,
+                actor_user_id=actor_user_id,
                 event_type="answer_updated",
                 after_data={"question_id": question.id, "content": answer},
             )
@@ -386,7 +549,7 @@ class Command(BaseCommand):
         if spec["status"] == PrdStatus.COMPLETED:
             PrdChangeHistory.objects.create(
                 prd=prd,
-                actor_user_id=OWNER_ID,
+                actor_user_id=actor_user_id,
                 event_type="prd_completed",
                 after_data={"status": PrdStatus.COMPLETED},
             )
@@ -399,4 +562,12 @@ class Command(BaseCommand):
             f"질문별 확인 사항: ‘{question.prompt}’에 대해서는 사용자 인터뷰, 실제 사용 로그와 "
             "주간 회고 결과를 함께 근거로 판단합니다. 담당자는 매주 금요일 수치를 확인하고, 목표 대비 "
             "차이가 15%p 이상이면 원인을 기록한 뒤 다음 주 실험 범위와 우선순위를 조정합니다."
+        )
+
+    @staticmethod
+    def _progress_answer(*, question, index):
+        return (
+            f"검토 완료 항목 {index}: {question.prompt} "
+            "사용자 관찰과 팀 논의를 바탕으로 현재 가설과 검증 기준을 정리했습니다. "
+            "다음 실험에서 확인할 지표와 담당자를 지정하고 결과에 따라 내용을 보완합니다."
         )

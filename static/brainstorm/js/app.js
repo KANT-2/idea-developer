@@ -13,6 +13,7 @@
   var prdTitle = root.dataset.prdTitle || "PRD";
   var interval = Math.min(5000, Math.max(2000, Number(root.dataset.pollingIntervalMs || 3000)));
   var csrf = document.querySelector('meta[name="csrf-token"]')?.content || "";
+  var activeCanvasId = null;
   var NODE_W = 230;
   var NODE_H = 150;
   var LANE_W = 290;
@@ -32,7 +33,11 @@
     options = options || {};
     return fetch(url, Object.assign({}, options, {
       credentials: "same-origin",
-      headers: Object.assign({"Content-Type": "application/json", "X-CSRFToken": csrf}, options.headers || {})
+      headers: Object.assign(
+        {"Content-Type": "application/json", "X-CSRFToken": csrf},
+        activeCanvasId ? {"X-Brainstorm-Canvas-Id": String(activeCanvasId)} : {},
+        options.headers || {}
+      )
     })).then(function (response) {
       return response.text().then(function (body) {
         var payload;
@@ -72,18 +77,24 @@
     var editorPair = window.React.useState(null), editor = editorPair[0], setEditor = editorPair[1];
     var assigneeMenuPair = window.React.useState(null), assigneeMenu = assigneeMenuPair[0], setAssigneeMenu = assigneeMenuPair[1];
     var heldExpandedPair = window.React.useState(true), heldExpanded = heldExpandedPair[0], setHeldExpanded = heldExpandedPair[1];
+    var versionsOpenPair = window.React.useState(true), versionsOpen = versionsOpenPair[0], setVersionsOpen = versionsOpenPair[1];
     var timerRef = window.React.useRef(null);
     var cursorRef = window.React.useRef(null);
     var initialViewport = window.React.useRef(false);
     var viewportSaveRef = window.React.useRef(null);
     var fullSyncGenerationRef = window.React.useRef(0);
 
-    function fullSync() {
+    function fullSync(canvasId) {
+      if (canvasId !== undefined && canvasId !== null) {
+        activeCanvasId = canvasId;
+        initialViewport.current = false;
+      }
       var generation = ++fullSyncGenerationRef.current;
       setSync("loading");
       return request(apiBase + "canvas/", {headers: {"Idempotency-Key": key()}})
         .then(function (data) {
           if (generation !== fullSyncGenerationRef.current) return;
+          activeCanvasId = data.canvas.id;
           cursorRef.current = data.cursor; setState(data); setSync("connected");
           if (!initialViewport.current && data.viewport) {
             setView({x: Number(data.viewport.viewport_x || 0), y: Number(data.viewport.viewport_y || 0), zoom: Math.max(.3, Math.min(2, Number(data.viewport.zoom_level || 1)))});
@@ -614,6 +625,45 @@
       setBoardView(value); setSource(null); setTool("select");
     }
 
+    function switchCanvas(canvasId) {
+      if (busy || canvasId === state.canvas.id) return;
+      setSource(null); setFocused(null); setAssigneeMenu(null); setAiPanel(null);
+      cursorRef.current = null;
+      fullSync(canvasId);
+    }
+
+    function createCanvasVersion() {
+      if (busy) return;
+      setBusy(true); setNotice(null);
+      request(apiBase + "boards/", {
+        method: "POST",
+        headers: {"Idempotency-Key": key()},
+        body: JSON.stringify({source_canvas_id: state.canvas.id})
+      }).then(function (created) {
+        cursorRef.current = null;
+        return fullSync(created.id);
+      }).catch(function (error) {
+        setNotice({kind: "danger", text: error.message});
+      }).finally(function () { setBusy(false); });
+    }
+
+    function renderVersionSidebar() {
+      var versions = state.versions || [];
+      return h("aside", {className: "brain-version-sidebar" + (versionsOpen ? "" : " collapsed")},
+        h("header", null,
+          versionsOpen ? h("span", null, "BOARD VERSIONS") : null,
+          h("button", {type: "button", onClick: function () { setVersionsOpen(function (value) { return !value; }); }, title: versionsOpen ? "버전 목록 접기" : "버전 목록 펼치기", "aria-label": versionsOpen ? "버전 목록 접기" : "버전 목록 펼치기"}, h("i", {className: "bi " + (versionsOpen ? "bi-chevron-left" : "bi-chevron-right")}))
+        ),
+        versionsOpen ? h("nav", {"aria-label": "캔버스 버전"}, versions.map(function (row, index) {
+          return h("button", {key: row.id, type: "button", className: row.id === state.canvas.id ? "active" : "", onClick: function () { switchCanvas(row.id); }},
+            h("span", null, "ver." + row.version_number),
+            index === 0 ? h("small", null, "최신") : null
+          );
+        })) : null,
+        versionsOpen && canEdit ? h("button", {type: "button", className: "brain-version-add", disabled: busy, onClick: createCanvasVersion, title: "현재 보드를 복제해 새 버전 만들기", "aria-label": "새 캔버스 버전 만들기"}, h("i", {className: "bi bi-plus-lg"}), h("span", null, "새 보드")) : null
+      );
+    }
+
     return h("div", {className: "brain-react-shell"},
       h("header", {className: "brain-topbar"},
         h("div", {className: "brain-project"}, h("a", {href: "/ideas/prds/" + root.dataset.prdId + "/", className: "brain-back"}, h("i", {className: "bi bi-arrow-left"}), " PRD로 돌아가기"), h("span", {className: "brain-divider"}), h("div", null, h("strong", {className: "brain-title"}, prdTitle), h("small", null, "브레인스토밍 보드"))),
@@ -630,20 +680,25 @@
         boardView === "canvas" && canEdit ? h("button", {type: "button", className: "btn btn-sm brain-auto", disabled: busy, onClick: autoLayout}, h("i", {className: "bi bi-grid-3x3-gap"}), " 자동 정렬") : null,
         h("div", {className: "brain-ai-actions"}, h("button", {type: "button", disabled: busy, onClick: loadClassificationResult}, h("i", {className: "bi bi-diagram-3"}), " 분류 결과"))
       ),
-      boardView === "canvas" && tool === "connect" ? h("div", {className: "brain-connect-banner"}, source ? "두 번째 메모를 선택해 주세요" : "연결할 첫 번째 메모를 선택해 주세요", h("button", {onClick: function () { setTool("select"); setSource(null); }}, "취소")) : null,
-      notice ? h("div", {className: "brain-notice alert alert-" + notice.kind}, notice.text, h("button", {type: "button", className: "btn-close", onClick: function () { setNotice(null); }})) : null,
-      boardView === "board" ? renderBoard() : boardView === "canvas" ? renderCanvas() : renderList(),
-      h("section", {className: "brain-held" + (heldExpanded ? "" : " collapsed"), onDragOver: function (event) { if (canEdit) event.preventDefault(); }, onDrop: dropHeld},
-        h("header", null,
-          h("strong", null, "⏸ 보류 구역"),
-          h("span", null, state.held_nodes.length),
-          h("small", null, "메모를 이곳으로 끌어오거나 보류 버튼을 누르면 보류됩니다"),
-          h("button", {type: "button", className: "brain-held-toggle", "aria-expanded": heldExpanded, onClick: function () { setHeldExpanded(function (current) { return !current; }); }},
-            h("span", null, heldExpanded ? "접기" : "펼치기"),
-            h("i", {className: "bi " + (heldExpanded ? "bi-chevron-down" : "bi-chevron-up"), "aria-hidden": "true"})
+      h("div", {className: "brain-workspace"},
+        renderVersionSidebar(),
+        h("div", {className: "brain-version-content"},
+          boardView === "canvas" && tool === "connect" ? h("div", {className: "brain-connect-banner"}, source ? "두 번째 메모를 선택해 주세요" : "연결할 첫 번째 메모를 선택해 주세요", h("button", {onClick: function () { setTool("select"); setSource(null); }}, "취소")) : null,
+          notice ? h("div", {className: "brain-notice alert alert-" + notice.kind}, notice.text, h("button", {type: "button", className: "btn-close", onClick: function () { setNotice(null); }})) : null,
+          boardView === "board" ? renderBoard() : boardView === "canvas" ? renderCanvas() : renderList(),
+          h("section", {className: "brain-held" + (heldExpanded ? "" : " collapsed"), onDragOver: function (event) { if (canEdit) event.preventDefault(); }, onDrop: dropHeld},
+            h("header", null,
+              h("strong", null, "⏸ 보류 구역"),
+              h("span", null, state.held_nodes.length),
+              h("small", null, "메모를 이곳으로 끌어오거나 보류 버튼을 누르면 보류됩니다"),
+              h("button", {type: "button", className: "brain-held-toggle", "aria-expanded": heldExpanded, onClick: function () { setHeldExpanded(function (current) { return !current; }); }},
+                h("span", null, heldExpanded ? "접기" : "펼치기"),
+                h("i", {className: "bi " + (heldExpanded ? "bi-chevron-down" : "bi-chevron-up"), "aria-hidden": "true"})
+              )
+            ),
+            h("div", {className: "brain-held-list"}, state.held_nodes.map(function (node) { return h("article", {key: node.id, "data-color": node.color}, h("p", null, node.content), canEdit ? h("button", {onClick: function () { statusNode(node, "default"); }}, "미분류로 이동 →") : null); }))
           )
-        ),
-        h("div", {className: "brain-held-list"}, state.held_nodes.map(function (node) { return h("article", {key: node.id, "data-color": node.color}, h("p", null, node.content), canEdit ? h("button", {onClick: function () { statusNode(node, "default"); }}, "미분류로 이동 →") : null); }))
+        )
       ),
       renderEditor(), renderAssigneeMenu(), renderAiPanel(),
       busy ? h("div", {className: "brain-busy"}, h("span", {className: "spinner-border spinner-border-sm"}), jobId ? " AI 작업 처리 중" : " 저장 중") : null);

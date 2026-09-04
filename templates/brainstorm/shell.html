@@ -4,7 +4,7 @@
 {% block title %}브레인스토밍 | Idea Developer{% endblock %}
 
 {% block extra_head %}
-  <link href="{% static 'brainstorm/css/brainstorm.css' %}?v=20260904-12" rel="stylesheet">
+  <link href="{% static 'brainstorm/css/brainstorm.css' %}?v=20260904-13" rel="stylesheet">
 {% endblock %}
 
 {% block breadcrumb %}
@@ -37,5 +37,5 @@
   {# 부모 CSP 이관 지점: jsdelivr.net을 script-src에 허용해야 합니다. #}
   <script src="{{ react_cdn_url }}" crossorigin="anonymous"></script>
   <script src="{{ react_dom_cdn_url }}" crossorigin="anonymous"></script>
-  <script src="{% static 'brainstorm/js/app.js' %}?v=20260904-23"></script>
+  <script src="{% static 'brainstorm/js/app.js' %}?v=20260904-24"></script>
 {% endblock %}

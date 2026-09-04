@@ -43,17 +43,56 @@ class BrainstormChangeTarget(models.TextChoices):
 
 
 class BrainstormCanvas(models.Model):
-    prd = models.OneToOneField(
+    prd = models.ForeignKey(
         Prd,
         on_delete=models.CASCADE,
-        related_name="brainstorm_canvas",
+        related_name="brainstorm_canvases",
     )
+    version_number = models.PositiveIntegerField(default=1)
+    source_canvas = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        related_name="derived_canvases",
+        null=True,
+        blank=True,
+    )
+    created_by_user_id = models.PositiveBigIntegerField(null=True, blank=True)
     creation_idempotency_key = models.CharField(max_length=128, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "brainstorm_canvases"
+        ordering = ["-version_number", "-id"]
+        indexes = [
+            models.Index(fields=["prd", "-version_number"], name="brain_canvas_prd_ver_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["prd", "version_number"],
+                name="uniq_brain_canvas_prd_version",
+            ),
+            models.UniqueConstraint(
+                fields=["prd", "creation_idempotency_key"],
+                condition=~Q(creation_idempotency_key=""),
+                name="uniq_brain_canvas_request",
+            ),
+            models.CheckConstraint(
+                condition=Q(version_number__gte=1),
+                name="brain_canvas_version_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(created_by_user_id__isnull=True) | Q(created_by_user_id__gt=0),
+                name="brain_canvas_creator_positive",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.source_canvas_id and self.source_canvas.prd_id != self.prd_id:
+            raise ValidationError(
+                {"source_canvas": "The source canvas must belong to the same PRD."}
+            )
 
     def validate_context(self, context: IntegrationContext) -> None:
         """Validate the parent round/team boundary before canvas access or creation."""
@@ -67,6 +106,7 @@ class BrainstormNode(models.Model):
     RESTORE_WINDOW_DAYS = 30
 
     id = models.UUIDField(primary_key=True, db_default=DatabaseRandomUUID(), editable=False)
+    lineage_id = models.UUIDField(default=uuid.uuid4, editable=False, db_index=True)
     canvas = models.ForeignKey(
         BrainstormCanvas,
         on_delete=models.CASCADE,

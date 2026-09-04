@@ -90,9 +90,10 @@ class BrainstormModelTests(TestCase):
         values.update(overrides)
         return BrainstormNode.objects.create(**values)
 
-    def test_prd_has_only_one_canvas_and_context_checks_round_and_team(self):
+    def test_prd_canvas_versions_are_unique_and_context_checks_round_and_team(self):
+        BrainstormCanvas.objects.create(prd=self.prd, version_number=2, source_canvas=self.canvas)
         with self.assertRaises(IntegrityError), transaction.atomic():
-            BrainstormCanvas.objects.create(prd=self.prd)
+            BrainstormCanvas.objects.create(prd=self.prd, version_number=2)
 
         self.canvas.validate_context(self.context)
         for invalid_context in (
