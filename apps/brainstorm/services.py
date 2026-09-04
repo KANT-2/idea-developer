@@ -14,7 +14,7 @@ from apps.accounts.permissions import ParticipantAction, role_permission_policy
 from apps.integration.context import IntegrationContext
 from apps.integration.repository import IntegrationRepository, get_default_integration_repository
 from apps.prds.detail import PrdAccess, PrdAccessService
-from apps.prds.models import PrdParticipant, PrdSection
+from apps.prds.models import Prd, PrdParticipant, PrdSection
 
 from .models import (
     BrainstormCanvas,
@@ -75,22 +75,126 @@ class BrainstormAccessService:
         context: IntegrationContext,
         idempotency_key: str,
     ) -> tuple[BrainstormCanvas, bool]:
-        try:
-            canvas = BrainstormCanvas.objects.get(prd=access.prd)
-            created = False
-        except BrainstormCanvas.DoesNotExist:
+        canvas = BrainstormCanvas.objects.filter(prd=access.prd).order_by("-version_number").first()
+        created = False
+        if canvas is None:
             self.enforce_create_note(access)
             key = BrainstormMutationService._validate_idempotency_key(idempotency_key)
             try:
                 canvas, created = BrainstormCanvas.objects.get_or_create(
                     prd=access.prd,
-                    defaults={"creation_idempotency_key": key},
+                    version_number=1,
+                    defaults={
+                        "creation_idempotency_key": key,
+                        "created_by_user_id": context.user_id,
+                    },
                 )
             except IntegrityError:
-                canvas = BrainstormCanvas.objects.get(prd=access.prd)
+                canvas = BrainstormCanvas.objects.filter(prd=access.prd).latest("version_number")
                 created = False
         canvas.validate_context(context)
         return canvas, created
+
+    @transaction.atomic
+    def create_version(
+        self,
+        *,
+        access: PrdAccess,
+        context: IntegrationContext,
+        source_canvas_id: int,
+        idempotency_key: str,
+    ) -> tuple[BrainstormCanvas, bool]:
+        """Clone an existing board into the next PRD-wide version.
+
+        Versions are independent editable boards. ``lineage_id`` is retained so
+        contribution calculation can recognize the same idea across clones.
+        """
+        self.enforce_write(access)
+        key = BrainstormMutationService._validate_idempotency_key(idempotency_key)
+        Prd.objects.select_for_update().get(pk=access.prd.pk)
+
+        existing = BrainstormCanvas.objects.filter(
+            prd=access.prd,
+            creation_idempotency_key=key,
+        ).first()
+        if existing is not None:
+            existing.validate_context(context)
+            return existing, False
+
+        try:
+            source = (
+                BrainstormCanvas.objects.select_for_update()
+                .select_related("prd")
+                .get(pk=source_canvas_id, prd=access.prd)
+            )
+        except BrainstormCanvas.DoesNotExist as exc:
+            raise ValidationError(
+                {"source_canvas_id": "복제할 캔버스를 찾을 수 없습니다."}
+            ) from exc
+        source.validate_context(context)
+        latest = (
+            BrainstormCanvas.objects.select_for_update()
+            .filter(prd=access.prd)
+            .order_by("-version_number")
+            .first()
+        )
+        next_version = (latest.version_number if latest else 0) + 1
+        canvas = BrainstormCanvas.objects.create(
+            prd=access.prd,
+            version_number=next_version,
+            source_canvas=source,
+            created_by_user_id=context.user_id,
+            creation_idempotency_key=key,
+        )
+
+        node_map = {}
+        for node in source.nodes.filter(is_deleted=False).order_by("created_at", "id"):
+            cloned = BrainstormNode.objects.create(
+                canvas=canvas,
+                lineage_id=node.lineage_id,
+                node_type=node.node_type,
+                content=node.content,
+                color=node.color,
+                position_x=node.position_x,
+                position_y=node.position_y,
+                section_id=node.section_id,
+                author_id=node.author_id,
+                assignee_id=node.assignee_id,
+                status=node.status,
+                version=1,
+            )
+            node_map[node.pk] = cloned
+        for connection in source.connections.filter(is_deleted=False).order_by("created_at", "id"):
+            node_a = node_map.get(connection.node_a_id)
+            node_b = node_map.get(connection.node_b_id)
+            if node_a is None or node_b is None:
+                continue
+            BrainstormConnection.objects.create(
+                canvas=canvas,
+                node_a=node_a,
+                node_b=node_b,
+                creation_idempotency_key=str(uuid.uuid4()),
+                version=1,
+            )
+        source_viewport = source.user_viewports.filter(user_id=context.user_id).first()
+        if source_viewport is not None:
+            UserCanvasViewport.objects.create(
+                canvas=canvas,
+                user_id=context.user_id,
+                viewport_x=source_viewport.viewport_x,
+                viewport_y=source_viewport.viewport_y,
+                zoom_level=source_viewport.zoom_level,
+            )
+        BrainstormChangeLog.objects.create(
+            canvas=canvas,
+            actor_user_id=context.user_id,
+            action="canvas_version_created",
+            target_type=BrainstormChangeTarget.CANVAS,
+            target_id=str(canvas.pk),
+            before_data={"source_canvas_id": source.pk, "source_version": source.version_number},
+            after_data={"canvas_id": canvas.pk, "version_number": canvas.version_number},
+        )
+        return canvas, True
 
 
 class BrainstormMutationService:

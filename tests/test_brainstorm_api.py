@@ -197,6 +197,83 @@ class BrainstormApiTests(TestCase):
             ],
         )
 
+    def test_new_canvas_version_clones_board_and_latest_is_opened_by_default(self):
+        first = self.initialize_canvas()
+        first_note = self.create_note(canvas=first, content="이어갈 아이디어")
+        connected_note = self.create_note(canvas=first, content="연결된 아이디어")
+        BrainstormConnection.objects.create(
+            canvas=first,
+            node_a=first_note,
+            node_b=connected_note,
+            creation_idempotency_key="version-source-connection",
+        )
+        UserCanvasViewport.objects.create(
+            canvas=first,
+            user_id=7,
+            viewport_x=Decimal("12"),
+            viewport_y=Decimal("34"),
+            zoom_level=Decimal("1.25"),
+        )
+
+        created = self.json_request(
+            "post",
+            "canvas-versions",
+            {"source_canvas_id": first.pk},
+            headers={"HTTP_IDEMPOTENCY_KEY": "board-version-2"},
+        )
+
+        self.assertEqual(created.status_code, 201)
+        second = BrainstormCanvas.objects.get(prd=self.prd, version_number=2)
+        cloned = second.nodes.get(lineage_id=first_note.lineage_id)
+        self.assertEqual(cloned.content, first_note.content)
+        self.assertEqual(cloned.lineage_id, first_note.lineage_id)
+        self.assertNotEqual(cloned.pk, first_note.pk)
+        self.assertEqual(second.source_canvas, first)
+        self.assertEqual(second.created_by_user_id, 7)
+        self.assertEqual(second.nodes.count(), 2)
+        cloned_connection = second.connections.get()
+        self.assertEqual(
+            {cloned_connection.node_a.lineage_id, cloned_connection.node_b.lineage_id},
+            {first_note.lineage_id, connected_note.lineage_id},
+        )
+        self.assertEqual(second.user_viewports.get(user_id=7).zoom_level, Decimal("1.25"))
+
+        response = self.client.get(self.url("canvas"))
+        data = response.json()["data"]
+        self.assertEqual(data["canvas"]["id"], second.pk)
+        self.assertEqual([row["version_number"] for row in data["versions"]], [2, 1])
+
+    def test_canvas_version_creation_is_idempotent_and_old_version_remains_editable(self):
+        first = self.initialize_canvas()
+        note = self.create_note(canvas=first)
+        headers = {"HTTP_IDEMPOTENCY_KEY": "same-board-request"}
+        first_response = self.json_request(
+            "post",
+            "canvas-versions",
+            {"source_canvas_id": first.pk},
+            headers=headers,
+        )
+        second_response = self.json_request(
+            "post",
+            "canvas-versions",
+            {"source_canvas_id": first.pk},
+            headers=headers,
+        )
+        self.assertEqual(first_response.status_code, 201)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(BrainstormCanvas.objects.filter(prd=self.prd).count(), 2)
+
+        edited = self.json_request(
+            "patch",
+            "node-content",
+            {"content": "이전 버전도 편집", "version": note.version},
+            headers={"HTTP_X_BRAINSTORM_CANVAS_ID": str(first.pk)},
+            node_id=note.pk,
+        )
+        self.assertEqual(edited.status_code, 200)
+        note.refresh_from_db()
+        self.assertEqual(note.content, "이전 버전도 편집")
+
     def test_context_round_team_and_prd_role_are_checked_on_every_request(self):
         self.initialize_canvas()
         for bad_context in (

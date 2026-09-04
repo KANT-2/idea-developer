@@ -300,6 +300,41 @@ class ContributionEvaluationTests(TestCase):
         )
         self.assertEqual(ContributionCommentScore.objects.count(), 2)
 
+    def test_same_memo_lineage_across_board_versions_is_counted_once(self):
+        second_canvas = BrainstormCanvas.objects.create(
+            prd=self.prd,
+            version_number=2,
+            source_canvas=self.canvas,
+        )
+        newer = BrainstormNode.objects.create(
+            canvas=second_canvas,
+            lineage_id=self.owner_node.lineage_id,
+            node_type=BrainstormNodeType.NOTE,
+            content="발전된 소유자 메모",
+            color="yellow",
+            position_x=0,
+            position_y=0,
+            section=self.section,
+            author_id=7,
+            assignee_id=8,
+            status=BrainstormNodeStatus.ACCEPTED,
+        )
+
+        snapshot = ContributionEvaluationService()._build_snapshot(
+            prd_id=self.prd.pk,
+            repository=self.repository,
+        )
+
+        lineage_rows = [
+            row
+            for row in snapshot["accepted_memos"]
+            if row["lineage_id"] == str(self.owner_node.lineage_id)
+        ]
+        self.assertEqual(len(lineage_rows), 1)
+        self.assertEqual(lineage_rows[0]["node_id"], str(newer.pk))
+        self.assertEqual(lineage_rows[0]["assignee_id"], 8)
+        self.assertEqual(lineage_rows[0]["canvas_version"], 2)
+
     @override_settings(AI_CONTRIBUTION_MAX_COMMENTS=1)
     def test_oversized_contribution_input_fails_without_reverting_completion(self):
         evaluation = self.schedule()

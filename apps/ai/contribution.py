@@ -176,15 +176,25 @@ class ContributionEvaluationService:
             participant_user_ids=participant_user_ids,
         )
 
-        nodes = list(
+        accepted_candidates = list(
             BrainstormNode.objects.filter(
                 canvas__prd=prd,
                 node_type=BrainstormNodeType.NOTE,
                 status=BrainstormNodeStatus.ACCEPTED,
                 is_deleted=False,
                 assignee_id__in=eligible_user_ids,
-            ).order_by("id")
+            )
+            .select_related("canvas")
+            .order_by("-canvas__version_number", "-updated_at", "id")
         )
+        # A new board version clones the preceding board. Count the same idea
+        # lineage once, using its newest accepted representation and final
+        # assignee, while retaining accepted ideas that exist only in an older
+        # version.
+        nodes_by_lineage = {}
+        for node in accepted_candidates:
+            nodes_by_lineage.setdefault(node.lineage_id, node)
+        nodes = sorted(nodes_by_lineage.values(), key=lambda row: str(row.pk))
         comments = list(
             PrdComment.objects.filter(
                 prd=prd,
@@ -230,6 +240,8 @@ class ContributionEvaluationService:
             "accepted_memos": [
                 {
                     "node_id": str(node.pk),
+                    "lineage_id": str(node.lineage_id),
+                    "canvas_version": node.canvas.version_number,
                     "version": node.version,
                     "assignee_id": node.assignee_id,
                 }

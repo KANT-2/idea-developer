@@ -89,19 +89,52 @@ def _access(request, prd_id, *, create_canvas=False):
     context = _resolve_context(request)
     service = BrainstormAccessService()
     access = service.get(prd_id=prd_id, context=context)
+    raw_canvas_id = request.headers.get("X-Brainstorm-Canvas-Id") or request.GET.get("canvas_id")
+    canvas_id = None
+    if raw_canvas_id not in (None, ""):
+        try:
+            canvas_id = int(raw_canvas_id)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError({"canvas_id": "canvas_id가 올바르지 않습니다."}) from exc
+        if canvas_id < 1:
+            raise ValidationError({"canvas_id": "canvas_id가 올바르지 않습니다."})
     if create_canvas:
         canvas, created = service.get_or_create_canvas(
             access=access,
             context=context,
             idempotency_key=request.headers.get("Idempotency-Key", ""),
         )
+        if canvas_id is not None and canvas.pk != canvas_id:
+            try:
+                canvas = BrainstormCanvas.objects.select_related("prd").get(
+                    pk=canvas_id,
+                    prd=access.prd,
+                )
+            except BrainstormCanvas.DoesNotExist as exc:
+                raise ValidationError({"canvas_id": "현재 PRD의 캔버스가 아닙니다."}) from exc
+            created = False
+        canvas.validate_context(context)
         return context, access, canvas, created
     try:
-        canvas = BrainstormCanvas.objects.select_related("prd").get(prd=access.prd)
+        canvases = BrainstormCanvas.objects.select_related("prd").filter(prd=access.prd)
+        canvas = canvases.get(pk=canvas_id) if canvas_id is not None else canvases.first()
+        if canvas is None:
+            raise BrainstormCanvas.DoesNotExist
     except BrainstormCanvas.DoesNotExist as exc:
         raise ValidationError({"canvas": "브레인스토밍 캔버스가 아직 없습니다."}) from exc
     canvas.validate_context(context)
     return context, access, canvas
+
+
+def _serialize_canvas_version(canvas_row):
+    return {
+        "id": canvas_row.pk,
+        "version_number": canvas_row.version_number,
+        "source_canvas_id": canvas_row.source_canvas_id,
+        "created_by_user_id": canvas_row.created_by_user_id,
+        "created_at": canvas_row.created_at.isoformat(),
+        "updated_at": canvas_row.updated_at.isoformat(),
+    }
 
 
 def _error(request, exc):
@@ -316,7 +349,17 @@ def canvas(request, prd_id):
         sections = access.prd.sections.filter(is_deleted=False).order_by("position", "id")
         return api_success(
             {
-                "canvas": {"id": canvas_row.id, "prd_id": access.prd.id, "created": created},
+                "canvas": {
+                    **_serialize_canvas_version(canvas_row),
+                    "prd_id": access.prd.id,
+                    "created": created,
+                },
+                "versions": [
+                    _serialize_canvas_version(row)
+                    for row in BrainstormCanvas.objects.filter(prd=access.prd).order_by(
+                        "-version_number", "-id"
+                    )
+                ],
                 "current_user_id": context.user_id,
                 "sections": [
                     {"id": section.id, "title": section.title, "position": section.position}
@@ -332,6 +375,47 @@ def canvas(request, prd_id):
                 "viewport": _serialize_viewport(viewport_row),
                 "permissions": _serialize_permissions(access),
             },
+            request_id=_request_id(request),
+        )
+    except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
+        return _error(request, exc)
+
+
+@require_http_methods(["GET", "POST"])
+def canvas_versions(request, prd_id):
+    if response := _authentication_error(request):
+        return response
+    try:
+        if request.method == "GET":
+            _, access, _, _ = _access(request, prd_id, create_canvas=True)
+            rows = BrainstormCanvas.objects.filter(prd=access.prd).order_by(
+                "-version_number", "-id"
+            )
+            return api_success(
+                {"items": [_serialize_canvas_version(row) for row in rows]},
+                request_id=_request_id(request),
+            )
+
+        context, access, selected, _ = _access(request, prd_id, create_canvas=True)
+        payload = _parse_json(request)
+        raw_source_id = payload.get("source_canvas_id", selected.pk)
+        if isinstance(raw_source_id, bool):
+            raise ValidationError({"source_canvas_id": "source_canvas_id가 올바르지 않습니다."})
+        try:
+            source_canvas_id = int(raw_source_id)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError(
+                {"source_canvas_id": "source_canvas_id가 올바르지 않습니다."}
+            ) from exc
+        canvas_row, created = BrainstormAccessService().create_version(
+            access=access,
+            context=context,
+            source_canvas_id=source_canvas_id,
+            idempotency_key=request.headers.get("Idempotency-Key", ""),
+        )
+        return api_success(
+            {**_serialize_canvas_version(canvas_row), "created": created},
+            status=201 if created else 200,
             request_id=_request_id(request),
         )
     except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:

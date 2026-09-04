@@ -6,6 +6,7 @@ app_name = "brainstorm_api"
 
 urlpatterns = [
     path("canvas/", views.canvas, name="canvas"),
+    path("boards/", views.canvas_versions, name="canvas-versions"),
     path("export/markdown/", views.export_markdown, name="export-markdown"),
     path("nodes/", views.create_node, name="node-create"),
     path("nodes/<uuid:node_id>/content/", views.node_content, name="node-content"),
