@@ -10,14 +10,17 @@ from django.views.decorators.http import require_GET
 def home_page(request):
     try:
         home_api_url = reverse("home_api:home")
+        recent_activity_api_url = reverse("home_api:recent-activity")
     except NoReverseMatch:
         # Minimal test/development URLConfs may mount only the product pages.
         home_api_url = "/api/v1/home/"
+        recent_activity_api_url = "/api/v1/home/recent-activity/"
     return render(
         request,
         "prds/home.html",
         {
             "home_api_url": home_api_url,
+            "recent_activity_api_url": recent_activity_api_url,
             "new_prd_url": reverse("ideas:new-prd"),
         },
     )

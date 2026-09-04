@@ -101,7 +101,10 @@ class PrdAiContextBuilder:
                 context["truncated"] = True
                 break
             context["sections"].append(section_data)
-            for question in current_section.questions.filter(is_deleted=False).order_by(
+            for question in current_section.questions.filter(
+                is_deleted=False,
+                is_held=False,
+            ).order_by(
                 "position", "id"
             ):
                 try:
@@ -265,6 +268,100 @@ class AiCoachConversationService:
         return turns
 
 
+class AiChatProposalService:
+    """코치 제안을 사용자가 승인했을 때만 PRD 답변에 반영한다."""
+
+    @transaction.atomic
+    def apply(self, *, job: AiJob, question_version: int, content: str, user_id: int) -> PrdAnswer:
+        job = AiJob.objects.select_for_update().select_related("prd").get(pk=job.pk)
+        if (
+            job.user_id != user_id
+            or job.feature_type != AiFeatureType.COACHING
+            or job.action_type != AiActionType.CHAT
+            or job.status != AiJobStatus.SUCCEEDED
+        ):
+            raise ValidationError({"job": "반영할 수 있는 코치 제안이 아닙니다."})
+        proposal = (job.output_data or {}).get("proposal")
+        if not isinstance(proposal, dict):
+            raise ValidationError({"job": "이 답변에는 반영할 제안이 없습니다."})
+        return _apply_answer(
+            prd=job.prd,
+            question_id=proposal.get("question_id"),
+            generated_version=proposal.get("question_version"),
+            question_version=question_version,
+            content=content,
+            user_id=user_id,
+            event_type="ai_chat_proposal_applied",
+            job=job,
+        )
+
+
+def _apply_answer(
+    *,
+    prd,
+    question_id,
+    generated_version,
+    question_version,
+    content,
+    user_id,
+    event_type,
+    job,
+):
+    """초안과 코치 제안이 공유하는 반영 절차.
+
+    제안이 만들어진 뒤 질문이 바뀌었으면 덮어쓰지 않고 409로 되돌린다.
+    """
+    try:
+        question = PrdQuestion.objects.select_for_update().get(
+            pk=question_id,
+            section__prd=prd,
+            section__is_deleted=False,
+            is_deleted=False,
+            is_held=False,
+        )
+    except PrdQuestion.DoesNotExist as exc:
+        raise ValidationError({"question_id": "질문을 찾을 수 없습니다."}) from exc
+    if question.version != generated_version or question.version != question_version:
+        raise AiDraftVersionConflict(question)
+    if not isinstance(content, str) or not content.strip():
+        raise ValidationError({"content": "반영할 답변을 입력해 주세요."})
+    content = content.strip()
+    if len(content) > settings.AI_DRAFT_MAX_LENGTH:
+        raise ValidationError(
+            {"content": f"답변은 {settings.AI_DRAFT_MAX_LENGTH}자 이하여야 합니다."}
+        )
+    try:
+        previous = question.answer.content
+    except ObjectDoesNotExist:
+        previous = ""
+    answer, _ = PrdAnswer.objects.update_or_create(
+        question=question,
+        defaults={"content": content, "updated_by_user_id": user_id},
+    )
+    question.version += 1
+    question.save(update_fields=["version", "updated_at"])
+    now = timezone.now()
+    Prd.objects.filter(pk=prd.pk).update(version=F("version") + 1, updated_at=now)
+    PrdChangeHistory.objects.create(
+        prd=prd,
+        actor_user_id=user_id,
+        event_type=event_type,
+        before_data={"question_id": question.pk, "content": previous},
+        after_data={
+            "question_id": question.pk,
+            "content": content,
+            "question_version": question.version,
+        },
+    )
+    job.output_data = {
+        **(job.output_data or {}),
+        "applied_at": now.isoformat(),
+        "applied_question_version": question.version,
+    }
+    job.save(update_fields=["output_data", "updated_at"])
+    return answer
+
+
 class AiDraftService:
     @transaction.atomic
     def request(
@@ -307,59 +404,16 @@ class AiDraftService:
             or job.status != AiJobStatus.SUCCEEDED
         ):
             raise ValidationError({"job": "반영할 수 있는 질문 초안 작업이 아닙니다."})
-        question_id = job.input_data.get("question_id")
-        try:
-            question = PrdQuestion.objects.select_for_update().get(
-                pk=question_id,
-                section__prd=job.prd,
-                section__is_deleted=False,
-                is_deleted=False,
-            )
-        except PrdQuestion.DoesNotExist as exc:
-            raise ValidationError({"question_id": "질문을 찾을 수 없습니다."}) from exc
-        generated_version = job.input_data.get("question_version")
-        if question.version != generated_version or question.version != question_version:
-            raise AiDraftVersionConflict(question)
-        if not isinstance(content, str) or not content.strip():
-            raise ValidationError({"content": "반영할 답변을 입력해 주세요."})
-        content = content.strip()
-        if len(content) > settings.AI_DRAFT_MAX_LENGTH:
-            raise ValidationError(
-                {"content": f"답변은 {settings.AI_DRAFT_MAX_LENGTH}자 이하여야 합니다."}
-            )
-        try:
-            previous = question.answer.content
-        except ObjectDoesNotExist:
-            previous = ""
-        answer, _ = PrdAnswer.objects.update_or_create(
-            question=question,
-            defaults={"content": content, "updated_by_user_id": user_id},
-        )
-        question.version += 1
-        question.save(update_fields=["version", "updated_at"])
-        now = timezone.now()
-        Prd.objects.filter(pk=job.prd_id).update(
-            version=F("version") + 1,
-            updated_at=now,
-        )
-        PrdChangeHistory.objects.create(
+        return _apply_answer(
             prd=job.prd,
-            actor_user_id=user_id,
+            question_id=job.input_data.get("question_id"),
+            generated_version=job.input_data.get("question_version"),
+            question_version=question_version,
+            content=content,
+            user_id=user_id,
             event_type="ai_draft_applied",
-            before_data={"question_id": question.pk, "content": previous},
-            after_data={
-                "question_id": question.pk,
-                "content": content,
-                "question_version": question.version,
-            },
+            job=job,
         )
-        job.output_data = {
-            **(job.output_data or {}),
-            "applied_at": now.isoformat(),
-            "applied_question_version": question.version,
-        }
-        job.save(update_fields=["output_data", "updated_at"])
-        return answer
 
 
 class AiResultProcessor:
@@ -376,6 +430,7 @@ class AiResultProcessor:
 
     def _process_chat(self, *, job, output):
         safe_message = sanitize_ai_markdown(output.get("message"))
+        proposal = self._build_proposal(job=job, output=output)
         conversation_id = job.input_data.get("conversation_id")
         try:
             conversation = AiCoachConversation.objects.select_for_update().get(
@@ -408,7 +463,45 @@ class AiResultProcessor:
             )
         conversation.expires_at = timezone.now() + AiCoachConversationService.TTL
         conversation.save(update_fields=["expires_at", "updated_at"])
-        return {"message": safe_message}
+        result = {"message": safe_message}
+        if proposal is not None:
+            result["proposal"] = proposal
+        return result
+
+    @staticmethod
+    def _build_proposal(*, job, output):
+        """코치가 특정 질문의 답변 수정을 제안했을 때만 만들어진다.
+
+        제안은 저장하지 않는다. 사용자가 화면에서 승인해야 PRD에 반영된다.
+        """
+        raw = output.get("proposal")
+        if not isinstance(raw, dict):
+            return None
+        question_id = raw.get("question_id")
+        if isinstance(question_id, bool) or not isinstance(question_id, int):
+            raise AiOutputValidationError("AI proposal question_id must be an integer.")
+        try:
+            question = PrdQuestion.objects.select_related("section").get(
+                pk=question_id,
+                section__prd=job.prd,
+                section__is_deleted=False,
+                is_deleted=False,
+                is_held=False,
+            )
+        except PrdQuestion.DoesNotExist as exc:
+            raise AiOutputValidationError("AI proposal points at another PRD question.") from exc
+        content = sanitize_ai_markdown(raw.get("content"))
+        if len(content) > settings.AI_DRAFT_MAX_LENGTH:
+            raise AiOutputValidationError("AI proposal exceeded the draft length limit.")
+        return {
+            "question_id": question.pk,
+            "question_version": question.version,
+            "question_prompt": question.prompt,
+            "section_id": question.section_id,
+            "section_title": question.section.title,
+            "content": content,
+            "reason": sanitize_ai_markdown(raw["reason"]) if raw.get("reason") else "",
+        }
 
     @staticmethod
     def _process_draft(*, job, output):

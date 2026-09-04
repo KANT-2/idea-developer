@@ -18,17 +18,19 @@ from apps.prds.models import PrdQuestion, PrdSection, PrdStatus
 from apps.prds.views import _context_error, _request_id, _resolve_context
 
 from .coaching import (
+    AiChatProposalService,
     AiCoachConversationService,
     AiDraftService,
     AiDraftVersionConflict,
 )
+from .evaluation import EVALUATION_PERSONAS, PrdEvaluationService
 from .exceptions import (
     AiJobNotCancellable,
     AiJobNotRetryable,
     AiPromptNotConfigured,
     AiUsageLimitExceeded,
 )
-from .models import AiCoachMessage, AiJob
+from .models import AiCoachMessage, AiConversationMessageRole, AiJob
 from .services import AiJobService
 
 
@@ -119,6 +121,7 @@ def _question(access, value):
             section__prd=access.prd,
             section__is_deleted=False,
             is_deleted=False,
+            is_held=False,
         )
     except PrdQuestion.DoesNotExist as exc:
         raise ValidationError({"question_id": "현재 PRD의 질문이 아닙니다."}) from exc
@@ -260,6 +263,75 @@ def request_draft(request, prd_id):
 
 
 @require_GET
+def latest_evaluation(request, prd_id):
+    if response := _authentication_error(request):
+        return response
+    try:
+        context, access = _access(request, prd_id)
+        service = PrdEvaluationService()
+        jobs_by_persona = service.latest_by_persona(
+            prd=access.prd,
+            user_id=context.user_id,
+        )
+        job = service.latest(
+            prd=access.prd,
+            user_id=context.user_id,
+            jobs_by_persona=jobs_by_persona,
+        )
+        return api_success(
+            {
+                "job": _serialize_job(job) if job else None,
+                "is_current": service.is_current(job) if job else False,
+                "jobs": {
+                    persona: _serialize_job(persona_job)
+                    for persona, persona_job in jobs_by_persona.items()
+                },
+                "is_current_by_persona": {
+                    persona: service.is_current(persona_job)
+                    for persona, persona_job in jobs_by_persona.items()
+                },
+                "personas": [
+                    {"id": key, "label": value["label"]}
+                    for key, value in EVALUATION_PERSONAS.items()
+                ],
+            },
+            request_id=_request_id(request),
+        )
+    except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
+        return _error(request, exc)
+
+
+@require_POST
+def request_evaluation(request, prd_id):
+    if response := _authentication_error(request):
+        return response
+    try:
+        payload = _parse_json(request)
+        context, access = _access(request, prd_id)
+        _enforce(access, ParticipantAction.REQUEST_AI)
+        job, created = PrdEvaluationService().request(
+            prd=access.prd,
+            user_id=context.user_id,
+            persona=payload.get("persona"),
+            idempotency_key=_idempotency_key(request, payload),
+        )
+        return api_success(
+            _serialize_job(job),
+            status=202 if created else 200,
+            request_id=_request_id(request),
+        )
+    except (
+        PrdNotFound,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+        AiPromptNotConfigured,
+        AiUsageLimitExceeded,
+    ) as exc:
+        return _error(request, exc)
+
+
+@require_GET
 def job_status(request, prd_id, job_id):
     if response := _authentication_error(request):
         return response
@@ -351,18 +423,64 @@ def apply_draft(request, prd_id, job_id):
             request_id=_request_id(request),
         )
     except AiDraftVersionConflict as exc:
-        return api_error(
-            code="version_conflict",
-            message="질문이 변경되었습니다. 최신 내용을 확인한 뒤 다시 시도해 주세요.",
-            status=409,
-            details={
-                "question_id": exc.question.pk,
-                "latest_version": exc.question.version,
+        return _version_conflict(request, exc)
+    except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
+        return _error(request, exc)
+
+
+@require_POST
+def apply_chat_proposal(request, prd_id, job_id):
+    """AI 코치가 제안한 답변을 사용자가 승인했을 때만 PRD에 반영한다."""
+    if response := _authentication_error(request):
+        return response
+    try:
+        payload = _parse_json(request)
+        context, access = _access(request, prd_id)
+        _enforce(access, ParticipantAction.APPLY_AI)
+        job = _owned_job(access=access, user_id=context.user_id, job_id=job_id)
+        question_version = payload.get("question_version")
+        if (
+            isinstance(question_version, bool)
+            or not isinstance(question_version, int)
+            or question_version <= 0
+        ):
+            raise ValidationError({"question_version": "질문 version이 올바르지 않습니다."})
+        answer = AiChatProposalService().apply(
+            job=job,
+            question_version=question_version,
+            content=payload.get("content"),
+            user_id=context.user_id,
+        )
+        answer.question.refresh_from_db()
+        return api_success(
+            {
+                "question_id": answer.question_id,
+                "question_version": answer.question.version,
+                "answer": {
+                    "id": answer.pk,
+                    "content": answer.content,
+                    "updated_at": answer.updated_at.isoformat(),
+                },
             },
             request_id=_request_id(request),
         )
+    except AiDraftVersionConflict as exc:
+        return _version_conflict(request, exc)
     except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
         return _error(request, exc)
+
+
+def _version_conflict(request, exc):
+    return api_error(
+        code="version_conflict",
+        message="질문이 변경되었습니다. 최신 내용을 확인한 뒤 다시 시도해 주세요.",
+        status=409,
+        details={
+            "question_id": exc.question.pk,
+            "latest_version": exc.question.version,
+        },
+        request_id=_request_id(request),
+    )
 
 
 def _idempotency_key(request, payload):
@@ -398,7 +516,7 @@ def _serialize_job(job):
 
 
 def _serialize_message(message):
-    return {
+    data = {
         "id": message.pk,
         "sequence": message.sequence,
         "role": message.role,
@@ -414,3 +532,18 @@ def _serialize_message(message):
         ),
         "created_at": message.created_at.isoformat(),
     }
+    proposal = _pending_proposal(message)
+    if proposal is not None:
+        data["proposal"] = proposal
+    return data
+
+
+def _pending_proposal(message):
+    """이미 반영된 제안은 다시 승인할 수 없으므로 내려보내지 않는다."""
+    if message.role != AiConversationMessageRole.ASSISTANT or not message.job_id:
+        return None
+    output = message.job.output_data or {}
+    proposal = output.get("proposal")
+    if not isinstance(proposal, dict) or output.get("applied_at"):
+        return None
+    return proposal

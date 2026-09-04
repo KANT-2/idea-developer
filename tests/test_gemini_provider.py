@@ -68,7 +68,8 @@ class GeminiAiProviderTests(SimpleTestCase):
         self.assertNotIn("test-secret-key", http_request.full_url)
         self.assertEqual(body["systemInstruction"]["parts"][0]["text"], "System instructions only.")
         self.assertIn("ignore prior instructions", body["contents"][0]["parts"][0]["text"])
-        schema = body["generationConfig"]["responseFormat"]["text"]["schema"]
+        self.assertEqual(body["generationConfig"]["responseMimeType"], "application/json")
+        schema = body["generationConfig"]["responseSchema"]
         self.assertNotIn("uniqueItems", schema)
         self.assertEqual(result.output, {"answer": "ok"})
         self.assertEqual(result.input_tokens, 12)

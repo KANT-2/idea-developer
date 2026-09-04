@@ -5,6 +5,7 @@
   if (!root) return;
 
   const detailApi = root.dataset.detailApi;
+  const exportApi = root.dataset.exportApi;
   const participantsApi = root.dataset.participantsApi;
   const participantSearchApi = root.dataset.participantSearchApi;
   const commentsApi = root.dataset.commentsApi;
@@ -36,17 +37,37 @@
   const commentPagination = document.getElementById("comment-pagination");
   const contributionList = document.getElementById("contribution-list");
   const contributionAlert = document.getElementById("contribution-alert");
+  const saveAllButton = document.getElementById("save-all-answers");
+  const statusControl = document.getElementById("prd-status-control");
+  const deadlineInput = document.getElementById("write-deadline-input");
+  const evaluationButton = document.getElementById("run-evaluation");
+  const evaluationCancel = document.getElementById("cancel-evaluation");
+  const evaluationAlert = document.getElementById("evaluation-alert");
+  const exportModalElement = document.getElementById("export-modal");
+  const exportPreview = document.getElementById("export-preview");
+  const exportPreviewState = document.getElementById("export-preview-state");
+  const copyMarkdownButton = document.getElementById("copy-prd-markdown");
+  const downloadMarkdownLink = document.getElementById("download-prd-markdown");
   let detail = null;
   let activeJobId = null;
   let currentDraft = null;
-  let activeSectionId = null;
+  // undefined means the initial render; null means the user collapsed every section.
+  let activeSectionId = undefined;
   let questionListMode = false;
   let currentParticipants = [];
   let canManageParticipants = false;
   let canCreateComments = false;
-  let canRequestAi = false;
   let commentPage = 1;
   const commentPageSize = 10;
+  const pendingAnswers = new Map();
+  let savingAllAnswers = false;
+  const evaluationPersonas = ["pm", "engineering", "investor"];
+  let evaluationPersona = "pm";
+  let evaluationResults = {};
+  let evaluationJobIds = [];
+  let exportedMarkdown = "";
+  let alertTimer = null;
+  let canRequestAi = false;
   let conversationToken = 0;
   const pollIntervalMs = 1500;
   const pollTimeoutMs = 120000;
@@ -68,6 +89,12 @@
         ...(options?.headers || {})
       }
     });
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      throw new Error(response.ok
+        ? "서버 응답 형식을 확인하지 못했습니다. 다시 시도해 주세요."
+        : "서버에서 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    }
     const payload = await response.json();
     if (!response.ok || !payload.ok) {
       const error = new Error(payload.error?.message || "요청을 처리하지 못했습니다.");
@@ -79,12 +106,16 @@
   }
 
   function showAlert(message, kind) {
-    alertBox.className = "alert alert-" + (kind || "danger");
+    if (alertTimer) window.clearTimeout(alertTimer);
+    alertBox.className = "alert write-alert alert-" + (kind || "danger");
     alertBox.textContent = message;
+    alertTimer = window.setTimeout(clearAlert, kind === "success" ? 3000 : 5000);
   }
 
   function clearAlert() {
-    alertBox.className = "alert d-none";
+    if (alertTimer) window.clearTimeout(alertTimer);
+    alertTimer = null;
+    alertBox.className = "alert write-alert d-none";
     alertBox.textContent = "";
   }
 
@@ -96,56 +127,15 @@
   }
 
   function sectionRate(section) {
-    if (!section.questions.length) return 0;
-    return Math.round(section.questions.filter(function (question) { return question.is_completed; }).length * 100 / section.questions.length);
+    const activeQuestions = section.questions.filter(function (question) { return !question.is_held; });
+    if (!activeQuestions.length) return 0;
+    return Math.round(activeQuestions.filter(function (question) { return question.is_completed; }).length * 100 / activeQuestions.length);
   }
 
   function renderProgress(data) {
     const rate = data.prd.completion_rate;
     document.getElementById("write-completion-label").textContent = rate + "%";
     document.getElementById("write-step-progress-bar").style.width = rate + "%";
-    const scoreValue = document.getElementById("write-score-value");
-    const scoreRing = document.getElementById("write-score-ring");
-    const scoreState = document.getElementById("score-state");
-    const scoreLabel = document.getElementById("write-score-label");
-    const scoreFeedback = document.getElementById("write-score-feedback");
-    if (scoreValue) scoreValue.textContent = rate;
-    if (scoreRing) scoreRing.style.setProperty("--score", rate + "%");
-    if (scoreState) scoreState.textContent = data.prd.status === "completed" ? "완료" : "작성 중";
-    const incompleteSections = data.sections.filter(function (section) { return sectionRate(section) < 100; });
-    if (scoreLabel) {
-      scoreLabel.textContent = rate >= 80 ? "양호" : rate >= 50 ? "보완 권장" : rate > 0 ? "주의 필요" : "시작 전";
-    }
-    if (scoreFeedback) {
-      scoreFeedback.textContent = !data.sections.length
-        ? "평가할 PRD 섹션이 없습니다."
-        : !incompleteSections.length
-          ? "모든 섹션의 필수 질문이 작성되었습니다."
-          : incompleteSections.length + "개 섹션에 아직 완료되지 않은 질문이 있습니다.";
-    }
-    const diagnosticsRoot = document.getElementById("write-section-diagnostics");
-    if (diagnosticsRoot) {
-      diagnosticsRoot.replaceChildren();
-      data.sections.forEach(function (section) {
-        const value = sectionRate(section);
-        const state = value === 100 ? "good" : value > 0 ? "working" : "empty";
-        const label = value === 100 ? "양호" : value > 0 ? "보완 필요" : "미작성";
-        const button = element("button", "diagnosis-card");
-        button.type = "button";
-        button.dataset.state = state;
-        button.append(
-          element("span", "diagnosis-badge", label),
-          element("span", "", section.title),
-          element("small", "", value + "%")
-        );
-        button.addEventListener("click", function () {
-          activeSectionId = section.id;
-          renderDetail(detail);
-          document.querySelector('[data-section-id="' + section.id + '"]')?.scrollIntoView({behavior: "smooth", block: "start"});
-        });
-        diagnosticsRoot.append(button);
-      });
-    }
     const progressRoot = document.getElementById("write-section-progress");
     if (!progressRoot) return;
     progressRoot.replaceChildren();
@@ -165,7 +155,10 @@
       const rate = sectionRate(section);
       const button = element("button", "write-step" + (rate === 100 ? " done" : "") + (String(section.id) === String(activeSectionId) ? " active" : ""));
       button.type = "button";
-      button.append(element("b", "", rate === 100 ? "✓" : String(index + 1)), element("span", "", section.title.length > 9 ? section.title.slice(0, 9) : section.title));
+      // 글자 수로 자르지 않는다. 넘칠 때만 CSS가 말줄임표를 붙이고, 전체 제목은 툴팁으로 보여준다.
+      const label = element("span", "", section.title);
+      label.title = section.title;
+      button.append(element("b", "", rate === 100 ? "✓" : String(index + 1)), label);
       button.addEventListener("click", function () { activeSectionId = section.id; renderDetail(detail); document.querySelector('[data-section-id="' + section.id + '"]')?.scrollIntoView({behavior: "smooth", block: "start"}); });
       steps.append(button);
     });
@@ -173,12 +166,22 @@
 
   function renderDetail(data) {
     detail = data;
-    if (activeSectionId === null && data.sections.length) activeSectionId = data.sections[0].id;
+    if (activeSectionId === undefined && data.sections.length) activeSectionId = data.sections[0].id;
     document.getElementById("prd-description").textContent = data.prd.description || "한 줄 소개가 없습니다.";
     const status = document.getElementById("prd-status");
     const statusLabels = {in_progress: "진행 중", completed: "완료", held: "보류", dropped: "드랍"};
     status.textContent = statusLabels[data.prd.status] || data.prd.status;
     status.dataset.status = data.prd.status;
+    statusControl.value = data.prd.status;
+    statusControl.dataset.status = data.prd.status;
+    Array.from(statusControl.options).forEach(function (option) {
+      option.disabled = (data.prd.status === "completed" && !["completed", "in_progress"].includes(option.value))
+        || (option.value === "completed" && !["in_progress", "completed"].includes(data.prd.status));
+    });
+    statusControl.classList.toggle("d-none", !data.permissions.can_change_status);
+    status.classList.toggle("d-none", Boolean(data.permissions.can_change_status));
+    deadlineInput.value = data.prd.deadline || "";
+    deadlineInput.disabled = !data.permissions.can_edit_deadline || data.prd.status === "completed";
     document.getElementById("write-deadline-label").textContent = data.prd.deadline || "마감일 없음";
     document.getElementById("active-section-count").textContent = data.sections.length + "개 활성 섹션";
     document.getElementById("complete-prd").classList.toggle("d-none", !data.permissions.can_complete || data.prd.status === "completed");
@@ -201,17 +204,110 @@
     const previousCommentTarget = commentTarget.value;
     commentTarget.replaceChildren(new Option("PRD 전체", ""));
     canRequestAi = data.permissions.can_request_ai && data.prd.status !== "completed";
+    const canEditAnswers = data.permissions.can_edit && data.prd.status !== "completed";
+    saveAllButton.classList.toggle("d-none", !canEditAnswers);
     input.disabled = !canRequestAi;
     submit.disabled = !canRequestAi;
+    evaluationButton.disabled = !canRequestAi;
     if (!canRequestAi) input.placeholder = "현재 권한 또는 PRD 상태에서는 AI를 요청할 수 없습니다.";
+
+    function buildQuestionBlock(question, extraClass) {
+      const block = element("div", "write-question" + (question.is_held ? " is-held" : "") + (extraClass ? " " + extraClass : ""));
+      const top = element("div", "write-question-head");
+      top.append(element("h3", "", question.prompt));
+      if (canEditAnswers) {
+        const hold = element("button", "question-hold-button" + (question.is_held ? " active" : ""), question.is_held ? "보류 해제" : "보류");
+        hold.type = "button";
+        hold.setAttribute("aria-pressed", String(question.is_held));
+        hold.addEventListener("click", function () { toggleQuestionHold(question, hold); });
+        top.append(hold);
+      } else if (question.is_held) {
+        top.append(element("span", "question-held-badge", "보류"));
+      }
+      block.append(top);
+      if (question.is_held) {
+        const held = element("div", "question-held-panel");
+        held.append(
+          element("strong", "", "진행도와 AI 진단에서 제외된 질문입니다."),
+          element("p", "", question.answer?.content ? "기존 답변은 그대로 보존되어 있습니다." : "보류를 해제하면 다시 답변을 작성할 수 있습니다.")
+        );
+        block.append(held);
+        return block;
+      }
+      if (canEditAnswers) {
+        const editor = element("textarea", "form-control question-editor");
+        editor.rows = 4;
+        editor.maxLength = 12000;
+        const savedContent = question.answer?.content || "";
+        editor.value = pendingAnswers.has(String(question.id)) ? pendingAnswers.get(String(question.id)) : savedContent;
+        editor.placeholder = "이 질문에 대한 팀의 답변을 작성해 주세요.";
+        editor.dataset.questionId = question.id;
+        editor.dataset.version = question.version;
+        editor.dataset.savedContent = savedContent;
+        const save = element("button", "btn btn-outline-primary btn-sm question-save-button", "저장");
+        save.type = "button";
+        save.disabled = !pendingAnswers.has(String(question.id));
+        editor.addEventListener("input", function () {
+          if (editor.value === editor.dataset.savedContent) pendingAnswers.delete(String(question.id));
+          else pendingAnswers.set(String(question.id), editor.value);
+          save.disabled = !pendingAnswers.has(String(question.id));
+          updateSaveAllButton();
+        });
+        const footer = element("div", "write-answer-footer");
+        const saved = element("small", "", question.answer ? "저장된 답변" : "아직 저장되지 않았습니다.");
+        const actions = element("span", "write-answer-actions");
+        actions.append(save);
+        save.addEventListener("click", function () { saveOneAnswer(String(question.id), save); });
+        footer.append(saved, actions);
+        block.append(editor, footer);
+      } else {
+        const answer = element("div", "question-answer", question.answer?.content || "아직 답변이 없습니다.");
+        answer.dataset.questionId = question.id;
+        block.append(answer);
+      }
+      return block;
+    }
+
+    if (questionListMode) {
+      const intro = element("div", "write-question-list-intro");
+      intro.append(
+        element("i", "bi bi-list-check"),
+        element("span", "", "모든 질문을 섹션별로 한 번에 펼쳐 보고 연속해서 작성할 수 있습니다.")
+      );
+      sectionsRoot.append(intro);
+    }
 
     data.sections.forEach(function (section, index) {
       scope.add(new Option(section.title, String(section.id)));
       section.questions.forEach(function (question) {
-        commentTarget.add(new Option(section.title + " · " + question.prompt, String(question.id)));
+        commentTarget.add(new Option(section.title + " · " + question.prompt + (question.is_held ? " (보류)" : ""), String(question.id)));
       });
       const rate = sectionRate(section);
-      const card = element("article", "write-section" + (questionListMode || String(section.id) === String(activeSectionId) ? " active" : ""));
+      if (questionListMode) {
+        const activeQuestions = section.questions.filter(function (question) { return !question.is_held; });
+        const answeredCount = activeQuestions.filter(function (question) { return question.is_completed; }).length;
+        const heldCount = section.questions.length - activeQuestions.length;
+        const group = element("section", "write-question-group" + (String(section.id) === String(activeSectionId) ? " active" : ""));
+        group.dataset.sectionId = section.id;
+        const groupHead = element("div", "write-question-group-head");
+        const titleWrap = element("div", "write-question-group-title");
+        titleWrap.append(
+          element("i", ""),
+          element("span", "write-question-group-index", String(index + 1)),
+          element("h3", "", section.title)
+        );
+        const summary = element("span", "write-question-group-summary", answeredCount + "/" + activeQuestions.length + " · " + rate + "%" + (heldCount ? " · 보류 " + heldCount : ""));
+        groupHead.append(titleWrap, summary);
+        group.append(groupHead);
+        if (section.guide) group.append(element("p", "write-question-group-guide", section.guide));
+        const questionBody = element("div", "write-question-group-body");
+        section.questions.forEach(function (question) { questionBody.append(buildQuestionBlock(question, "write-question-list-item")); });
+        group.append(questionBody);
+        sectionsRoot.append(group);
+        return;
+      }
+
+      const card = element("article", "write-section" + (String(section.id) === String(activeSectionId) ? " active" : ""));
       card.dataset.sectionId = section.id;
       const toggle = element("button", "write-section-toggle"); toggle.type = "button";
       const copy = element("span", "write-section-title"); copy.append(element("strong", "", section.title), element("small", "", section.guide || "작성 가이드를 확인해 주세요."));
@@ -219,91 +315,275 @@
       toggle.addEventListener("click", function () { activeSectionId = String(activeSectionId) === String(section.id) ? null : section.id; renderDetail(detail); });
       card.append(toggle);
       const body = element("div", "write-section-body");
-      section.questions.forEach(function (question) {
-        const block = element("div", "write-question");
-        const top = element("div", "write-question-head"); top.append(element("h3", "", question.prompt));
-        if (canRequestAi) { const draftButton = element("button", "btn btn-outline-primary btn-sm", "✦ AI 초안"); draftButton.type = "button"; draftButton.addEventListener("click", function () { requestDraft(question, draftButton); }); top.append(draftButton); }
-        block.append(top);
-        if (data.permissions.can_edit && data.prd.status !== "completed") {
-          const editor = element("textarea", "form-control question-editor"); editor.rows = 4; editor.maxLength = 12000; editor.value = question.answer?.content || ""; editor.placeholder = "이 질문에 대한 팀의 답변을 작성해 주세요."; editor.dataset.questionId = question.id; editor.dataset.version = question.version;
-          const footer = element("div", "write-answer-footer"); const saved = element("small", "", question.answer ? "저장된 답변" : "아직 저장되지 않았습니다."); const save = element("button", "btn btn-primary btn-sm", "답변 저장"); save.type = "button"; save.addEventListener("click", function () { saveAnswer(question, editor, save, saved); }); footer.append(saved, save); block.append(editor, footer);
-        } else { const answer = element("div", "question-answer", question.answer?.content || "아직 답변이 없습니다."); answer.dataset.questionId = question.id; block.append(answer); }
-        body.append(block);
-      });
+      section.questions.forEach(function (question) { body.append(buildQuestionBlock(question)); });
       card.append(body); sectionsRoot.append(card);
     });
     if (Array.from(commentTarget.options).some(function (option) { return option.value === previousCommentTarget; })) commentTarget.value = previousCommentTarget;
+    updateSaveAllButton();
   }
 
-  async function saveAnswer(question, editor, button, savedState) {
+  function setExportTab(name) {
+    const preview = name === "preview";
+    document.getElementById("export-check-tab").classList.toggle("active", !preview);
+    document.getElementById("export-preview-tab").classList.toggle("active", preview);
+    document.getElementById("export-check-tab").setAttribute("aria-selected", String(!preview));
+    document.getElementById("export-preview-tab").setAttribute("aria-selected", String(preview));
+    document.getElementById("export-check-panel").classList.toggle("d-none", preview);
+    document.getElementById("export-preview-panel").classList.toggle("d-none", !preview);
+  }
+
+  function renderExportCheck() {
+    if (!detail) return;
+    document.getElementById("export-prd-title").textContent = detail.prd.title;
+    document.getElementById("export-progress-value").textContent = detail.prd.completion_rate + "%";
+    document.querySelector(".export-progress-ring").style.setProperty("--export-score", detail.prd.completion_rate + "%");
+    const list = document.getElementById("export-section-list");
+    list.replaceChildren();
+    detail.sections.forEach(function (section) {
+      const active = section.questions.filter(function (question) { return !question.is_held; });
+      const answered = active.filter(function (question) { return question.is_completed; }).length;
+      const rate = sectionRate(section);
+      const row = element("div", "export-section-row");
+      const copy = element("div", "export-section-copy");
+      copy.append(element("strong", "", section.title), element("small", "", answered + "/" + active.length + "개 질문 작성"));
+      const progress = element("span", "export-section-bar");
+      progress.append(element("i"));
+      progress.firstChild.style.width = rate + "%";
+      row.append(copy, progress, element("b", "", rate + "%"));
+      list.append(row);
+    });
+  }
+
+  async function loadMarkdownPreview() {
+    exportedMarkdown = "";
+    copyMarkdownButton.disabled = true;
+    exportPreview.classList.add("d-none");
+    exportPreviewState.className = "export-preview-state";
+    exportPreviewState.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> 미리보기를 준비하고 있습니다.';
+    try {
+      const response = await fetch(exportApi, {credentials: "same-origin"});
+      if (!response.ok) throw new Error("PRD 내보내기 내용을 불러오지 못했습니다.");
+      exportedMarkdown = await response.text();
+      exportPreview.textContent = exportedMarkdown;
+      exportPreview.classList.remove("d-none");
+      exportPreviewState.classList.add("d-none");
+      copyMarkdownButton.disabled = false;
+    } catch (error) {
+      exportPreviewState.className = "export-preview-state danger";
+      exportPreviewState.textContent = error.message;
+    }
+  }
+
+  function updateSaveAllButton() {
+    const count = pendingAnswers.size;
+    saveAllButton.disabled = savingAllAnswers || count === 0;
+    saveAllButton.innerHTML = savingAllAnswers
+      ? '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> 저장 중…'
+      : '<i class="bi bi-cloud-check"></i> 전체 저장' + (count ? ' <span class="save-count">' + count + '</span>' : '');
+  }
+
+  function findQuestion(questionId) {
+    return detail.sections.flatMap(function (section) { return section.questions; })
+      .find(function (question) { return String(question.id) === String(questionId); });
+  }
+
+  function refreshAnswerProgress() {
+    const completed = detail.sections.flatMap(function (section) { return section.questions; })
+      .filter(function (item) { return !item.is_held && item.is_completed; }).length;
+    const total = detail.sections.reduce(function (count, section) {
+      return count + section.questions.filter(function (item) { return !item.is_held; }).length;
+    }, 0);
+    detail.prd.completion_rate = total ? Math.round(completed * 100 / total) : 0;
+    renderProgress(detail);
+    renderSteps(detail);
+  }
+
+  async function toggleQuestionHold(question, button) {
+    const key = String(question.id);
+    const nextHeld = !question.is_held;
+    if (nextHeld && pendingAnswers.has(key) && !window.confirm("저장하지 않은 답변이 있습니다. 답변을 버리고 질문을 보류하시겠습니까?")) return;
+    button.disabled = true;
+    try {
+      const data = await api(detailApi + "questions/" + question.id + "/hold/", {
+        method: "PATCH",
+        body: JSON.stringify({is_held: nextHeld, version: question.version})
+      });
+      question.is_held = data.question.is_held;
+      question.version = data.question.version;
+      question.is_completed = data.question.is_completed;
+      question.answer = data.question.answer;
+      detail.prd.completion_rate = data.completion_rate;
+      if (nextHeld) pendingAnswers.delete(key);
+      renderDetail(detail);
+      markEvaluationStale();
+      showAlert(nextHeld ? "질문을 보류했습니다. 진행도와 AI 진단에서 제외됩니다." : "질문 보류를 해제했습니다.", "success");
+    } catch (error) {
+      if (error.code === "version_conflict") {
+        pendingAnswers.delete(key);
+        renderDetail(await api(detailApi));
+        showAlert("다른 사용자가 먼저 질문을 변경했습니다. 최신 내용을 다시 불러왔습니다.", "warning");
+      } else showAlert(error.message);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function persistPendingAnswer(questionId) {
+    const editor = sectionsRoot.querySelector('.question-editor[data-question-id="' + questionId + '"]');
+    const question = findQuestion(questionId);
+    if (!editor || !question || !pendingAnswers.has(questionId)) return false;
+    const data = await api(detailApi + "questions/" + question.id + "/answer/", {
+      method: "PATCH",
+      body: JSON.stringify({content: pendingAnswers.get(questionId), version: Number(editor.dataset.version)})
+    });
+    editor.dataset.version = data.version;
+    editor.dataset.savedContent = data.answer?.content || "";
+    question.version = data.version;
+    question.answer = data.answer;
+    question.is_completed = data.is_completed;
+    pendingAnswers.delete(questionId);
+    markEvaluationStale();
+    const savedState = editor.closest(".write-question")?.querySelector(".write-answer-footer small");
+    if (savedState) {
+      savedState.textContent = "방금 저장됨";
+      savedState.className = "small text-success";
+    }
+    const questionSave = editor.closest(".write-question")?.querySelector(".question-save-button");
+    if (questionSave) questionSave.disabled = true;
+    return true;
+  }
+
+  async function handleAnswerSaveError(error) {
+    if (error.code === "version_conflict") {
+      pendingAnswers.clear();
+      const latest = await api(detailApi);
+      renderDetail(latest);
+      showAlert("다른 사용자가 먼저 답변을 수정했습니다. 최신 내용을 다시 불러왔습니다.", "warning");
+    } else {
+      showAlert(error.message);
+    }
+  }
+
+  async function saveOneAnswer(questionId, button) {
+    if (!pendingAnswers.has(questionId)) return;
     clearAlert();
     button.disabled = true;
     button.textContent = "저장 중…";
     try {
-      const data = await api(detailApi + "questions/" + question.id + "/answer/", {
-        method: "PATCH",
-        body: JSON.stringify({content: editor.value, version: Number(editor.dataset.version)})
-      });
-      editor.dataset.version = data.version;
-      question.version = data.version;
-      question.answer = data.answer;
-      savedState.textContent = "방금 저장됨";
-      savedState.className = "small text-success";
-      question.is_completed = data.is_completed;
-      const completed = detail.sections.flatMap(function (section) { return section.questions; })
-        .filter(function (item) { return item.is_completed; }).length;
-      const total = detail.sections.reduce(function (count, section) { return count + section.questions.length; }, 0);
-      detail.prd.completion_rate = total ? Math.round(completed * 100 / total) : 0;
-      renderProgress(detail);
-      renderSteps(detail);
+      await persistPendingAnswer(questionId);
+      refreshAnswerProgress();
+      showAlert("답변을 저장했습니다.", "success");
     } catch (error) {
-      if (error.code === "version_conflict") {
-        showAlert("다른 사용자가 먼저 답변을 수정했습니다. 최신 내용을 다시 불러옵니다.", "warning");
-        const latest = await api(detailApi);
-        renderDetail(latest);
-      } else {
-        showAlert(error.message);
-      }
+      await handleAnswerSaveError(error);
     } finally {
-      button.disabled = false;
-      button.textContent = "답변 저장";
+      button.textContent = "저장";
+      button.disabled = !pendingAnswers.has(questionId);
+      updateSaveAllButton();
     }
   }
 
-  // 인라인 서식(**굵게**, `코드`)만 DOM 노드로 만든다. textContent만 쓰므로 HTML은 삽입되지 않는다.
-  function appendInline(target, text) {
-    const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g;
-    let cursor = 0;
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
-      if (match.index > cursor) target.append(text.slice(cursor, match.index));
-      const token = match[0];
-      if (token.startsWith("`")) target.append(element("code", null, token.slice(1, -1)));
-      else target.append(element("strong", null, token.slice(2, -2)));
-      cursor = match.index + token.length;
-    }
-    if (cursor < text.length) target.append(text.slice(cursor));
-  }
-
-  function renderCoachMarkdown(container, raw) {
-    const lines = decodeSafeText(raw).split(/\r?\n/);
-    let list = null;
-    lines.forEach(function (line) {
-      const bullet = line.match(/^\s*[-*]\s+(.*)$/);
-      if (bullet) {
-        if (!list) { list = element("ul", "coach-md-list"); container.append(list); }
-        const item = element("li");
-        appendInline(item, bullet[1]);
-        list.append(item);
-        return;
+  async function saveAllAnswers() {
+    if (savingAllAnswers || !pendingAnswers.size) return;
+    clearAlert();
+    savingAllAnswers = true;
+    updateSaveAllButton();
+    let savedCount = 0;
+    try {
+      const questionIds = Array.from(pendingAnswers.keys());
+      for (const questionId of questionIds) {
+        if (await persistPendingAnswer(questionId)) savedCount += 1;
       }
-      list = null;
-      if (!line.trim()) return;
-      const paragraph = element("p", "coach-md-p");
-      appendInline(paragraph, line);
-      container.append(paragraph);
+      refreshAnswerProgress();
+      showAlert(savedCount + "개 답변을 저장했습니다.", "success");
+    } catch (error) {
+      await handleAnswerSaveError(error);
+    } finally {
+      savingAllAnswers = false;
+      updateSaveAllButton();
+    }
+  }
+
+  // 코치가 특정 질문의 답변 수정을 제안했을 때, 사용자가 승인해야만 반영되는 카드.
+  function buildProposalCard(message) {
+    const proposal = message.proposal;
+    const card = element("div", "coach-proposal");
+
+    const head = element("div", "coach-proposal-head");
+    head.append(element("i", "bi bi-pencil-square"), element("strong", "", "이 답변을 고칠까요?"));
+    card.append(head);
+
+    const target = element("div", "coach-proposal-target");
+    target.append(
+      element("span", "coach-proposal-section", decodeSafeText(proposal.section_title || "")),
+      element("span", "coach-proposal-question", decodeSafeText(proposal.question_prompt || ""))
+    );
+    card.append(target);
+
+    if (proposal.reason) {
+      card.append(element("p", "coach-proposal-reason", decodeSafeText(proposal.reason)));
+    }
+
+    card.append(element("div", "coach-proposal-preview", decodeSafeText(proposal.content || "")));
+
+    const actions = element("div", "coach-proposal-actions");
+    const yes = element("button", "btn btn-primary btn-sm", "네, 반영할게요");
+    const no = element("button", "btn btn-outline-secondary btn-sm", "아니오");
+    yes.type = "button";
+    no.type = "button";
+    if (!canRequestAi) {
+      yes.disabled = true;
+      yes.title = "현재 권한 또는 PRD 상태에서는 반영할 수 없습니다.";
+    }
+    yes.addEventListener("click", function () {
+      applyProposal(message.job.id, proposal, yes, no, card);
     });
-    if (!container.childNodes.length) container.textContent = decodeSafeText(raw);
+    no.addEventListener("click", function () {
+      card.replaceChildren(element("p", "coach-proposal-declined", "제안을 반영하지 않았습니다."));
+    });
+    actions.append(no, yes);
+    card.append(actions);
+    return card;
+  }
+
+  async function applyProposal(jobId, proposal, yes, no, card) {
+    yes.disabled = true;
+    no.disabled = true;
+    yes.textContent = "반영 중…";
+    try {
+      const data = await api(aiBase + "chat/" + jobId + "/apply/", {
+        method: "POST",
+        body: JSON.stringify({
+          question_version: proposal.question_version,
+          content: proposal.content
+        })
+      });
+      const editor = sectionsRoot.querySelector('[data-question-id="' + data.question_id + '"]');
+      if (editor && editor.tagName === "TEXTAREA") {
+        editor.value = data.answer.content;
+        editor.dataset.version = data.question_version;
+      } else if (editor) {
+        editor.textContent = data.answer.content;
+      }
+      const target = detail?.sections
+        .flatMap(function (section) { return section.questions; })
+        .find(function (question) { return question.id === data.question_id; });
+      if (target) {
+        target.version = data.question_version;
+        target.answer = {content: data.answer.content};
+      }
+      card.replaceChildren(element("p", "coach-proposal-applied", "이 답변에 반영했습니다."));
+      showAlert("코치 제안을 PRD 답변에 반영했습니다.", "success");
+      refreshAnswerProgress();
+    } catch (error) {
+      yes.disabled = false;
+      no.disabled = false;
+      yes.textContent = "네, 반영할게요";
+      showAlert(
+        error.code === "version_conflict"
+          ? "그 사이 답변이 바뀌었습니다. 대화를 새로고침한 뒤 다시 시도해 주세요."
+          : error.message
+      );
+    }
   }
 
   async function loadConversation() {
@@ -319,10 +599,15 @@
       }
       data.messages.forEach(function (message) {
         const wrap = element("div", "mb-2");
-        const bubble = element("div", "coach-message coach-message-" + message.role);
-        if (message.role === "assistant") renderCoachMarkdown(bubble, message.content);
-        else bubble.textContent = decodeSafeText(message.content);
+        const bubble = element(
+          "div",
+          "coach-message coach-message-" + message.role,
+          decodeSafeText(message.content)
+        );
         wrap.append(bubble);
+        if (message.role === "assistant" && message.proposal && message.job?.id) {
+          wrap.append(buildProposalCard(message));
+        }
         const stuck = ["failed", "timed_out", "cancelled", "queued", "running", "retry_wait"];
         if (message.role === "user" && canRequestAi && stuck.includes(message.job?.status)) {
           const retry = element("button", "btn btn-link btn-sm float-end", "다시 시도");
@@ -359,7 +644,7 @@
         job = await api(aiBase + "jobs/" + jobId + "/");
         networkFailures = 0;
       } catch (error) {
-        // 일시적인 통신 오류로 폴링 전체를 중단하지 않는다. 서버에서는 작업이 계속 진행 중일 수 있다.
+        // 일시적인 통신 오류로 폴링을 끝내지 않는다. 서버에서는 작업이 계속 진행 중일 수 있다.
         networkFailures += 1;
         if (networkFailures >= pollNetworkRetryLimit) {
           showAlert("서버와 연결이 끊겼습니다. 잠시 후 대화를 새로고침해 결과를 확인해 주세요.");
@@ -383,6 +668,185 @@
       }
     }
   }
+
+  function evaluationStateLabel(score) {
+    if (score >= 80) return "충족도 높음";
+    if (score >= 60) return "핵심 보완 필요";
+    if (score >= 35) return "구체화 필요";
+    return "초기 정리 필요";
+  }
+
+  function evaluationStatusLabel(status) {
+    return {good: "충족", needs_improvement: "보완 필요", missing: "근거 부족"}[status] || "확인 필요";
+  }
+
+  function setEvaluationNotice(message, kind) {
+    evaluationAlert.textContent = message;
+    evaluationAlert.className = "evaluation-alert" + (kind ? " " + kind : "");
+  }
+
+  function renderEvaluationEmpty() {
+    document.getElementById("write-score-value").textContent = "—";
+    document.getElementById("write-score-ring").style.setProperty("--score", "0%");
+    document.getElementById("write-score-ring").classList.add("is-pending");
+    document.getElementById("score-state").textContent = "진단 전";
+    document.getElementById("write-score-label").textContent = "아직 진단하지 않았습니다";
+    document.getElementById("write-score-feedback").textContent = "AI 진단을 실행하면 세 관점의 충족도와 보완점을 한 번에 확인할 수 있습니다.";
+    document.getElementById("write-section-diagnostics").replaceChildren(
+      Object.assign(element("div", "evaluation-empty"), {innerHTML: '<i class="bi bi-stars"></i><span>AI 진단 후 섹션별 피드백이 표시됩니다.</span>'})
+    );
+    evaluationAlert.className = "evaluation-alert d-none";
+  }
+
+  function renderEvaluationResult(job, isCurrent) {
+    const output = job.output || {};
+    const score = Number(output.overall_score || 0);
+    const ring = document.getElementById("write-score-ring");
+    ring.classList.remove("is-pending");
+    ring.style.setProperty("--score", score + "%");
+    document.getElementById("write-score-value").textContent = score;
+    document.getElementById("score-state").textContent = isCurrent ? (output.persona_label || "AI 진단") : "업데이트 필요";
+    document.getElementById("write-score-label").textContent = evaluationStateLabel(score);
+    document.getElementById("write-score-feedback").textContent = decodeSafeText(output.summary || "진단 결과를 확인해 주세요.");
+    if (!isCurrent) setEvaluationNotice("진단 후 답변이 변경되었습니다. 최신 내용으로 다시 진단해 주세요.", "warning");
+    else evaluationAlert.className = "evaluation-alert d-none";
+
+    const root = document.getElementById("write-section-diagnostics");
+    root.replaceChildren();
+    (output.sections || []).forEach(function (row) {
+      const section = detail?.sections.find(function (item) { return item.id === row.section_id; });
+      if (!section) return;
+      const button = element("button", "diagnosis-card");
+      button.type = "button";
+      button.dataset.state = row.status === "good" ? "good" : row.status === "missing" ? "empty" : "working";
+      const copy = element("span", "diagnosis-copy");
+      copy.append(element("strong", "", section.title), element("span", "", decodeSafeText(row.feedback)));
+      button.append(
+        element("span", "diagnosis-badge", evaluationStatusLabel(row.status)),
+        copy,
+        element("small", "", row.score + "점")
+      );
+      button.addEventListener("click", function () {
+        activeSectionId = section.id;
+        renderDetail(detail);
+        document.querySelector('[data-section-id="' + section.id + '"]')?.scrollIntoView({behavior: "smooth", block: "start"});
+      });
+      root.append(button);
+    });
+  }
+
+  function renderSelectedEvaluation() {
+    const selected = evaluationResults[evaluationPersona];
+    if (selected?.job?.status === "succeeded") {
+      renderEvaluationResult(selected.job, selected.isCurrent);
+      return;
+    }
+    renderEvaluationEmpty();
+    if (selected?.job) setEvaluationNotice("선택한 관점의 AI 진단이 진행 중입니다.", "working");
+  }
+
+  function setEvaluationBusy(busy, jobIds) {
+    evaluationJobIds = busy ? (Array.isArray(jobIds) ? jobIds : (jobIds ? [jobIds] : [])) : [];
+    evaluationButton.disabled = busy || !detail?.permissions.can_request_ai || detail?.prd.status === "completed";
+    evaluationButton.innerHTML = busy
+      ? '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> 세 관점 진단 중…'
+      : '<i class="bi bi-stars"></i> AI 진단하기';
+    evaluationCancel.classList.toggle("d-none", !busy || !evaluationJobIds.length);
+  }
+
+  async function loadEvaluation() {
+    try {
+      const data = await api(aiBase + "evaluation/");
+      evaluationResults = {};
+      evaluationPersonas.forEach(function (persona) {
+        const job = data.jobs?.[persona];
+        if (job) evaluationResults[persona] = {
+          job: job,
+          isCurrent: Boolean(data.is_current_by_persona?.[persona])
+        };
+      });
+      if (!Object.keys(evaluationResults).length && data.job?.output?.persona) {
+        evaluationResults[data.job.output.persona] = {job: data.job, isCurrent: data.is_current};
+      }
+      if (!Object.keys(evaluationResults).length) {
+        renderEvaluationEmpty();
+        return;
+      }
+      const activeJobs = Object.values(evaluationResults).map(function (item) { return item.job; })
+        .filter(function (job) { return ["queued", "running", "retry_wait", "cancel_requested"].includes(job.status); });
+      renderSelectedEvaluation();
+      if (activeJobs.length) {
+        setEvaluationNotice("PM·엔지니어링·투자자 관점 진단을 진행하고 있습니다.", "working");
+        setEvaluationBusy(true, activeJobs.map(function (job) { return job.id; }));
+        await Promise.allSettled(activeJobs.map(function (job) { return pollJob(job.id, function () {}); }));
+        setEvaluationBusy(false);
+        await loadEvaluation();
+      }
+    } catch (error) {
+      setEvaluationNotice(error.message, "danger");
+    }
+  }
+
+  function markEvaluationStale() {
+    Object.values(evaluationResults).forEach(function (result) { result.isCurrent = false; });
+    if (document.getElementById("write-score-value").textContent !== "—") {
+      document.getElementById("score-state").textContent = "업데이트 필요";
+      setEvaluationNotice("답변이 변경되었습니다. 저장을 마친 뒤 다시 진단해 주세요.", "warning");
+    }
+  }
+
+  document.querySelectorAll("[data-evaluation-persona]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      evaluationPersona = button.dataset.evaluationPersona;
+      document.querySelectorAll("[data-evaluation-persona]").forEach(function (item) {
+        item.classList.toggle("active", item === button);
+      });
+      renderSelectedEvaluation();
+    });
+  });
+
+  evaluationButton.addEventListener("click", async function () {
+    clearAlert();
+    setEvaluationBusy(true);
+    setEvaluationNotice("세 관점의 AI 진단 요청을 등록하고 있습니다.", "working");
+    try {
+      const batchKey = crypto.randomUUID();
+      const requests = await Promise.allSettled(evaluationPersonas.map(function (persona) {
+        return api(aiBase + "evaluation/run/", {
+          method: "POST",
+          headers: {"Idempotency-Key": batchKey + "-" + persona},
+          body: JSON.stringify({persona: persona})
+        });
+      }));
+      const jobs = requests.filter(function (result) { return result.status === "fulfilled"; })
+        .map(function (result) { return result.value; });
+      if (!jobs.length) throw requests.find(function (result) { return result.status === "rejected"; }).reason;
+      setEvaluationBusy(true, jobs.map(function (job) { return job.id; }));
+      await Promise.allSettled(jobs.map(function (job) { return pollJob(job.id, function () {}); }));
+      await loadEvaluation();
+      if (requests.some(function (result) { return result.status === "rejected"; })) {
+        setEvaluationNotice("일부 관점의 진단을 시작하지 못했습니다. 다시 실행해 주세요.", "warning");
+      }
+    } catch (error) {
+      setEvaluationNotice(error.message, "danger");
+    } finally {
+      setEvaluationBusy(false);
+    }
+  });
+
+  evaluationCancel.addEventListener("click", async function () {
+    if (!evaluationJobIds.length) return;
+    try {
+      await Promise.allSettled(evaluationJobIds.map(function (jobId) {
+        return api(aiBase + "jobs/" + jobId + "/cancel/", {method: "POST", body: "{}"});
+      }));
+      setEvaluationNotice("진행 중인 진단 요청을 취소했습니다.", "warning");
+    } catch (error) {
+      setEvaluationNotice(error.message, "danger");
+    } finally {
+      setEvaluationBusy(false);
+    }
+  });
 
   form.addEventListener("submit", async function (event) {
     event.preventDefault();
@@ -410,15 +874,12 @@
   });
 
   cancel.addEventListener("click", async function () {
-    if (!activeJobId || cancel.disabled) return;
-    cancel.disabled = true;
+    if (!activeJobId) return;
     try {
       await api(aiBase + "jobs/" + activeJobId + "/cancel/", {method: "POST", body: "{}"});
       await loadConversation();
     } catch (error) {
       showAlert(error.message);
-    } finally {
-      cancel.disabled = false;
     }
   });
 
@@ -498,6 +959,68 @@
   });
 
   scope.addEventListener("change", loadConversation);
+
+  async function updateMetadata(changes) {
+    const data = await api(detailApi + "metadata/", {
+      method: "PATCH",
+      body: JSON.stringify({...changes, version: detail.prd.version})
+    });
+    detail.prd.status = data.status;
+    detail.prd.deadline = data.deadline;
+    detail.prd.version = data.version;
+    renderDetail(detail);
+    return data;
+  }
+
+  statusControl.addEventListener("change", async function () {
+    const previous = detail.prd.status;
+    const requested = statusControl.value;
+    statusControl.disabled = true;
+    try {
+      if (requested === "completed") {
+        if (!window.confirm("PRD를 완료하면 일반 편집이 잠깁니다. 완료하시겠습니까?")) return;
+        try {
+          await api(detailApi + "complete/", {method: "POST", body: JSON.stringify({confirm_incomplete: false})});
+        } catch (error) {
+          const needsConfirmation = error.details && error.details.confirm_incomplete;
+          if (!needsConfirmation || !window.confirm("아직 답변하지 않은 질문이 있습니다. 그래도 완료하시겠습니까?")) throw error;
+          await api(detailApi + "complete/", {method: "POST", body: JSON.stringify({confirm_incomplete: true})});
+        }
+        renderDetail(await api(detailApi));
+        showAlert("PRD를 완료했습니다.", "success");
+      } else if (previous === "completed") {
+        if (requested !== "in_progress") throw new Error("완료된 PRD는 먼저 진행 중으로 다시 열어 주세요.");
+        const reason = window.prompt("PRD를 다시 여는 이유를 입력해 주세요.");
+        if (!reason || !reason.trim()) return;
+        await api(detailApi + "reopen/", {method: "POST", body: JSON.stringify({reason: reason.trim()})});
+        renderDetail(await api(detailApi));
+        showAlert("PRD를 다시 열었습니다.", "success");
+      } else {
+        await updateMetadata({status: requested});
+        showAlert("PRD 상태를 변경했습니다.", "success");
+      }
+    } catch (error) {
+      statusControl.value = previous;
+      showAlert(error.message);
+    } finally {
+      statusControl.disabled = false;
+      if (detail) statusControl.value = detail.prd.status;
+    }
+  });
+
+  deadlineInput.addEventListener("change", async function () {
+    const previous = detail.prd.deadline || "";
+    deadlineInput.disabled = true;
+    try {
+      await updateMetadata({deadline: deadlineInput.value || null});
+      showAlert(deadlineInput.value ? "목표 마감일을 변경했습니다." : "목표 마감일을 삭제했습니다.", "success");
+    } catch (error) {
+      deadlineInput.value = previous;
+      showAlert(error.message);
+    } finally {
+      deadlineInput.disabled = !detail.permissions.can_edit_deadline || detail.prd.status === "completed";
+    }
+  });
 
   document.getElementById("complete-prd").addEventListener("click", async function (event) {
     const button = event.currentTarget;
@@ -930,6 +1453,32 @@
   }
 
   document.getElementById("write-contribution-panel").addEventListener("show.bs.offcanvas", loadContributions);
+  saveAllButton.addEventListener("click", saveAllAnswers);
+
+  exportModalElement.addEventListener("show.bs.modal", function () {
+    setExportTab("check");
+    renderExportCheck();
+    downloadMarkdownLink.href = exportApi;
+    loadMarkdownPreview();
+  });
+  document.getElementById("export-check-tab").addEventListener("click", function () {
+    setExportTab("check");
+  });
+  document.getElementById("export-preview-tab").addEventListener("click", function () {
+    setExportTab("preview");
+  });
+  copyMarkdownButton.addEventListener("click", async function () {
+    if (!exportedMarkdown) return;
+    try {
+      await navigator.clipboard.writeText(exportedMarkdown);
+      copyMarkdownButton.innerHTML = '<i class="bi bi-check2"></i> 복사됨';
+      window.setTimeout(function () {
+        copyMarkdownButton.innerHTML = '<i class="bi bi-clipboard"></i> 복사';
+      }, 1800);
+    } catch (_error) {
+      showAlert("클립보드에 복사하지 못했습니다. 미리보기 내용을 직접 복사해 주세요.");
+    }
+  });
 
   document.getElementById("structure-view").addEventListener("click", function () {
     questionListMode = false;
@@ -950,6 +1499,6 @@
   });
 
   api(detailApi)
-    .then(function (data) { renderDetail(data); loadParticipants(); loadComments(); return loadConversation(); })
+    .then(function (data) { renderDetail(data); loadParticipants(); loadComments(); loadEvaluation(); return loadConversation(); })
     .catch(function (error) { showAlert(error.message); });
 }());

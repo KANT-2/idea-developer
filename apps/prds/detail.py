@@ -63,6 +63,10 @@ class PrdPermissionPresenter:
             "role": role,
             "can_view": True,
             "can_edit": self._allows(access, ParticipantAction.EDIT),
+            "can_edit_deadline": self._allows(access, ParticipantAction.EDIT),
+            "can_change_status": bool(
+                access.is_admin or access.role == PrdParticipantRole.OWNER
+            ),
             "can_comment": self._allows(access, ParticipantAction.COMMENT),
             "can_review_comment": self._allows(access, ParticipantAction.REVIEW_COMMENT),
             "can_manage_participants": self._allows(access, ParticipantAction.MANAGE_PARTICIPANTS),

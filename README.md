@@ -60,8 +60,14 @@ PostgreSQL에서 로컬 사용자와 `idea_developer` 데이터베이스를 준�
 ```powershell
 psql -U idea_developer -d idea_developer -f scripts/bootstrap_database.sql
 python manage.py migrate
+python manage.py seed_demo_workspace
 python manage.py runserver
 ```
+
+`seed_demo_workspace`는 부모 PostgreSQL VIEW의 활성·승인 사용자 ID를 확인한 뒤 팀 공용
+PRD 5개, 참여자, 답변, 코멘트, 브레인스토밍 메모와 연결선을 로컬 DB에 생성합니다. 같은
+명령을 다시 실행해도 `roundless-demo-v1:*` idempotency key로 기존 데이터는 덮어쓰거나
+중복 생성하지 않습니다. 부모 사용자 원장이나 개인정보는 로컬 DB로 복사하지 않습니다.
 
 헬스체크는 인증 없이 배포 상태를 확인하기 위한 유일한 공개 API입니다.
 

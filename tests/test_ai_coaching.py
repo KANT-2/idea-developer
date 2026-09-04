@@ -40,6 +40,7 @@ from apps.prds.models import (
 
 class CoachingProvider:
     requests = []
+    proposal = None
 
     def generate(self, request, *, timeout_seconds, cancellation_check):
         self.__class__.requests.append(request)
@@ -51,6 +52,8 @@ class CoachingProvider:
             }
         else:
             output = {"message": "코칭 답변 <script>alert(1)</script>"}
+            if self.__class__.proposal is not None:
+                output["proposal"] = self.__class__.proposal
         return AiProviderResult(
             output=output,
             input_tokens=10,
@@ -69,6 +72,7 @@ class FailingCoachingProvider:
 class AiCoachingApiTests(TestCase):
     def setUp(self):
         CoachingProvider.requests = []
+        CoachingProvider.proposal = None
         self.context = IntegrationContext(
             user_id=7,
             round_id=3,
@@ -131,7 +135,19 @@ class AiCoachingApiTests(TestCase):
                 "oneOf": [
                     {
                         "required": ["message"],
-                        "properties": {"message": {"type": "string"}},
+                        "properties": {
+                            "message": {"type": "string"},
+                            "proposal": {
+                                "type": "object",
+                                "required": ["question_id", "content", "reason"],
+                                "properties": {
+                                    "question_id": {"type": "integer"},
+                                    "content": {"type": "string"},
+                                    "reason": {"type": "string"},
+                                },
+                                "additionalProperties": False,
+                            },
+                        },
                         "additionalProperties": False,
                     },
                     {
@@ -178,6 +194,93 @@ class AiCoachingApiTests(TestCase):
         self.assertContains(page, "AI 코치")
         question = detail.json()["data"]["sections"][0]["questions"][0]
         self.assertEqual(question["version"], 1)
+
+    def test_coach_proposal_is_preview_only_until_the_user_approves(self):
+        CoachingProvider.proposal = {
+            "question_id": self.question.pk,
+            "content": "결제 실패로 이탈하는 사용자를 줄이는 것이 문제입니다.",
+            "reason": "문제가 한 문장으로 좁혀져 있지 않습니다.",
+        }
+        self.assertEqual(self.request_chat(key="proposal-1").status_code, 202)
+        self.run_job()
+
+        messages = self.client.get(self.url("conversation")).json()["data"]["messages"]
+        assistant = messages[1]
+        proposal = assistant["proposal"]
+
+        # 승인 전에는 PRD가 그대로여야 한다.
+        self.assertFalse(PrdAnswer.objects.filter(question=self.question).exists())
+        self.assertEqual(proposal["question_id"], self.question.pk)
+        self.assertEqual(proposal["question_version"], self.question.version)
+        self.assertEqual(proposal["section_title"], self.section_a.title)
+
+        applied = self.post(
+            "apply-chat-proposal",
+            {"question_version": proposal["question_version"], "content": proposal["content"]},
+            job_id=assistant["job"]["id"],
+        )
+
+        self.assertEqual(applied.status_code, 200)
+        answer = PrdAnswer.objects.get(question=self.question)
+        self.assertEqual(answer.content, proposal["content"])
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.version, 2)
+
+        # 이미 반영된 제안은 다시 승인 버튼이 뜨지 않아야 한다.
+        again = self.client.get(self.url("conversation")).json()["data"]["messages"]
+        self.assertNotIn("proposal", again[1])
+
+    def test_coach_proposal_pointing_at_another_prd_question_is_rejected(self):
+        other_prd = Prd.objects.create(
+            title="다른 PRD",
+            prd_type=PrdType.NEW_PRODUCT,
+            round_id=3,
+            team_id=30,
+            creator_user_id=7,
+            creation_idempotency_key="other-prd",
+        )
+        other_section = PrdSection.objects.create(prd=other_prd, title="남의 섹션", position=1)
+        other_question = PrdQuestion.objects.create(
+            section=other_section,
+            prompt="남의 질문",
+            position=1,
+        )
+        CoachingProvider.proposal = {
+            "question_id": other_question.pk,
+            "content": "다른 PRD의 답변을 덮어쓰려는 시도",
+            "reason": "잘못된 대상",
+        }
+        self.assertEqual(self.request_chat(key="proposal-2").status_code, 202)
+        self.run_job()
+
+        job = AiJob.objects.get(feature_type=AiFeatureType.COACHING, idempotency_key="proposal-2")
+        self.assertEqual(job.status, AiJobStatus.FAILED)
+        self.assertFalse(PrdAnswer.objects.filter(question=other_question).exists())
+
+    def test_changed_answer_rejects_stale_coach_proposal_with_409(self):
+        CoachingProvider.proposal = {
+            "question_id": self.question.pk,
+            "content": "새 답변",
+            "reason": "보완 필요",
+        }
+        self.assertEqual(self.request_chat(key="proposal-3").status_code, 202)
+        self.run_job()
+        messages = self.client.get(self.url("conversation")).json()["data"]["messages"]
+        proposal = messages[1]["proposal"]
+
+        # 제안을 받은 뒤 사람이 먼저 답변을 고친 상황.
+        self.question.version += 1
+        self.question.save(update_fields=["version"])
+
+        conflicted = self.post(
+            "apply-chat-proposal",
+            {"question_version": proposal["question_version"], "content": proposal["content"]},
+            job_id=messages[1]["job"]["id"],
+        )
+
+        self.assertEqual(conflicted.status_code, 409)
+        self.assertEqual(conflicted.json()["error"]["code"], "version_conflict")
+        self.assertFalse(PrdAnswer.objects.filter(question=self.question).exists())
 
     def test_conversation_restores_and_sections_are_isolated(self):
         first = self.request_chat(section_id=self.section_a.pk, key="section-a")

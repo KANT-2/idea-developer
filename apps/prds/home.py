@@ -7,7 +7,7 @@ from math import ceil
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Avg, Case, Count, F, IntegerField, Q, Value, When, Window
-from django.db.models.functions import RowNumber
+from django.db.models.functions import RowNumber, TruncDate
 from django.utils import timezone
 
 from apps.accounts.permissions import ParticipantAction, role_permission_policy
@@ -15,9 +15,17 @@ from apps.ai.models import AiActionType, AiFeatureType, AiUsageLog, AiUsageStatu
 from apps.integration.context import IntegrationContext
 from apps.integration.repository import IntegrationRepository
 
-from .models import Prd, PrdParticipant, PrdStatus, PrdType
+from .models import (
+    Prd,
+    PrdChangeHistory,
+    PrdParticipant,
+    PrdParticipantRole,
+    PrdStatus,
+    PrdType,
+)
 
 HOME_TABS = {"all", "project", "team", "personal"}
+HOME_SCOPES = {"all", "mine", "viewer"}
 HOME_SORTS = {
     "default",
     "deadline_asc",
@@ -29,6 +37,7 @@ HOME_SORTS = {
 
 @dataclass(frozen=True, slots=True)
 class HomeFilters:
+    scope: str = "all"
     tab: str = "all"
     statuses: tuple[str, ...] = ()
     prd_types: tuple[str, ...] = ()
@@ -42,6 +51,8 @@ class HomeFilters:
 
     def validate(self, *, context: IntegrationContext):
         errors = {}
+        if self.scope not in HOME_SCOPES:
+            errors["scope"] = "지원하지 않는 PRD 조회 범위입니다."
         if self.tab not in HOME_TABS:
             errors["tab"] = "지원하지 않는 탭입니다."
         invalid_statuses = set(self.statuses) - set(PrdStatus.values)
@@ -87,6 +98,11 @@ class HomeQueryService:
         offset = (filters.page - 1) * filters.page_size
         page_prds = list(queryset[offset : offset + filters.page_size])
         participants_by_prd = self._card_participants(prds=page_prds)
+        weekly_activity, recent_activity = self._get_activity(
+            base=base,
+            context=context,
+            today=today,
+        )
         current_user = None
         if context.round_id is not None:
             current_user = self.repository.get_round_user_summaries(
@@ -105,6 +121,9 @@ class HomeQueryService:
                 ),
             },
             "kpis": kpis,
+            "weekly_activity": weekly_activity,
+            "recent_activity": recent_activity["items"],
+            "recent_activity_pagination": recent_activity["pagination"],
             "applied_filters": self._serialize_filters(filters),
             "items": [
                 self._serialize_card(
@@ -121,6 +140,139 @@ class HomeQueryService:
                 "total_pages": ceil(total_items / filters.page_size) if total_items else 0,
             },
         }
+
+    def _get_activity(self, *, base, context: IntegrationContext, today):
+        """Return activity only from PRDs where the current user is a participant."""
+        participant_prd_ids = base.filter(
+            participants__user_id=context.user_id,
+        ).values("id")
+        week_start = today - timedelta(days=today.weekday())
+        week_end = week_start + timedelta(days=6)
+        daily_counts = {
+            row["day"]: row["count"]
+            for row in (
+                PrdChangeHistory.objects.filter(
+                    prd_id__in=participant_prd_ids,
+                    actor_user_id=context.user_id,
+                    created_at__date__range=(week_start, week_end),
+                )
+                .annotate(day=TruncDate("created_at"))
+                .values("day")
+                .annotate(count=Count("id"))
+                .order_by("day")
+            )
+        }
+        day_labels = ("월", "화", "수", "목", "금", "토", "일")
+        weekly = [
+            {
+                "date": (week_start + timedelta(days=offset)).isoformat(),
+                "day_label": day_labels[offset],
+                "count": daily_counts.get(week_start + timedelta(days=offset), 0),
+            }
+            for offset in range(7)
+        ]
+
+        recent = self._recent_activity_page(
+            participant_prd_ids=participant_prd_ids,
+            page=1,
+            page_size=5,
+        )
+        return weekly, recent
+
+    def get_recent_activity(
+        self,
+        *,
+        context: IntegrationContext,
+        page: int,
+        page_size: int,
+    ):
+        if page <= 0 or page_size <= 0:
+            raise ValidationError({"pagination": "페이지 값은 1 이상이어야 합니다."})
+        base = Prd.objects.accessible_home(
+            user_id=context.user_id,
+            round_id=context.round_id,
+            team_id=context.team_id,
+        )
+        participant_prd_ids = base.filter(
+            participants__user_id=context.user_id,
+        ).values("id")
+        return self._recent_activity_page(
+            participant_prd_ids=participant_prd_ids,
+            page=page,
+            page_size=page_size,
+        )
+
+    def _recent_activity_page(self, *, participant_prd_ids, page, page_size):
+        queryset = (
+            PrdChangeHistory.objects.filter(prd_id__in=participant_prd_ids)
+            .select_related("prd")
+            .order_by("-created_at", "-id")
+        )
+        total_items = queryset.count()
+        offset = (page - 1) * page_size
+        histories = list(queryset[offset : offset + page_size])
+        names = self._activity_actor_names(histories)
+        return {
+            "items": [
+                {
+                    "id": history.id,
+                    "prd_id": history.prd_id,
+                    "prd_title": history.prd.title,
+                    "actor_user_id": history.actor_user_id,
+                    "actor_display_name": names.get(
+                        (history.prd.round_id, history.actor_user_id),
+                        f"사용자 {history.actor_user_id}",
+                    ),
+                    "event_type": history.event_type,
+                    "description": self._activity_description(history),
+                    "created_at": history.created_at.isoformat(),
+                }
+                for history in histories
+            ],
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_items": total_items,
+                "total_pages": ceil(total_items / page_size) if total_items else 0,
+            },
+        }
+
+    def _activity_actor_names(self, histories):
+        user_ids_by_round = {}
+        for history in histories:
+            user_ids_by_round.setdefault(history.prd.round_id, set()).add(history.actor_user_id)
+        names = {}
+        for round_id, user_ids in user_ids_by_round.items():
+            if round_id is None:
+                summaries = self.repository.get_user_summaries(
+                    user_ids=tuple(user_ids),
+                )
+            else:
+                summaries = self.repository.get_round_user_summaries(
+                    user_ids=tuple(user_ids),
+                    round_id=round_id,
+                )
+            for user_id, summary in summaries.items():
+                names[(round_id, user_id)] = summary.display_name
+        return names
+
+    @staticmethod
+    def _activity_description(history):
+        labels = {
+            "answer_updated": "질문 답변을 수정했습니다.",
+            "participant_added": "참여자를 추가했습니다.",
+            "participant_role_changed": "참여자 역할을 변경했습니다.",
+            "participant_removed": "참여자를 제외했습니다.",
+            "prd_completed": "PRD를 완료했습니다.",
+            "prd_reopened": "PRD를 다시 열었습니다.",
+        }
+        if history.event_type == "question_hold_changed":
+            return (
+                "질문을 보류했습니다."
+                if history.after_data.get("is_held")
+                else "질문 보류를 해제했습니다."
+            )
+        return labels.get(history.event_type, "PRD를 업데이트했습니다.")
 
     @staticmethod
     def _get_kpis(*, base, today):
@@ -156,6 +308,13 @@ class HomeQueryService:
 
     @staticmethod
     def _apply_filters(queryset, *, filters: HomeFilters, context: IntegrationContext):
+        if filters.scope == "mine":
+            queryset = queryset.filter(
+                Q(my_role__isnull=True) | ~Q(my_role=PrdParticipantRole.VIEWER)
+            )
+        elif filters.scope == "viewer":
+            queryset = queryset.filter(my_role=PrdParticipantRole.VIEWER)
+
         if filters.tab == "project":
             queryset = queryset.filter(prd_type=PrdType.NEW_PRODUCT)
         elif filters.tab == "team":
@@ -231,9 +390,7 @@ class HomeQueryService:
                 {
                     (None, user_id): summary
                     for user_id, summary in self.repository.get_user_summaries(
-                        user_ids=tuple(
-                            dict.fromkeys(row.user_id for row in roundless_rows)
-                        ),
+                        user_ids=tuple(dict.fromkeys(row.user_id for row in roundless_rows)),
                     ).items()
                 }
             )
@@ -300,6 +457,7 @@ class HomeQueryService:
     @staticmethod
     def _serialize_filters(filters):
         return {
+            "scope": filters.scope,
             "tab": filters.tab,
             "statuses": list(filters.statuses),
             "prd_types": list(filters.prd_types),

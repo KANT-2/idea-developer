@@ -28,8 +28,6 @@
           <div class="collapse navbar-collapse" id="studio-navigation">
             <div class="navbar-nav studio-links mx-lg-auto">
               <a class="nav-link" href="{% url 'ideas:home' %}"><i class="bi bi-grid-1x2"></i> 내 PRD</a>
-              {% url 'integration:round-context' as round_context_url %}
-              <a class="nav-link" href="{{ round_context_url|default:'/integration/round/' }}"><i class="bi bi-people"></i> 회차·팀</a>
             </div>
             <div class="studio-actions d-flex align-items-center gap-2">
               <a class="btn btn-primary studio-create" href="{% url 'ideas:new-prd' %}"><i class="bi bi-plus-lg"></i> 새 PRD</a>

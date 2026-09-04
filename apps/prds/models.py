@@ -59,6 +59,7 @@ class PrdQuerySet(models.QuerySet):
                 filter=Q(
                     sections__is_deleted=False,
                     sections__questions__is_deleted=False,
+                    sections__questions__is_held=False,
                 ),
                 distinct=True,
             ),
@@ -67,6 +68,7 @@ class PrdQuerySet(models.QuerySet):
                 filter=Q(
                     sections__is_deleted=False,
                     sections__questions__is_deleted=False,
+                    sections__questions__is_held=False,
                     sections__questions__is_completed=True,
                 ),
                 distinct=True,
@@ -288,6 +290,7 @@ class Prd(models.Model):
             section__prd=self,
             section__is_deleted=False,
             is_deleted=False,
+            is_held=False,
         )
         counts = questions.aggregate(
             total=Count("id"),
@@ -367,6 +370,7 @@ class PrdQuestion(models.Model):
     prompt = models.TextField()
     position = models.PositiveIntegerField()
     is_completed = models.BooleanField(default=False)
+    is_held = models.BooleanField(default=False)
     version = models.PositiveBigIntegerField(default=1)
     is_deleted = models.BooleanField(default=False)
     deleted_at = models.DateTimeField(null=True, blank=True)
@@ -394,8 +398,8 @@ class PrdQuestion(models.Model):
         ]
         indexes = [
             models.Index(
-                fields=["section", "is_deleted", "is_completed"],
-                name="prd_question_completion_idx",
+                fields=["section", "is_deleted", "is_held", "is_completed"],
+                name="prd_question_progress_idx",
             )
         ]
 

@@ -14,6 +14,7 @@ class AiFeatureType(models.TextChoices):
     BRAINSTORM_PRD_APPLY = "BRAINSTORM_PRD_APPLY", "브레인스토밍 PRD 반영"
     CONTRIBUTION_EVALUATION = "CONTRIBUTION_EVALUATION", "기여도 평가"
     COACHING = "COACHING", "AI 코칭"
+    PRD_EVALUATION = "PRD_EVALUATION", "PRD 충족도 진단"
 
 
 class AiActionType(models.TextChoices):
@@ -23,6 +24,7 @@ class AiActionType(models.TextChoices):
     CONTRIBUTION_EVALUATION = "contribution_evaluation", "기여도 평가"
     CHAT = "chat", "대화"
     DRAFT = "draft", "초안"
+    EVALUATION = "evaluation", "충족도 진단"
 
 
 class AiUsageStatus(models.TextChoices):
@@ -170,6 +172,10 @@ class AiUsageLog(models.Model):
                         feature_type=AiFeatureType.COACHING,
                         action_type__in=[AiActionType.CHAT, AiActionType.DRAFT],
                     )
+                    | Q(
+                        feature_type=AiFeatureType.PRD_EVALUATION,
+                        action_type=AiActionType.EVALUATION,
+                    )
                 ),
                 name="ai_usage_feature_action_valid",
             ),
@@ -290,6 +296,10 @@ class AiJob(models.Model):
                     | Q(
                         feature_type=AiFeatureType.COACHING,
                         action_type__in=[AiActionType.CHAT, AiActionType.DRAFT],
+                    )
+                    | Q(
+                        feature_type=AiFeatureType.PRD_EVALUATION,
+                        action_type=AiActionType.EVALUATION,
                     )
                 ),
                 name="ai_job_feature_action_valid",

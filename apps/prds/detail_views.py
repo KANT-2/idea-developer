@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from math import ceil
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError
 from django.db import transaction
-from django.db.models import Prefetch
+from django.db.models import F, Prefetch
+from django.http import HttpResponse
+from django.utils import timezone
+from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_GET, require_http_methods
 
 from apps.accounts.permissions import ParticipantAction, role_permission_policy
@@ -18,7 +22,9 @@ from apps.integration.exceptions import IntegrationError
 
 from .comment_services import PrdCommentService
 from .detail import PrdAccessService, PrdNotFound, PrdPermissionPresenter
+from .exporting import PrdMarkdownExporter
 from .models import (
+    Prd,
     PrdAnswer,
     PrdChangeHistory,
     PrdComment,
@@ -27,6 +33,7 @@ from .models import (
     PrdParticipantRole,
     PrdQuestion,
     PrdSection,
+    PrdStatus,
 )
 from .services import PrdParticipantService
 from .status_services import PrdStatusConflict, PrdStatusService
@@ -41,6 +48,11 @@ from .views import (
 class PrdQuestionVersionConflict(Exception):
     def __init__(self, question):
         self.question = question
+
+
+class PrdVersionConflict(Exception):
+    def __init__(self, prd):
+        self.prd = prd
 
 
 def _get_access(request, prd_id):
@@ -88,6 +100,20 @@ def _error_response(request, exc):
             message="다른 사용자가 먼저 답변을 변경했습니다. 최신 내용을 확인해 주세요.",
             status=409,
             details={"latest": _serialize_question(exc.question)},
+            request_id=_request_id(request),
+        )
+    if isinstance(exc, PrdVersionConflict):
+        return api_error(
+            code="version_conflict",
+            message="다른 사용자가 먼저 PRD를 변경했습니다. 최신 내용을 확인해 주세요.",
+            status=409,
+            details={
+                "latest": {
+                    "version": exc.prd.version,
+                    "status": exc.prd.status,
+                    "deadline": exc.prd.deadline.isoformat() if exc.prd.deadline else None,
+                }
+            },
             request_id=_request_id(request),
         )
     if isinstance(exc, PrdStatusConflict):
@@ -227,6 +253,108 @@ def prd_detail(request, prd_id):
         },
         request_id=_request_id(request),
     )
+
+
+def _parse_deadline(value) -> date | None:
+    if value in (None, ""):
+        return None
+    if not isinstance(value, str):
+        raise ValidationError({"deadline": "마감일은 YYYY-MM-DD 형식이어야 합니다."})
+    parsed = parse_date(value)
+    if parsed is None:
+        raise ValidationError({"deadline": "마감일은 YYYY-MM-DD 형식이어야 합니다."})
+    return parsed
+
+
+@require_http_methods(["PATCH"])
+def prd_metadata(request, prd_id):
+    if response := _require_authentication(request):
+        return response
+    try:
+        context, access = _get_access(request, prd_id)
+        payload = _parse_json(request)
+        version = payload.get("version")
+        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+            raise ValidationError({"version": "PRD version이 올바르지 않습니다."})
+        supplied = {key for key in ("status", "deadline") if key in payload}
+        if not supplied:
+            raise ValidationError({"body": "수정할 상태 또는 마감일이 필요합니다."})
+
+        permissions = PrdPermissionPresenter().describe(access)
+        if "deadline" in supplied and not permissions["can_edit_deadline"]:
+            raise PermissionDenied("PRD 마감일을 수정할 권한이 없습니다.")
+        if "status" in supplied and not permissions["can_change_status"]:
+            raise PermissionDenied("PRD 상태를 변경할 권한이 없습니다.")
+
+        requested_status = payload.get("status")
+        if "status" in supplied:
+            if requested_status not in PrdStatus.values:
+                raise ValidationError({"status": "지원하지 않는 PRD 상태입니다."})
+            if requested_status == PrdStatus.COMPLETED:
+                raise ValidationError({"status": "PRD 완료는 완료 기능을 이용해 주세요."})
+
+        with transaction.atomic():
+            prd = Prd.objects.select_for_update().get(pk=access.prd.pk, is_deleted=False)
+            if prd.version != version:
+                raise PrdVersionConflict(prd)
+            if prd.status == PrdStatus.COMPLETED:
+                raise PermissionDenied("완료된 PRD는 다시 연 후 수정할 수 있습니다.")
+
+            before = {
+                "status": prd.status,
+                "deadline": prd.deadline.isoformat() if prd.deadline else None,
+            }
+            if "status" in supplied:
+                prd.status = requested_status
+            if "deadline" in supplied:
+                prd.deadline = _parse_deadline(payload.get("deadline"))
+            after = {
+                "status": prd.status,
+                "deadline": prd.deadline.isoformat() if prd.deadline else None,
+            }
+            if before != after:
+                prd.version += 1
+                prd.save(update_fields=[*supplied, "version", "updated_at"])
+                PrdChangeHistory.objects.create(
+                    prd=prd,
+                    actor_user_id=context.user_id,
+                    event_type="prd_metadata_updated",
+                    before_data=before,
+                    after_data=after,
+                )
+
+        return api_success(
+            {
+                "id": prd.id,
+                "status": prd.status,
+                "deadline": prd.deadline.isoformat() if prd.deadline else None,
+                "version": prd.version,
+            },
+            request_id=_request_id(request),
+        )
+    except (
+        PrdNotFound,
+        PrdVersionConflict,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+    ) as exc:
+        return _error_response(request, exc)
+
+
+@require_GET
+def export_markdown(request, prd_id):
+    if response := _require_authentication(request):
+        return response
+    try:
+        _, access = _get_access(request, prd_id)
+        exported = PrdMarkdownExporter().export(prd=access.prd)
+        response = HttpResponse(exported.content, content_type="text/markdown; charset=utf-8")
+        response["Content-Disposition"] = exported.content_disposition
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
+    except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
+        return _error_response(request, exc)
 
 
 @require_http_methods(["GET", "POST"])
@@ -424,6 +552,7 @@ def _serialize_question(question):
         "prompt": question.prompt,
         "position": question.position,
         "is_completed": question.is_completed,
+        "is_held": question.is_held,
         "version": question.version,
         "answer": (
             {
@@ -473,6 +602,8 @@ def question_answer(request, prd_id, question_id):
                 raise PrdNotFound from exc
             if question.version != version:
                 raise PrdQuestionVersionConflict(question)
+            if question.is_held:
+                raise ValidationError({"question": "보류된 질문은 답변을 수정할 수 없습니다."})
             try:
                 previous = question.answer.content
             except ObjectDoesNotExist:
@@ -494,6 +625,76 @@ def question_answer(request, prd_id, question_id):
         question.answer = answer
         return api_success(
             _serialize_question(question),
+            request_id=_request_id(request),
+        )
+    except (
+        PrdNotFound,
+        PrdQuestionVersionConflict,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+    ) as exc:
+        return _error_response(request, exc)
+
+
+@require_http_methods(["PATCH"])
+def question_hold(request, prd_id, question_id):
+    if response := _require_authentication(request):
+        return response
+    try:
+        context, access = _get_access(request, prd_id)
+        if not PrdPermissionPresenter().describe(access)["can_edit"]:
+            raise PermissionDenied("질문 보류 상태를 변경할 권한이 없습니다.")
+        payload = _parse_json(request)
+        is_held = payload.get("is_held")
+        version = payload.get("version")
+        if not isinstance(is_held, bool):
+            raise ValidationError({"is_held": "보류 여부는 boolean이어야 합니다."})
+        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+            raise ValidationError({"version": "질문 version이 올바르지 않습니다."})
+        with transaction.atomic():
+            try:
+                question = (
+                    PrdQuestion.objects.select_for_update()
+                    .select_related("section__prd")
+                    .get(
+                        pk=question_id,
+                        section__prd=access.prd,
+                        section__is_deleted=False,
+                        is_deleted=False,
+                    )
+                )
+            except PrdQuestion.DoesNotExist as exc:
+                raise PrdNotFound from exc
+            if question.version != version:
+                raise PrdQuestionVersionConflict(question)
+            previous = question.is_held
+            if previous != is_held:
+                question.is_held = is_held
+                question.version += 1
+                question.save(update_fields=["is_held", "version", "updated_at"])
+                now = timezone.now()
+                Prd.objects.filter(pk=access.prd.pk).update(
+                    version=F("version") + 1,
+                    updated_at=now,
+                )
+                PrdChangeHistory.objects.create(
+                    prd=access.prd,
+                    actor_user_id=context.user_id,
+                    event_type="question_hold_changed",
+                    before_data={"question_id": question.id, "is_held": previous},
+                    after_data={
+                        "question_id": question.id,
+                        "is_held": question.is_held,
+                        "question_version": question.version,
+                    },
+                )
+        current_prd = Prd.objects.with_completion_rate().get(pk=access.prd.pk)
+        return api_success(
+            {
+                "question": _serialize_question(question),
+                "completion_rate": current_prd.completion_rate,
+            },
             request_id=_request_id(request),
         )
     except (
@@ -734,7 +935,9 @@ def contribution_results(request, prd_id):
         )
         user_ids = tuple(
             dict.fromkeys(
-                score.user_id for evaluation in evaluations for score in evaluation.user_scores.all()
+                score.user_id
+                for evaluation in evaluations
+                for score in evaluation.user_scores.all()
             )
         )
         display_names = _participant_summaries(
