@@ -20,11 +20,6 @@
   const submit = document.getElementById("coach-submit");
   const cancel = document.getElementById("coach-cancel");
   const alertBox = document.getElementById("prd-alert");
-  const draftModalElement = document.getElementById("draft-modal");
-  const draftModal = bootstrap.Modal.getOrCreateInstance(draftModalElement);
-  const draftContent = document.getElementById("draft-content");
-  const draftError = document.getElementById("draft-error");
-  const draftApply = document.getElementById("draft-apply");
   const participantAlert = document.getElementById("participant-alert");
   const participantList = document.getElementById("participant-list");
   const participantResults = document.getElementById("participant-search-results");
@@ -50,7 +45,6 @@
   const downloadMarkdownLink = document.getElementById("download-prd-markdown");
   let detail = null;
   let activeJobId = null;
-  let currentDraft = null;
   // undefined means the initial render; null means the user collapsed every section.
   let activeSectionId = undefined;
   let questionListMode = false;
@@ -896,67 +890,6 @@
       setBusy(false);
     }
   }
-
-  async function requestDraft(question, button) {
-    clearAlert();
-    button.disabled = true;
-    button.textContent = "생성 중…";
-    try {
-      const job = await api(aiBase + "drafts/", {
-        method: "POST",
-        headers: {"Idempotency-Key": crypto.randomUUID()},
-        body: JSON.stringify({question_id: question.id})
-      });
-      await pollJob(job.id, function (completed) {
-        currentDraft = {
-          jobId: completed.id,
-          questionId: question.id,
-          questionVersion: completed.output.question_version
-        };
-        document.getElementById("draft-question").textContent = question.prompt;
-        draftContent.value = decodeSafeText(completed.output.draft);
-        draftError.classList.add("d-none");
-        draftModal.show();
-      });
-    } catch (error) {
-      showAlert(error.message);
-    } finally {
-      button.disabled = false;
-      button.textContent = "AI 초안";
-    }
-  }
-
-  draftApply.addEventListener("click", async function () {
-    if (!currentDraft) return;
-    draftApply.disabled = true;
-    draftError.classList.add("d-none");
-    try {
-      const data = await api(aiBase + "drafts/" + currentDraft.jobId + "/apply/", {
-        method: "POST",
-        body: JSON.stringify({
-          question_version: currentDraft.questionVersion,
-          content: draftContent.value
-        })
-      });
-      const answer = sectionsRoot.querySelector('[data-question-id="' + data.question_id + '"]');
-      if (answer && answer.tagName === "TEXTAREA") {
-        answer.value = data.answer.content;
-        answer.dataset.version = data.question_version;
-      } else if (answer) answer.textContent = data.answer.content;
-      draftModal.hide();
-      showAlert("AI 초안을 PRD 답변에 반영했습니다.", "success");
-      const target = detail.sections.flatMap(function (section) { return section.questions; })
-        .find(function (question) { return question.id === data.question_id; });
-      if (target) target.version = data.question_version;
-    } catch (error) {
-      draftError.textContent = error.code === "version_conflict"
-        ? "질문이 변경되었습니다. 화면을 새로고침한 뒤 초안을 다시 만들어 주세요."
-        : error.message;
-      draftError.classList.remove("d-none");
-    } finally {
-      draftApply.disabled = false;
-    }
-  });
 
   scope.addEventListener("change", loadConversation);
 

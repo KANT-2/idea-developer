@@ -2,7 +2,7 @@
 {% load static %}
 
 {% block title %}{{ prd.title }} | Idea Developer{% endblock %}
-{% block extra_head %}<link href="{% static 'prds/css/write.css' %}?v=20260904-19" rel="stylesheet">{% endblock %}
+{% block extra_head %}<link href="{% static 'prds/css/write.css' %}?v=20260904-20" rel="stylesheet">{% endblock %}
 
 {% block content %}
 <div id="prd-write-app" data-prd-id="{{ prd.id }}" data-detail-api="{{ detail_api_url }}" data-export-api="{% url 'prd_api:export-markdown' prd.id %}" data-participants-api="{{ participants_api_url }}" data-participant-search-api="{{ participant_search_api_url }}" data-comments-api="{{ comments_api_url }}" data-contributions-api="{{ contributions_api_url }}" data-ai-api-base="{{ ai_api_base }}">
@@ -98,12 +98,6 @@
   <div class="modal-footer export-modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">닫기</button><div><button id="copy-prd-markdown" type="button" class="btn btn-outline-secondary" disabled><i class="bi bi-clipboard"></i> 복사</button><a id="download-prd-markdown" class="btn btn-primary" href="#"><i class="bi bi-download"></i> .md 다운로드</a></div></div>
 </div></div></div>
 
-<div class="modal fade" id="draft-modal" tabindex="-1" aria-labelledby="draft-title" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
-  <div class="modal-header draft-modal-head"><div><span>AI DRAFT</span><h2 class="modal-title" id="draft-title">AI 질문 초안 미리보기</h2></div><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="닫기"></button></div>
-  <div class="modal-body"><p id="draft-question" class="fw-semibold"></p><label class="form-label" for="draft-content">반영 전 자유롭게 수정해 주세요.</label><textarea id="draft-content" class="form-control" rows="12" maxlength="12000"></textarea><div id="draft-error" class="alert alert-danger mt-3 d-none" role="alert"></div></div>
-  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">닫기</button><button id="draft-apply" type="button" class="btn btn-primary">PRD에 반영</button></div>
-</div></div></div>
-
 <div class="modal fade" id="participant-modal" tabindex="-1" aria-labelledby="participant-modal-title" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content participant-modal-content">
   <div class="modal-header participant-modal-head"><div><span>PRD MEMBERS</span><h2 class="modal-title" id="participant-modal-title">참여자 추가 및 관리</h2><p>추가한 사용자는 초대 승인 없이 바로 PRD에 참여합니다.</p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button></div>
   <div class="modal-body participant-modal-body">
@@ -114,4 +108,4 @@
   <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">닫기</button></div>
 </div></div></div>
 {% endblock %}
-{% block extra_js %}<script src="{% static 'prds/js/write.js' %}?v=20260904-14"></script>{% endblock %}
+{% block extra_js %}<script src="{% static 'prds/js/write.js' %}?v=20260904-15"></script>{% endblock %}
