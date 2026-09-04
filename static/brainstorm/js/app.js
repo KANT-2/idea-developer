@@ -649,15 +649,18 @@
 
     function renderVersionSidebar() {
       var versions = state.versions || [];
+      var latestVersionNumber = versions.reduce(function (latest, row) {
+        return Math.max(latest, Number(row.version_number) || 0);
+      }, 0);
       return h("aside", {className: "brain-version-sidebar" + (versionsOpen ? "" : " collapsed")},
         h("header", null,
           versionsOpen ? h("span", null, "BOARD VERSIONS") : null,
           h("button", {type: "button", onClick: function () { setVersionsOpen(function (value) { return !value; }); }, title: versionsOpen ? "버전 목록 접기" : "버전 목록 펼치기", "aria-label": versionsOpen ? "버전 목록 접기" : "버전 목록 펼치기"}, h("i", {className: "bi " + (versionsOpen ? "bi-chevron-left" : "bi-chevron-right")}))
         ),
-        versionsOpen ? h("nav", {"aria-label": "캔버스 버전"}, versions.map(function (row, index) {
+        versionsOpen ? h("nav", {"aria-label": "캔버스 버전"}, versions.map(function (row) {
           return h("button", {key: row.id, type: "button", className: row.id === state.canvas.id ? "active" : "", onClick: function () { switchCanvas(row.id); }},
             h("span", null, "ver." + row.version_number),
-            index === 0 ? h("small", null, "최신") : null
+            row.version_number === latestVersionNumber ? h("small", null, "최신") : null
           );
         })) : null,
         versionsOpen && canEdit ? h("button", {type: "button", className: "brain-version-add", disabled: busy, onClick: createCanvasVersion, title: "현재 보드를 복제해 새 버전 만들기", "aria-label": "새 캔버스 버전 만들기"}, h("i", {className: "bi bi-plus-lg"}), h("span", null, "새 보드")) : null

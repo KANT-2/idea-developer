@@ -241,7 +241,7 @@ class BrainstormApiTests(TestCase):
         response = self.client.get(self.url("canvas"))
         data = response.json()["data"]
         self.assertEqual(data["canvas"]["id"], second.pk)
-        self.assertEqual([row["version_number"] for row in data["versions"]], [2, 1])
+        self.assertEqual([row["version_number"] for row in data["versions"]], [1, 2])
 
     def test_canvas_version_creation_is_idempotent_and_old_version_remains_editable(self):
         first = self.initialize_canvas()
