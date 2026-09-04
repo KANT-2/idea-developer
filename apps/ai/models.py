@@ -571,7 +571,13 @@ class AiPrdApplyItem(models.Model):
         ]
 
 
-class AiChatHistory(models.Model):
+class AiCoachChatLog(models.Model):
+    """PRD 상세의 대화 조회(ai-chats)용 평면 기록. 한 행이 질문-답변 한 쌍이다.
+
+    화면 말풍선의 원본은 이 표가 아니라 AiCoachMessage다.
+    대화와 같은 30일이 지나면 delete_expired_chat_history가 지운다.
+    """
+
     prd = models.ForeignKey(
         "prds.Prd",
         on_delete=models.CASCADE,
@@ -638,6 +644,11 @@ class AiCoachConversation(models.Model):
 
 
 class AiCoachMessage(models.Model):
+    """코치 대화의 본체. 화면에 그려지는 말풍선 한 개가 이 행 하나다.
+
+    AI PRD 충족도(PRD_EVALUATION)와는 무관하다. 충족도 결과는 AiJob에 담긴다.
+    """
+
     conversation = models.ForeignKey(
         AiCoachConversation,
         on_delete=models.CASCADE,

@@ -261,10 +261,11 @@ class BackgroundCleanupTests(BrainstormExportCleanupBase):
         old_preview.refresh_from_db()
         fresh_preview.refresh_from_db()
         old_chat.refresh_from_db()
-        self.assertEqual(result.ai_previews, 1)
+        # 채팅 결과에도 코치의 수정 제안 전문이 담기므로 초안과 같은 기간만 보관한다.
+        self.assertEqual(result.ai_previews, 2)
         self.assertIsNone(old_preview.output_data)
+        self.assertIsNone(old_chat.output_data)
         self.assertIsNotNone(fresh_preview.output_data)
-        self.assertIsNotNone(old_chat.output_data)
 
     def test_cleanup_does_not_reset_terminal_failures(self):
         prompt = self.prompt(AiFeatureType.BRAINSTORM_ANALYSIS)

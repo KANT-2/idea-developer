@@ -10,7 +10,7 @@ from django.utils import timezone
 from apps.accounts.models import LocalUserMapping
 from apps.ai.models import (
     AiActionType,
-    AiChatHistory,
+    AiCoachChatLog,
     AiFeatureType,
     AiUsageLog,
     AiUsageStatus,
@@ -841,7 +841,7 @@ class PrdDetailApiTests(TestCase):
                 status=AiUsageStatus.SUCCESS,
                 total_tokens=index,
             )
-            AiChatHistory.objects.create(
+            AiCoachChatLog.objects.create(
                 prd=self.prd,
                 user_id=7,
                 prompt=f"질문 {index}",
