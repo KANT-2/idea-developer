@@ -81,18 +81,21 @@ class TemplateContractTests(SimpleTestCase):
 
     def test_home_separates_my_prds_and_viewer_prds(self):
         base_dir = Path(settings.BASE_DIR)
-        template = (base_dir / "templates" / "prds" / "home.html").read_text(
-            encoding="utf-8"
-        )
-        script = (base_dir / "static" / "prds" / "js" / "home.js").read_text(
-            encoding="utf-8"
-        )
+        template = (base_dir / "templates" / "prds" / "home.html").read_text(encoding="utf-8")
+        script = (base_dir / "static" / "prds" / "js" / "home.js").read_text(encoding="utf-8")
 
         self.assertIn('data-scope="mine"', template)
         self.assertIn('data-scope="viewer"', template)
         self.assertIn("뷰어로 참여한 PRD", template)
+        self.assertIn('id="home-weekly-activity"', template)
+        self.assertIn('id="home-recent-activity"', template)
+        self.assertIn('id="recent-activity-more"', template)
+        self.assertIn('id="recent-activity-modal"', template)
+        self.assertIn("data-recent-activity-api-url=", template)
         self.assertIn('scope: "mine"', script)
         self.assertIn("state.scope", script)
+        self.assertIn("renderActivity(data)", script)
+        self.assertIn("fetchRecentActivity(page)", script)
 
     def test_brainstorm_shell_can_be_rendered_without_browser_jsx(self):
         rendered = get_template("brainstorm/shell.html").render({})
@@ -128,7 +131,7 @@ class TemplateContractTests(SimpleTestCase):
         self.assertIn("Math.min(5000, Math.max(2000", source)
         self.assertIn('"/assignee/"', source)
         self.assertIn("state.participants", source)
-        self.assertIn('window.ReactDOM.createPortal', source)
+        self.assertIn("window.ReactDOM.createPortal", source)
         self.assertIn('"섹션 보드"', source)
         self.assertIn('"자유 캔버스"', source)
         self.assertIn('"아이디어 목록"', source)
@@ -154,42 +157,38 @@ class TemplateContractTests(SimpleTestCase):
         self.assertIn('className: "brain-held-toggle"', source)
         self.assertIn('"aria-expanded": heldExpanded', source)
         self.assertIn('heldExpanded ? "접기" : "펼치기"', source)
-        self.assertNotIn('export/markdown/', source)
+        self.assertNotIn("export/markdown/", source)
         self.assertIn('useState("canvas")', source)
         self.assertIn("var CANVAS_W = 4800", source)
         self.assertIn("Math.max(.3, Math.min(2", source)
         self.assertIn("onWheel: wheelCanvas", source)
         self.assertNotIn("WebSocket", source)
-        self.assertIn('onDragStart', source)
-        self.assertIn('onDrop', source)
-        self.assertNotIn('onDragOver: function (event) { moveNode', source)
+        self.assertIn("onDragStart", source)
+        self.assertIn("onDrop", source)
+        self.assertNotIn("onDragOver: function (event) { moveNode", source)
 
     def test_prd_write_screen_exposes_inline_participant_management(self):
         base_dir = Path(settings.BASE_DIR)
-        template = (base_dir / "templates" / "prds" / "write.html").read_text(
-            encoding="utf-8"
-        )
-        script = (base_dir / "static" / "prds" / "js" / "write.js").read_text(
-            encoding="utf-8"
-        )
+        template = (base_dir / "templates" / "prds" / "write.html").read_text(encoding="utf-8")
+        script = (base_dir / "static" / "prds" / "js" / "write.js").read_text(encoding="utf-8")
         stylesheet = (base_dir / "static" / "prds" / "css" / "write.css").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn('data-participant-search-api=', template)
+        self.assertIn("data-participant-search-api=", template)
         self.assertIn('id="manage-participants"', template)
         self.assertIn('id="participant-modal"', template)
         self.assertIn('id="participant-search-form"', template)
         self.assertIn("can_manage_participants", script)
         self.assertIn('method: "DELETE"', script)
-        self.assertIn('data-comments-api=', template)
+        self.assertIn("data-comments-api=", template)
         self.assertIn('id="comment-toggle"', template)
         self.assertIn('id="write-comments-panel"', template)
         self.assertIn('id="comment-form"', template)
         self.assertIn('id="comment-target"', template)
         self.assertIn('id="comment-pagination"', template)
         self.assertIn("can_review_comment", script)
-        self.assertIn('data-contributions-api=', template)
+        self.assertIn("data-contributions-api=", template)
         self.assertIn('id="contribution-toggle"', template)
         self.assertIn('id="write-contribution-panel"', template)
         self.assertIn("can_view_contributions", script)
@@ -207,13 +206,22 @@ class TemplateContractTests(SimpleTestCase):
         self.assertIn('const evaluationPersonas = ["pm", "engineering", "investor"]', script)
         self.assertIn("Promise.allSettled(evaluationPersonas.map", script)
         self.assertIn("data.jobs?.[persona]", script)
+        self.assertIn("let activeSectionId = undefined;", script)
+        self.assertIn("activeSectionId === undefined && data.sections.length", script)
+        self.assertNotIn("activeSectionId === null && data.sections.length", script)
         self.assertIn('"question-hold-button"', script)
         self.assertIn('"/hold/"', script)
         self.assertIn("!question.is_held", script)
         self.assertIn('contentType.includes("application/json")', script)
         self.assertIn('"alert write-alert alert-"', script)
         self.assertIn('"alert write-alert d-none"', script)
-        self.assertIn('data-export-api=', template)
+        self.assertIn("data-export-api=", template)
+        self.assertIn('id="prd-status-control"', template)
+        self.assertIn('id="write-deadline-input"', template)
+        self.assertIn('detailApi + "metadata/"', script)
+        self.assertIn("can_change_status", script)
+        self.assertIn("can_edit_deadline", script)
+        self.assertIn("window.setTimeout(clearAlert", script)
         self.assertIn('id="export-prd"', template)
         self.assertIn('id="export-modal"', template)
         self.assertIn("PRD 완성도 점검 및 내보내기", template)

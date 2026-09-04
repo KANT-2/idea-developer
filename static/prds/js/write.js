@@ -38,6 +38,8 @@
   const contributionList = document.getElementById("contribution-list");
   const contributionAlert = document.getElementById("contribution-alert");
   const saveAllButton = document.getElementById("save-all-answers");
+  const statusControl = document.getElementById("prd-status-control");
+  const deadlineInput = document.getElementById("write-deadline-input");
   const evaluationButton = document.getElementById("run-evaluation");
   const evaluationCancel = document.getElementById("cancel-evaluation");
   const evaluationAlert = document.getElementById("evaluation-alert");
@@ -49,7 +51,8 @@
   let detail = null;
   let activeJobId = null;
   let currentDraft = null;
-  let activeSectionId = null;
+  // undefined means the initial render; null means the user collapsed every section.
+  let activeSectionId = undefined;
   let questionListMode = false;
   let currentParticipants = [];
   let canManageParticipants = false;
@@ -63,6 +66,7 @@
   let evaluationResults = {};
   let evaluationJobIds = [];
   let exportedMarkdown = "";
+  let alertTimer = null;
 
   function decodeSafeText(value) {
     const area = document.createElement("textarea");
@@ -97,11 +101,15 @@
   }
 
   function showAlert(message, kind) {
+    if (alertTimer) window.clearTimeout(alertTimer);
     alertBox.className = "alert write-alert alert-" + (kind || "danger");
     alertBox.textContent = message;
+    alertTimer = window.setTimeout(clearAlert, kind === "success" ? 3000 : 5000);
   }
 
   function clearAlert() {
+    if (alertTimer) window.clearTimeout(alertTimer);
+    alertTimer = null;
     alertBox.className = "alert write-alert d-none";
     alertBox.textContent = "";
   }
@@ -150,12 +158,22 @@
 
   function renderDetail(data) {
     detail = data;
-    if (activeSectionId === null && data.sections.length) activeSectionId = data.sections[0].id;
+    if (activeSectionId === undefined && data.sections.length) activeSectionId = data.sections[0].id;
     document.getElementById("prd-description").textContent = data.prd.description || "한 줄 소개가 없습니다.";
     const status = document.getElementById("prd-status");
     const statusLabels = {in_progress: "진행 중", completed: "완료", held: "보류", dropped: "드랍"};
     status.textContent = statusLabels[data.prd.status] || data.prd.status;
     status.dataset.status = data.prd.status;
+    statusControl.value = data.prd.status;
+    statusControl.dataset.status = data.prd.status;
+    Array.from(statusControl.options).forEach(function (option) {
+      option.disabled = (data.prd.status === "completed" && !["completed", "in_progress"].includes(option.value))
+        || (option.value === "completed" && !["in_progress", "completed"].includes(data.prd.status));
+    });
+    statusControl.classList.toggle("d-none", !data.permissions.can_change_status);
+    status.classList.toggle("d-none", Boolean(data.permissions.can_change_status));
+    deadlineInput.value = data.prd.deadline || "";
+    deadlineInput.disabled = !data.permissions.can_edit_deadline || data.prd.status === "completed";
     document.getElementById("write-deadline-label").textContent = data.prd.deadline || "마감일 없음";
     document.getElementById("active-section-count").textContent = data.sections.length + "개 활성 섹션";
     document.getElementById("complete-prd").classList.toggle("d-none", !data.permissions.can_complete || data.prd.status === "completed");
@@ -816,6 +834,68 @@
   });
 
   scope.addEventListener("change", loadConversation);
+
+  async function updateMetadata(changes) {
+    const data = await api(detailApi + "metadata/", {
+      method: "PATCH",
+      body: JSON.stringify({...changes, version: detail.prd.version})
+    });
+    detail.prd.status = data.status;
+    detail.prd.deadline = data.deadline;
+    detail.prd.version = data.version;
+    renderDetail(detail);
+    return data;
+  }
+
+  statusControl.addEventListener("change", async function () {
+    const previous = detail.prd.status;
+    const requested = statusControl.value;
+    statusControl.disabled = true;
+    try {
+      if (requested === "completed") {
+        if (!window.confirm("PRD를 완료하면 일반 편집이 잠깁니다. 완료하시겠습니까?")) return;
+        try {
+          await api(detailApi + "complete/", {method: "POST", body: JSON.stringify({confirm_incomplete: false})});
+        } catch (error) {
+          const needsConfirmation = error.details && error.details.confirm_incomplete;
+          if (!needsConfirmation || !window.confirm("아직 답변하지 않은 질문이 있습니다. 그래도 완료하시겠습니까?")) throw error;
+          await api(detailApi + "complete/", {method: "POST", body: JSON.stringify({confirm_incomplete: true})});
+        }
+        renderDetail(await api(detailApi));
+        showAlert("PRD를 완료했습니다.", "success");
+      } else if (previous === "completed") {
+        if (requested !== "in_progress") throw new Error("완료된 PRD는 먼저 진행 중으로 다시 열어 주세요.");
+        const reason = window.prompt("PRD를 다시 여는 이유를 입력해 주세요.");
+        if (!reason || !reason.trim()) return;
+        await api(detailApi + "reopen/", {method: "POST", body: JSON.stringify({reason: reason.trim()})});
+        renderDetail(await api(detailApi));
+        showAlert("PRD를 다시 열었습니다.", "success");
+      } else {
+        await updateMetadata({status: requested});
+        showAlert("PRD 상태를 변경했습니다.", "success");
+      }
+    } catch (error) {
+      statusControl.value = previous;
+      showAlert(error.message);
+    } finally {
+      statusControl.disabled = false;
+      if (detail) statusControl.value = detail.prd.status;
+    }
+  });
+
+  deadlineInput.addEventListener("change", async function () {
+    const previous = detail.prd.deadline || "";
+    deadlineInput.disabled = true;
+    try {
+      await updateMetadata({deadline: deadlineInput.value || null});
+      showAlert(deadlineInput.value ? "목표 마감일을 변경했습니다." : "목표 마감일을 삭제했습니다.", "success");
+    } catch (error) {
+      deadlineInput.value = previous;
+      showAlert(error.message);
+    } finally {
+      deadlineInput.disabled = !detail.permissions.can_edit_deadline || detail.prd.status === "completed";
+    }
+  });
 
   document.getElementById("complete-prd").addEventListener("click", async function (event) {
     const button = event.currentTarget;

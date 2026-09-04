@@ -97,3 +97,35 @@ def home(request):
     except (PermissionDenied, IntegrationError) as exc:
         return _context_error(request, exc)
     return api_success(data, request_id=_request_id(request))
+
+
+@require_GET
+def recent_activity(request):
+    if not request.user.is_authenticated:
+        return api_error(
+            code="authentication_required",
+            message="로그인이 필요합니다.",
+            status=401,
+            request_id=_request_id(request),
+        )
+    try:
+        page = int(request.GET.get("page", "1"))
+        requested_page_size = int(request.GET.get("page_size", "8"))
+        context = _resolve_context(request)
+        data = HomeQueryService(get_integration_repository()).get_recent_activity(
+            context=context,
+            page=page,
+            page_size=min(requested_page_size, 20),
+        )
+    except (TypeError, ValueError, ValidationError) as exc:
+        details = exc.message_dict if hasattr(exc, "message_dict") else None
+        return api_error(
+            code="validation_error",
+            message="페이지 값을 확인해 주세요.",
+            status=400,
+            details=details,
+            request_id=_request_id(request),
+        )
+    except (PermissionDenied, IntegrationError) as exc:
+        return _context_error(request, exc)
+    return api_success(data, request_id=_request_id(request))

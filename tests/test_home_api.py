@@ -11,6 +11,7 @@ from apps.integration.context import IntegrationContext
 from apps.integration.repository import FixtureIntegrationRepository
 from apps.prds.models import (
     Prd,
+    PrdChangeHistory,
     PrdParticipant,
     PrdParticipantRole,
     PrdQuestion,
@@ -302,6 +303,81 @@ class HomeApiTests(TestCase):
         self.assertIsNone(team_shared["my_role"])
         self.assertFalse(team_shared["can_edit"])
 
+    def test_home_activity_uses_only_prds_where_user_is_a_participant(self):
+        own_change = PrdChangeHistory.objects.create(
+            prd=self.personal,
+            actor_user_id=7,
+            event_type="answer_updated",
+        )
+        teammate_change = PrdChangeHistory.objects.create(
+            prd=self.collaborative,
+            actor_user_id=8,
+            event_type="prd_completed",
+        )
+        shared_but_not_joined = PrdChangeHistory.objects.create(
+            prd=self.team_shared,
+            actor_user_id=9,
+            event_type="answer_updated",
+        )
+        PrdChangeHistory.objects.filter(pk=own_change.pk).update(
+            created_at=NOW - timedelta(hours=1)
+        )
+        PrdChangeHistory.objects.filter(pk=teammate_change.pk).update(
+            created_at=NOW - timedelta(days=1)
+        )
+        PrdChangeHistory.objects.filter(pk=shared_but_not_joined.pk).update(
+            created_at=NOW - timedelta(minutes=5)
+        )
+
+        data = self.get_home().json()["data"]
+
+        self.assertEqual(
+            [day["day_label"] for day in data["weekly_activity"]],
+            list("월화수목금토일"),
+        )
+        self.assertEqual([day["count"] for day in data["weekly_activity"]], [0, 0, 1, 0, 0, 0, 0])
+        self.assertEqual(
+            [activity["prd_id"] for activity in data["recent_activity"]],
+            [self.personal.id, self.collaborative.id],
+        )
+        self.assertEqual(data["recent_activity"][0]["actor_display_name"], "표시명 7")
+        self.assertEqual(data["recent_activity"][0]["description"], "질문 답변을 수정했습니다.")
+        self.assertNotIn(
+            self.team_shared.id,
+            [activity["prd_id"] for activity in data["recent_activity"]],
+        )
+
+    def test_recent_activity_endpoint_is_paginated_and_protected(self):
+        for index in range(10):
+            PrdChangeHistory.objects.create(
+                prd=self.personal,
+                actor_user_id=7,
+                event_type="answer_updated",
+                after_data={"sequence": index},
+            )
+
+        response = self.client.get(
+            reverse("home_api:recent-activity"),
+            {"page": 2, "page_size": 3},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(len(data["items"]), 3)
+        self.assertEqual(
+            data["pagination"],
+            {"page": 2, "page_size": 3, "total_items": 10, "total_pages": 4},
+        )
+        self.assertEqual(
+            self.client.get(reverse("home_api:recent-activity"), {"page": 0}).status_code,
+            400,
+        )
+        self.client.logout()
+        self.assertEqual(
+            self.client.get(reverse("home_api:recent-activity")).status_code,
+            401,
+        )
+
     def test_kpis_do_not_change_when_list_filters_return_empty(self):
         response = self.get_home(status="completed", prd_type="new_product")
 
@@ -479,9 +555,7 @@ class RoundlessHomeApiTests(TestCase):
         self.assertEqual(data["items"][0]["participants"][0]["display_name"], "사용자 7")
 
     def test_stale_selected_round_falls_back_to_roundless_home(self):
-        roundless_context = IntegrationContext(
-            7, None, None, None, "student", False, False
-        )
+        roundless_context = IntegrationContext(7, None, None, None, "student", False, False)
         self.resolver.resolve.side_effect = [PermissionDenied, roundless_context]
         session = self.client.session
         session["selected_round_id"] = 999

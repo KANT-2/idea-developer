@@ -4,11 +4,11 @@
 {% block title %}PRD 홈 | 아이디어 디벨로퍼{% endblock %}
 
 {% block extra_head %}
-  <link href="{% static 'prds/css/home.css' %}?v=20260904-2" rel="stylesheet">
+  <link href="{% static 'prds/css/home.css' %}?v=20260904-4" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
-  <div id="prd-home-app" data-api-url="{{ home_api_url }}" data-new-url="{{ new_prd_url }}">
+  <div id="prd-home-app" data-api-url="{{ home_api_url }}" data-recent-activity-api-url="{{ recent_activity_api_url }}" data-new-url="{{ new_prd_url }}">
     <div id="home-alert" class="alert d-none" role="alert"></div>
     <div class="home-hero d-flex flex-wrap justify-content-between align-items-center gap-4 mb-4">
       <div>
@@ -29,6 +29,8 @@
     </section>
 
     <section class="home-library" aria-labelledby="prd-list-title">
+      <div class="home-content-layout">
+        <div class="home-library-main">
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
         <div>
           <h2 id="prd-list-title" class="visually-hidden">PRD 목록</h2>
@@ -57,8 +59,45 @@
       <div id="home-empty" class="card border-0 shadow-sm text-center py-5 d-none"><div class="card-body"><div class="display-6 mb-2">📭</div><h3 id="home-empty-title" class="h6">조건에 맞는 PRD가 없습니다.</h3><a id="home-empty-create" href="{{ new_prd_url }}" class="btn btn-sm btn-primary mt-2">첫 PRD 만들기</a></div></div>
       <div id="home-list" class="row g-3" aria-live="polite"></div>
       <nav class="mt-4" aria-label="PRD 페이지"><ul id="home-pagination" class="pagination pagination-sm justify-content-center"></ul></nav>
+        </div>
+        <aside class="home-activity-sidebar" aria-label="활동 요약">
+          <section class="home-activity-card" aria-labelledby="weekly-activity-title">
+            <div class="home-activity-head">
+              <h2 id="weekly-activity-title">이번 주 활동</h2>
+              <span>내 작성·수정 횟수</span>
+            </div>
+            <div id="home-weekly-activity" class="home-weekly-chart" aria-live="polite"></div>
+          </section>
+          <section class="home-activity-card" aria-labelledby="recent-activity-title">
+            <div class="home-activity-head">
+              <h2 id="recent-activity-title">최근 활동</h2>
+              <button id="recent-activity-more" class="home-activity-more d-none" type="button" data-bs-toggle="modal" data-bs-target="#recent-activity-modal">더보기 <i class="bi bi-chevron-right"></i></button>
+            </div>
+            <div id="home-recent-activity" class="home-recent-list" aria-live="polite"></div>
+          </section>
+        </aside>
+      </div>
     </section>
   </div>
 {% endblock %}
 
-{% block extra_js %}<script src="{% static 'prds/js/home.js' %}?v=20260904-2"></script>{% endblock %}
+{% block modals %}
+  <div class="modal fade" id="recent-activity-modal" tabindex="-1" aria-labelledby="recent-activity-modal-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content recent-activity-modal-content">
+        <div class="modal-header">
+          <div><span class="home-modal-eyebrow">ACTIVITY</span><h2 class="modal-title" id="recent-activity-modal-title">최근 활동 전체보기</h2><p>내가 참여 중인 PRD의 변경 내역입니다.</p></div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+        </div>
+        <div class="modal-body">
+          <div id="recent-activity-modal-alert" class="alert alert-danger d-none" role="alert"></div>
+          <div id="recent-activity-modal-loading" class="text-center py-5"><span class="spinner-border spinner-border-sm text-primary" aria-hidden="true"></span><span class="visually-hidden">최근 활동 불러오는 중</span></div>
+          <div id="recent-activity-modal-list" class="home-recent-list" aria-live="polite"></div>
+        </div>
+        <div class="modal-footer justify-content-center"><nav aria-label="최근 활동 페이지"><ul id="recent-activity-pagination" class="pagination pagination-sm mb-0"></ul></nav></div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block extra_js %}<script src="{% static 'prds/js/home.js' %}?v=20260904-4"></script>{% endblock %}
