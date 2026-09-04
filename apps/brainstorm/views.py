@@ -357,7 +357,7 @@ def canvas(request, prd_id):
                 "versions": [
                     _serialize_canvas_version(row)
                     for row in BrainstormCanvas.objects.filter(prd=access.prd).order_by(
-                        "-version_number", "-id"
+                        "version_number", "id"
                     )
                 ],
                 "current_user_id": context.user_id,
@@ -389,7 +389,7 @@ def canvas_versions(request, prd_id):
         if request.method == "GET":
             _, access, _, _ = _access(request, prd_id, create_canvas=True)
             rows = BrainstormCanvas.objects.filter(prd=access.prd).order_by(
-                "-version_number", "-id"
+                "version_number", "id"
             )
             return api_success(
                 {"items": [_serialize_canvas_version(row) for row in rows]},
