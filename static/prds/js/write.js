@@ -558,11 +558,27 @@
       applyProposal(message.job.id, proposal, yes, no, card);
     });
     no.addEventListener("click", function () {
-      card.replaceChildren(element("p", "coach-proposal-declined", "제안을 반영하지 않았습니다."));
+      declineProposal(message.job.id, yes, no, card);
     });
     actions.append(no, yes);
     card.append(actions);
     return card;
+  }
+
+  async function declineProposal(jobId, yes, no, card) {
+    yes.disabled = true;
+    no.disabled = true;
+    no.textContent = "처리 중…";
+    try {
+      // 서버에 남겨야 새로고침해도 되살아나지 않고, 다음 요청에서 같은 제안을 막을 수 있다.
+      await api(aiBase + "chat/" + jobId + "/decline/", {method: "POST", body: "{}"});
+      card.replaceChildren(element("p", "coach-proposal-declined", "제안을 반영하지 않았습니다."));
+    } catch (error) {
+      yes.disabled = !canRequestAi;
+      no.disabled = false;
+      no.textContent = "아니오";
+      showAlert(error.message);
+    }
   }
 
   async function applyProposal(jobId, proposal, yes, no, card) {

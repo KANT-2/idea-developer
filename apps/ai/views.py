@@ -470,6 +470,23 @@ def apply_chat_proposal(request, prd_id, job_id):
         return _error(request, exc)
 
 
+@require_POST
+def decline_chat_proposal(request, prd_id, job_id):
+    """사용자가 제안을 물렸다는 사실을 서버에 남긴다."""
+    if response := _authentication_error(request):
+        return response
+    try:
+        context, access = _access(request, prd_id)
+        job = _owned_job(access=access, user_id=context.user_id, job_id=job_id)
+        job = AiChatProposalService().decline(job=job, user_id=context.user_id)
+        return api_success(
+            {"id": str(job.pk), "declined": True},
+            request_id=_request_id(request),
+        )
+    except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
+        return _error(request, exc)
+
+
 def _version_conflict(request, exc):
     return api_error(
         code="version_conflict",
@@ -539,11 +556,16 @@ def _serialize_message(message):
 
 
 def _pending_proposal(message):
-    """이미 반영된 제안은 다시 승인할 수 없으므로 내려보내지 않는다."""
+    """아직 결정하지 않은 제안만 내려보낸다.
+
+    반영했거나 거절한 제안을 다시 보내면 새로고침할 때 승인 버튼이 되살아난다.
+    """
     if message.role != AiConversationMessageRole.ASSISTANT or not message.job_id:
         return None
     output = message.job.output_data or {}
     proposal = output.get("proposal")
-    if not isinstance(proposal, dict) or output.get("applied_at"):
+    if not isinstance(proposal, dict):
+        return None
+    if output.get("applied_at") or output.get("declined_at"):
         return None
     return proposal
