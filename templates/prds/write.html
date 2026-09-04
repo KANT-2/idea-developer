@@ -2,7 +2,7 @@
 {% load static %}
 
 {% block title %}{{ prd.title }} | Idea Developer{% endblock %}
-{% block extra_head %}<link href="{% static 'prds/css/write.css' %}?v=20260904-18" rel="stylesheet">{% endblock %}
+{% block extra_head %}<link href="{% static 'prds/css/write.css' %}?v=20260904-19" rel="stylesheet">{% endblock %}
 
 {% block content %}
 <div id="prd-write-app" data-prd-id="{{ prd.id }}" data-detail-api="{{ detail_api_url }}" data-export-api="{% url 'prd_api:export-markdown' prd.id %}" data-participants-api="{{ participants_api_url }}" data-participant-search-api="{{ participant_search_api_url }}" data-comments-api="{{ comments_api_url }}" data-contributions-api="{{ contributions_api_url }}" data-ai-api-base="{{ ai_api_base }}">
@@ -114,4 +114,4 @@
   <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">닫기</button></div>
 </div></div></div>
 {% endblock %}
-{% block extra_js %}<script src="{% static 'prds/js/write.js' %}?v=20260904-13"></script>{% endblock %}
+{% block extra_js %}<script src="{% static 'prds/js/write.js' %}?v=20260904-14"></script>{% endblock %}

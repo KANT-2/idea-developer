@@ -67,6 +67,11 @@
   let evaluationJobIds = [];
   let exportedMarkdown = "";
   let alertTimer = null;
+  let canRequestAi = false;
+  let conversationToken = 0;
+  const pollIntervalMs = 1500;
+  const pollTimeoutMs = 120000;
+  const pollNetworkRetryLimit = 3;
 
   function decodeSafeText(value) {
     const area = document.createElement("textarea");
@@ -150,7 +155,10 @@
       const rate = sectionRate(section);
       const button = element("button", "write-step" + (rate === 100 ? " done" : "") + (String(section.id) === String(activeSectionId) ? " active" : ""));
       button.type = "button";
-      button.append(element("b", "", rate === 100 ? "✓" : String(index + 1)), element("span", "", section.title.length > 9 ? section.title.slice(0, 9) : section.title));
+      // 글자 수로 자르지 않는다. 넘칠 때만 CSS가 말줄임표를 붙이고, 전체 제목은 툴팁으로 보여준다.
+      const label = element("span", "", section.title);
+      label.title = section.title;
+      button.append(element("b", "", rate === 100 ? "✓" : String(index + 1)), label);
       button.addEventListener("click", function () { activeSectionId = section.id; renderDetail(detail); document.querySelector('[data-section-id="' + section.id + '"]')?.scrollIntoView({behavior: "smooth", block: "start"}); });
       steps.append(button);
     });
@@ -195,7 +203,7 @@
     scope.replaceChildren(new Option("전체 PRD", ""));
     const previousCommentTarget = commentTarget.value;
     commentTarget.replaceChildren(new Option("PRD 전체", ""));
-    const canRequestAi = data.permissions.can_request_ai && data.prd.status !== "completed";
+    canRequestAi = data.permissions.can_request_ai && data.prd.status !== "completed";
     const canEditAnswers = data.permissions.can_edit && data.prd.status !== "completed";
     saveAllButton.classList.toggle("d-none", !canEditAnswers);
     input.disabled = !canRequestAi;
@@ -495,11 +503,96 @@
     }
   }
 
+  // 코치가 특정 질문의 답변 수정을 제안했을 때, 사용자가 승인해야만 반영되는 카드.
+  function buildProposalCard(message) {
+    const proposal = message.proposal;
+    const card = element("div", "coach-proposal");
+
+    const head = element("div", "coach-proposal-head");
+    head.append(element("i", "bi bi-pencil-square"), element("strong", "", "이 답변을 고칠까요?"));
+    card.append(head);
+
+    const target = element("div", "coach-proposal-target");
+    target.append(
+      element("span", "coach-proposal-section", decodeSafeText(proposal.section_title || "")),
+      element("span", "coach-proposal-question", decodeSafeText(proposal.question_prompt || ""))
+    );
+    card.append(target);
+
+    if (proposal.reason) {
+      card.append(element("p", "coach-proposal-reason", decodeSafeText(proposal.reason)));
+    }
+
+    card.append(element("div", "coach-proposal-preview", decodeSafeText(proposal.content || "")));
+
+    const actions = element("div", "coach-proposal-actions");
+    const yes = element("button", "btn btn-primary btn-sm", "네, 반영할게요");
+    const no = element("button", "btn btn-outline-secondary btn-sm", "아니오");
+    yes.type = "button";
+    no.type = "button";
+    if (!canRequestAi) {
+      yes.disabled = true;
+      yes.title = "현재 권한 또는 PRD 상태에서는 반영할 수 없습니다.";
+    }
+    yes.addEventListener("click", function () {
+      applyProposal(message.job.id, proposal, yes, no, card);
+    });
+    no.addEventListener("click", function () {
+      card.replaceChildren(element("p", "coach-proposal-declined", "제안을 반영하지 않았습니다."));
+    });
+    actions.append(no, yes);
+    card.append(actions);
+    return card;
+  }
+
+  async function applyProposal(jobId, proposal, yes, no, card) {
+    yes.disabled = true;
+    no.disabled = true;
+    yes.textContent = "반영 중…";
+    try {
+      const data = await api(aiBase + "chat/" + jobId + "/apply/", {
+        method: "POST",
+        body: JSON.stringify({
+          question_version: proposal.question_version,
+          content: proposal.content
+        })
+      });
+      const editor = sectionsRoot.querySelector('[data-question-id="' + data.question_id + '"]');
+      if (editor && editor.tagName === "TEXTAREA") {
+        editor.value = data.answer.content;
+        editor.dataset.version = data.question_version;
+      } else if (editor) {
+        editor.textContent = data.answer.content;
+      }
+      const target = detail?.sections
+        .flatMap(function (section) { return section.questions; })
+        .find(function (question) { return question.id === data.question_id; });
+      if (target) {
+        target.version = data.question_version;
+        target.answer = {content: data.answer.content};
+      }
+      card.replaceChildren(element("p", "coach-proposal-applied", "이 답변에 반영했습니다."));
+      showAlert("코치 제안을 PRD 답변에 반영했습니다.", "success");
+      refreshAnswerProgress();
+    } catch (error) {
+      yes.disabled = false;
+      no.disabled = false;
+      yes.textContent = "네, 반영할게요";
+      showAlert(
+        error.code === "version_conflict"
+          ? "그 사이 답변이 바뀌었습니다. 대화를 새로고침한 뒤 다시 시도해 주세요."
+          : error.message
+      );
+    }
+  }
+
   async function loadConversation() {
+    const token = ++conversationToken;
     messagesRoot.replaceChildren(element("p", "text-secondary", "대화를 불러오는 중입니다."));
     try {
       const query = scope.value ? "?section_id=" + encodeURIComponent(scope.value) : "";
       const data = await api(aiBase + "conversation/" + query);
+      if (token !== conversationToken) return;
       messagesRoot.replaceChildren();
       if (!data.messages.length) {
         messagesRoot.append(element("p", "text-secondary", "이 범위에서 AI 코치와 나눈 대화가 없습니다."));
@@ -512,7 +605,11 @@
           decodeSafeText(message.content)
         );
         wrap.append(bubble);
-        if (message.role === "user" && ["failed", "timed_out"].includes(message.job?.status)) {
+        if (message.role === "assistant" && message.proposal && message.job?.id) {
+          wrap.append(buildProposalCard(message));
+        }
+        const stuck = ["failed", "timed_out", "cancelled", "queued", "running", "retry_wait"];
+        if (message.role === "user" && canRequestAi && stuck.includes(message.job?.status)) {
           const retry = element("button", "btn btn-link btn-sm float-end", "다시 시도");
           retry.type = "button";
           retry.addEventListener("click", function () { retryJob(message.job.id); });
@@ -522,25 +619,53 @@
       });
       messagesRoot.scrollTop = messagesRoot.scrollHeight;
     } catch (error) {
+      if (token !== conversationToken) return;
       messagesRoot.replaceChildren(element("p", "text-danger", error.message));
     }
   }
 
   function setBusy(busy, jobId) {
-    submit.disabled = busy;
-    input.disabled = busy;
+    // 권한이 없으면 작업이 끝나도 입력창을 다시 열지 않는다.
+    submit.disabled = busy || !canRequestAi;
+    input.disabled = busy || !canRequestAi;
     activeJobId = jobId || null;
     cancel.classList.toggle("d-none", !busy || !jobId);
   }
 
   async function pollJob(jobId, onSuccess) {
+    const pending = ["queued", "running", "retry_wait", "cancel_requested"];
+    const deadline = Date.now() + pollTimeoutMs;
+    let networkFailures = 0;
     for (;;) {
-      await new Promise(function (resolve) { setTimeout(resolve, 1500); });
-      const job = await api(aiBase + "jobs/" + jobId + "/");
-      if (["queued", "running", "retry_wait", "cancel_requested"].includes(job.status)) continue;
-      if (job.status === "succeeded") onSuccess(job);
-      else showAlert(job.error?.message || "AI 요청이 완료되지 않았습니다.");
-      return job;
+      await new Promise(function (resolve) { setTimeout(resolve, pollIntervalMs); });
+
+      let job;
+      try {
+        job = await api(aiBase + "jobs/" + jobId + "/");
+        networkFailures = 0;
+      } catch (error) {
+        // 일시적인 통신 오류로 폴링을 끝내지 않는다. 서버에서는 작업이 계속 진행 중일 수 있다.
+        networkFailures += 1;
+        if (networkFailures >= pollNetworkRetryLimit) {
+          showAlert("서버와 연결이 끊겼습니다. 잠시 후 대화를 새로고침해 결과를 확인해 주세요.");
+          return null;
+        }
+        continue;
+      }
+
+      if (!pending.includes(job.status)) {
+        if (job.status === "succeeded") onSuccess(job);
+        else if (job.status === "cancelled") showAlert("AI 요청을 취소했습니다.", "secondary");
+        else showAlert(job.error?.message || "AI 요청이 완료되지 않았습니다.");
+        return job;
+      }
+
+      if (Date.now() > deadline) {
+        showAlert(
+          "AI 응답이 오지 않아 대기를 멈췄습니다. 작업 처리기(run_job_worker)가 실행 중인지 확인해 주세요."
+        );
+        return job;
+      }
     }
   }
 
