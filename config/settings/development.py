@@ -3,6 +3,13 @@ from .base import *  # noqa: F403
 DEBUG = True
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
+# Let the PRD evaluation screen be exercised before a Gemini key is issued. Once
+# GEMINI_API_KEY is present, requests automatically use the configured provider.
+AI_EVALUATION_DEMO_CACHE = env_bool(  # noqa: F405
+    "AI_EVALUATION_DEMO_CACHE",
+    not bool(GEMINI_API_KEY.strip()),  # noqa: F405
+)
+
 # Temporary local fixture used only when the parent VIEW database is moving or offline.
 DEV_INTEGRATION_FALLBACK = env_bool("DEV_INTEGRATION_FALLBACK", True)  # noqa: F405
 DEV_INTEGRATION_USERS = [

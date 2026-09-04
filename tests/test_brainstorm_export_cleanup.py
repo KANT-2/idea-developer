@@ -21,7 +21,15 @@ from apps.brainstorm.models import (
 )
 from apps.integration.context import IntegrationContext
 from apps.jobs.cleanup import BackgroundDataCleanupService
-from apps.prds.models import Prd, PrdParticipant, PrdParticipantRole, PrdSection, PrdType
+from apps.prds.models import (
+    Prd,
+    PrdDeletionAction,
+    PrdDeletionAuditLog,
+    PrdParticipant,
+    PrdParticipantRole,
+    PrdSection,
+    PrdType,
+)
 
 
 class BrainstormExportCleanupBase(TestCase):
@@ -167,6 +175,37 @@ class BrainstormMarkdownExportTests(BrainstormExportCleanupBase):
     BACKGROUND_CLEANUP_BATCH_SIZE=100,
 )
 class BackgroundCleanupTests(BrainstormExportCleanupBase):
+    @override_settings(PRD_TRASH_RETENTION_DAYS=30)
+    def test_cleanup_physically_deletes_prd_only_after_retention(self):
+        fresh = Prd.objects.create(
+            title="아직 복구 가능한 PRD",
+            prd_type=PrdType.NEW_PRODUCT,
+            creator_user_id=7,
+            creation_idempotency_key="fresh-trash-prd",
+            is_deleted=True,
+            deleted_at=self.now - timedelta(days=29),
+        )
+        expired = Prd.objects.create(
+            title="보관 기간이 끝난 PRD",
+            prd_type=PrdType.NEW_PRODUCT,
+            creator_user_id=7,
+            creation_idempotency_key="expired-trash-prd",
+            is_deleted=True,
+            deleted_at=self.now - timedelta(days=30, seconds=1),
+        )
+
+        result = BackgroundDataCleanupService().run(now=self.now)
+
+        self.assertEqual(result.prds, 1)
+        self.assertTrue(Prd.objects.filter(pk=fresh.pk).exists())
+        self.assertFalse(Prd.objects.filter(pk=expired.pk).exists())
+        self.assertTrue(
+            PrdDeletionAuditLog.objects.filter(
+                prd_id=expired.pk,
+                action=PrdDeletionAction.PURGED,
+            ).exists()
+        )
+
     def setUp(self):
         super().setUp()
         self.now = timezone.now()

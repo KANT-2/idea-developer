@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from math import ceil
 
 from django.conf import settings
@@ -16,7 +16,7 @@ from django.views.decorators.http import require_GET, require_http_methods
 from apps.accounts.permissions import ParticipantAction, role_permission_policy
 from apps.ai.contribution import ContributionEvaluationService
 from apps.ai.exceptions import AiJobNotRetryable, AiPromptNotConfigured, AiUsageLimitExceeded
-from apps.ai.models import AiCoachChatLog, AiUsageLog, ContributionEvaluation
+from apps.ai.models import AiCoachChatLog, AiJob, AiJobStatus, AiUsageLog, ContributionEvaluation
 from apps.common.responses import api_error, api_success
 from apps.integration.exceptions import IntegrationError
 
@@ -29,6 +29,8 @@ from .models import (
     PrdChangeHistory,
     PrdComment,
     PrdCommentType,
+    PrdDeletionAction,
+    PrdDeletionAuditLog,
     PrdParticipant,
     PrdParticipantRole,
     PrdQuestion,
@@ -276,11 +278,15 @@ def prd_metadata(request, prd_id):
         version = payload.get("version")
         if isinstance(version, bool) or not isinstance(version, int) or version < 1:
             raise ValidationError({"version": "PRD version이 올바르지 않습니다."})
-        supplied = {key for key in ("status", "deadline") if key in payload}
+        supplied = {
+            key for key in ("title", "description", "status", "deadline") if key in payload
+        }
         if not supplied:
-            raise ValidationError({"body": "수정할 상태 또는 마감일이 필요합니다."})
+            raise ValidationError({"body": "수정할 PRD 기본 정보가 필요합니다."})
 
         permissions = PrdPermissionPresenter().describe(access)
+        if supplied & {"title", "description"} and not permissions["can_edit"]:
+            raise PermissionDenied("PRD 제목과 한 줄 소개를 수정할 권한이 없습니다.")
         if "deadline" in supplied and not permissions["can_edit_deadline"]:
             raise PermissionDenied("PRD 마감일을 수정할 권한이 없습니다.")
         if "status" in supplied and not permissions["can_change_status"]:
@@ -293,6 +299,28 @@ def prd_metadata(request, prd_id):
             if requested_status == PrdStatus.COMPLETED:
                 raise ValidationError({"status": "PRD 완료는 완료 기능을 이용해 주세요."})
 
+        normalized_title = payload.get("title")
+        if "title" in supplied:
+            if not isinstance(normalized_title, str):
+                raise ValidationError({"title": "제목은 문자열이어야 합니다."})
+            normalized_title = normalized_title.strip()
+            if not normalized_title:
+                raise ValidationError({"title": "제목을 입력해 주세요."})
+            if len(normalized_title) > 255:
+                raise ValidationError({"title": "제목은 255자 이하여야 합니다."})
+
+        normalized_description = payload.get("description")
+        if "description" in supplied:
+            if not isinstance(normalized_description, str):
+                raise ValidationError({"description": "한 줄 소개는 문자열이어야 합니다."})
+            normalized_description = normalized_description.strip()
+            if "\n" in normalized_description or "\r" in normalized_description:
+                raise ValidationError(
+                    {"description": "한 줄 소개에는 줄바꿈을 사용할 수 없습니다."}
+                )
+            if len(normalized_description) > 500:
+                raise ValidationError({"description": "한 줄 소개는 500자 이하여야 합니다."})
+
         with transaction.atomic():
             prd = Prd.objects.select_for_update().get(pk=access.prd.pk, is_deleted=False)
             if prd.version != version:
@@ -301,14 +329,22 @@ def prd_metadata(request, prd_id):
                 raise PermissionDenied("완료된 PRD는 다시 연 후 수정할 수 있습니다.")
 
             before = {
+                "title": prd.title,
+                "description": prd.description,
                 "status": prd.status,
                 "deadline": prd.deadline.isoformat() if prd.deadline else None,
             }
+            if "title" in supplied:
+                prd.title = normalized_title
+            if "description" in supplied:
+                prd.description = normalized_description
             if "status" in supplied:
                 prd.status = requested_status
             if "deadline" in supplied:
                 prd.deadline = _parse_deadline(payload.get("deadline"))
             after = {
+                "title": prd.title,
+                "description": prd.description,
                 "status": prd.status,
                 "deadline": prd.deadline.isoformat() if prd.deadline else None,
             }
@@ -326,10 +362,251 @@ def prd_metadata(request, prd_id):
         return api_success(
             {
                 "id": prd.id,
+                "title": prd.title,
+                "description": prd.description,
                 "status": prd.status,
                 "deadline": prd.deadline.isoformat() if prd.deadline else None,
                 "version": prd.version,
             },
+            request_id=_request_id(request),
+        )
+    except (
+        PrdNotFound,
+        PrdVersionConflict,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+    ) as exc:
+        return _error_response(request, exc)
+
+
+def _required_prd_version(payload):
+    version = payload.get("version")
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+        raise ValidationError({"version": "PRD version이 올바르지 않습니다."})
+    return version
+
+
+def _record_deletion_audit(*, prd, action, actor_user_id, details=None):
+    return PrdDeletionAuditLog.objects.create(
+        prd_id=prd.pk,
+        title_snapshot=prd.title,
+        creator_user_id=prd.creator_user_id,
+        actor_user_id=actor_user_id,
+        action=action,
+        details=details or {},
+    )
+
+
+@require_http_methods(["DELETE"])
+def delete_prd(request, prd_id):
+    if response := _require_authentication(request):
+        return response
+    try:
+        context, access = _get_access(request, prd_id)
+        if not (access.is_admin or access.role == PrdParticipantRole.OWNER):
+            raise PermissionDenied("PRD 소유자 또는 관리자만 삭제할 수 있습니다.")
+        version = _required_prd_version(_parse_json(request))
+        now = timezone.now()
+        with transaction.atomic():
+            prd = Prd.objects.select_for_update().get(pk=access.prd.pk, is_deleted=False)
+            if prd.version != version:
+                raise PrdVersionConflict(prd)
+            prd.is_deleted = True
+            prd.deleted_at = now
+            prd.purge_requested_at = None
+            prd.purge_requested_by_user_id = None
+            prd.version += 1
+            prd.save(
+                update_fields=[
+                    "is_deleted",
+                    "deleted_at",
+                    "purge_requested_at",
+                    "purge_requested_by_user_id",
+                    "version",
+                    "updated_at",
+                ]
+            )
+            AiJob.objects.filter(
+                prd=prd,
+                status__in=[AiJobStatus.QUEUED, AiJobStatus.RUNNING, AiJobStatus.RETRY_WAIT],
+            ).update(status=AiJobStatus.CANCEL_REQUESTED, cancel_requested_at=now)
+            _record_deletion_audit(
+                prd=prd,
+                action=PrdDeletionAction.TRASHED,
+                actor_user_id=context.user_id,
+                details={"deleted_at": now.isoformat()},
+            )
+        return api_success(
+            {
+                "id": prd.pk,
+                "state": "trash",
+                "deleted_at": prd.deleted_at.isoformat(),
+                "retention_days": settings.PRD_TRASH_RETENTION_DAYS,
+                "version": prd.version,
+            },
+            request_id=_request_id(request),
+        )
+    except (
+        PrdNotFound,
+        PrdVersionConflict,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+    ) as exc:
+        return _error_response(request, exc)
+
+
+def _deleted_prd_for_context(*, context, prd_id, for_update=False):
+    queryset = Prd.objects
+    if for_update:
+        queryset = queryset.select_for_update()
+    try:
+        prd = queryset.get(pk=prd_id, is_deleted=True)
+    except Prd.DoesNotExist as exc:
+        raise PrdNotFound from exc
+    if prd.creator_user_id != context.user_id and not (context.is_staff or context.is_superuser):
+        raise PermissionDenied("이 휴지통 PRD에 접근할 권한이 없습니다.")
+    return prd
+
+
+@require_GET
+def trash_prds(request):
+    if response := _require_authentication(request):
+        return response
+    try:
+        context = _resolve_context(request)
+        page = max(1, int(request.GET.get("page", "1")))
+        page_size = min(50, max(1, int(request.GET.get("page_size", "20"))))
+        queryset = Prd.objects.filter(is_deleted=True)
+        if not (context.is_staff or context.is_superuser):
+            queryset = queryset.filter(creator_user_id=context.user_id)
+        total_items = queryset.count()
+        rows = list(
+            queryset.order_by("-deleted_at", "-id")[
+                (page - 1) * page_size : page * page_size
+            ]
+        )
+        now = timezone.now()
+        items = []
+        for prd in rows:
+            purge_at = prd.deleted_at + timedelta(days=settings.PRD_TRASH_RETENTION_DAYS)
+            days_remaining = max(0, ceil((purge_at - now).total_seconds() / 86400))
+            items.append(
+                {
+                    "id": prd.pk,
+                    "title": prd.title,
+                    "description": prd.description,
+                    "deleted_at": prd.deleted_at.isoformat(),
+                    "purge_at": purge_at.isoformat(),
+                    "days_remaining": days_remaining,
+                    "state": "deleted_complete" if prd.purge_requested_at else "recoverable",
+                    "version": prd.version,
+                    "can_restore": prd.purge_requested_at is None,
+                }
+            )
+        return api_success(
+            {
+                "items": items,
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total_items": total_items,
+                    "total_pages": max(1, ceil(total_items / page_size)),
+                },
+            },
+            request_id=_request_id(request),
+        )
+    except (TypeError, ValueError):
+        return api_error(
+            code="invalid_parameter",
+            message="페이지 값이 올바르지 않습니다.",
+            status=400,
+            request_id=_request_id(request),
+        )
+    except (PermissionDenied, IntegrationError) as exc:
+        return _error_response(request, exc)
+
+
+@require_http_methods(["POST"])
+def restore_prd(request, prd_id):
+    if response := _require_authentication(request):
+        return response
+    try:
+        context = _resolve_context(request)
+        version = _required_prd_version(_parse_json(request))
+        with transaction.atomic():
+            prd = _deleted_prd_for_context(context=context, prd_id=prd_id, for_update=True)
+            if prd.version != version:
+                raise PrdVersionConflict(prd)
+            is_admin = context.is_staff or context.is_superuser
+            if prd.purge_requested_at is not None and not is_admin:
+                raise PermissionDenied("삭제 완료된 PRD는 관리자를 통해서만 복구할 수 있습니다.")
+            prd.is_deleted = False
+            prd.deleted_at = None
+            prd.purge_requested_at = None
+            prd.purge_requested_by_user_id = None
+            prd.version += 1
+            prd.save(
+                update_fields=[
+                    "is_deleted",
+                    "deleted_at",
+                    "purge_requested_at",
+                    "purge_requested_by_user_id",
+                    "version",
+                    "updated_at",
+                ]
+            )
+            _record_deletion_audit(
+                prd=prd,
+                action=PrdDeletionAction.RESTORED,
+                actor_user_id=context.user_id,
+            )
+        return api_success(
+            {"id": prd.pk, "state": "restored", "version": prd.version},
+            request_id=_request_id(request),
+        )
+    except (
+        PrdNotFound,
+        PrdVersionConflict,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+    ) as exc:
+        return _error_response(request, exc)
+
+
+@require_http_methods(["POST"])
+def confirm_prd_deletion(request, prd_id):
+    if response := _require_authentication(request):
+        return response
+    try:
+        context = _resolve_context(request)
+        version = _required_prd_version(_parse_json(request))
+        with transaction.atomic():
+            prd = _deleted_prd_for_context(context=context, prd_id=prd_id, for_update=True)
+            if prd.version != version:
+                raise PrdVersionConflict(prd)
+            if prd.purge_requested_at is None:
+                prd.purge_requested_at = timezone.now()
+                prd.purge_requested_by_user_id = context.user_id
+                prd.version += 1
+                prd.save(
+                    update_fields=[
+                        "purge_requested_at",
+                        "purge_requested_by_user_id",
+                        "version",
+                        "updated_at",
+                    ]
+                )
+                _record_deletion_audit(
+                    prd=prd,
+                    action=PrdDeletionAction.DELETE_COMPLETED,
+                    actor_user_id=context.user_id,
+                    details={"purge_after_days": settings.PRD_TRASH_RETENTION_DAYS},
+                )
+        return api_success(
+            {"id": prd.pk, "state": "deleted_complete", "version": prd.version},
             request_id=_request_id(request),
         )
     except (

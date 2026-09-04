@@ -75,6 +75,7 @@ class PrdPermissionPresenter:
             "can_request_ai": self._allows(access, ParticipantAction.REQUEST_AI),
             "can_apply_ai": self._allows(access, ParticipantAction.APPLY_AI),
             "can_view_contributions": access.is_admin,
+            "can_delete": bool(access.is_admin or role == PrdParticipantRole.OWNER),
             "is_completed": access.prd.status == PrdStatus.COMPLETED,
         }
 

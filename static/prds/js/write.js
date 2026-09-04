@@ -38,7 +38,10 @@
   const contributionList = document.getElementById("contribution-list");
   const contributionAlert = document.getElementById("contribution-alert");
   const saveAllButton = document.getElementById("save-all-answers");
+  const statusPicker = document.getElementById("prd-status-picker");
   const statusControl = document.getElementById("prd-status-control");
+  const statusControlLabel = document.getElementById("prd-status-control-label");
+  const statusOptions = Array.from(document.querySelectorAll("[data-prd-status-option]"));
   const deadlineInput = document.getElementById("write-deadline-input");
   const evaluationButton = document.getElementById("run-evaluation");
   const evaluationCancel = document.getElementById("cancel-evaluation");
@@ -48,6 +51,21 @@
   const exportPreviewState = document.getElementById("export-preview-state");
   const copyMarkdownButton = document.getElementById("copy-prd-markdown");
   const downloadMarkdownLink = document.getElementById("download-prd-markdown");
+  const settingsButton = document.getElementById("prd-settings-button");
+  const settingsModalElement = document.getElementById("prd-settings-modal");
+  const settingsModal = bootstrap.Modal.getOrCreateInstance(settingsModalElement);
+  const settingsEditSection = document.getElementById("prd-settings-edit-section");
+  const settingsDangerSection = document.getElementById("prd-settings-danger-section");
+  const summaryForm = document.getElementById("prd-summary-form");
+  const summaryTitleInput = document.getElementById("prd-summary-title");
+  const summaryDescriptionInput = document.getElementById("prd-summary-description");
+  const summarySaveButton = document.getElementById("prd-summary-save");
+  const summaryError = document.getElementById("prd-summary-error");
+  const deletePrdButton = document.getElementById("delete-prd");
+  const deleteConfirmElement = document.getElementById("write-delete-confirm-modal");
+  const deleteConfirmModal = bootstrap.Modal.getOrCreateInstance(deleteConfirmElement);
+  const confirmDeletePrdButton = document.getElementById("confirm-delete-prd");
+  const deleteError = document.getElementById("write-delete-error");
   let detail = null;
   let activeJobId = null;
   let currentDraft = null;
@@ -61,6 +79,7 @@
   const commentPageSize = 10;
   const pendingAnswers = new Map();
   let savingAllAnswers = false;
+  const statusLabels = {in_progress: "진행 중", completed: "완료", held: "보류", dropped: "드랍"};
   const evaluationPersonas = ["pm", "engineering", "investor"];
   let evaluationPersona = "pm";
   let evaluationResults = {};
@@ -167,21 +186,28 @@
   function renderDetail(data) {
     detail = data;
     if (activeSectionId === undefined && data.sections.length) activeSectionId = data.sections[0].id;
+    document.getElementById("prd-heading").textContent = data.prd.title;
     document.getElementById("prd-description").textContent = data.prd.description || "한 줄 소개가 없습니다.";
+    document.title = data.prd.title + " | Idea Developer";
     const status = document.getElementById("prd-status");
-    const statusLabels = {in_progress: "진행 중", completed: "완료", held: "보류", dropped: "드랍"};
     status.textContent = statusLabels[data.prd.status] || data.prd.status;
     status.dataset.status = data.prd.status;
-    statusControl.value = data.prd.status;
     statusControl.dataset.status = data.prd.status;
-    Array.from(statusControl.options).forEach(function (option) {
-      option.disabled = (data.prd.status === "completed" && !["completed", "in_progress"].includes(option.value))
-        || (option.value === "completed" && !["in_progress", "completed"].includes(data.prd.status));
+    statusControlLabel.textContent = statusLabels[data.prd.status] || data.prd.status;
+    statusOptions.forEach(function (option) {
+      const value = option.dataset.prdStatusOption;
+      option.disabled = (data.prd.status === "completed" && !["completed", "in_progress"].includes(value))
+        || (value === "completed" && !["in_progress", "completed"].includes(data.prd.status));
+      option.classList.toggle("active", value === data.prd.status);
     });
-    statusControl.classList.toggle("d-none", !data.permissions.can_change_status);
+    statusPicker.classList.toggle("d-none", !data.permissions.can_change_status);
     status.classList.toggle("d-none", Boolean(data.permissions.can_change_status));
     deadlineInput.value = data.prd.deadline || "";
     deadlineInput.disabled = !data.permissions.can_edit_deadline || data.prd.status === "completed";
+    const canEditSummary = data.permissions.can_edit && data.prd.status !== "completed";
+    settingsButton.classList.toggle("d-none", !canEditSummary && !data.permissions.can_delete);
+    settingsEditSection.classList.toggle("d-none", !canEditSummary);
+    settingsDangerSection.classList.toggle("d-none", !data.permissions.can_delete);
     document.getElementById("write-deadline-label").textContent = data.prd.deadline || "마감일 없음";
     document.getElementById("active-section-count").textContent = data.sections.length + "개 활성 섹션";
     document.getElementById("complete-prd").classList.toggle("d-none", !data.permissions.can_complete || data.prd.status === "completed");
@@ -965,6 +991,8 @@
       method: "PATCH",
       body: JSON.stringify({...changes, version: detail.prd.version})
     });
+    detail.prd.title = data.title;
+    detail.prd.description = data.description;
     detail.prd.status = data.status;
     detail.prd.deadline = data.deadline;
     detail.prd.version = data.version;
@@ -972,9 +1000,71 @@
     return data;
   }
 
-  statusControl.addEventListener("change", async function () {
+  settingsModalElement.addEventListener("show.bs.modal", function () {
+    summaryTitleInput.value = detail?.prd.title || "";
+    summaryDescriptionInput.value = detail?.prd.description || "";
+    summaryError.classList.add("d-none");
+    summaryError.textContent = "";
+    summaryForm.classList.remove("was-validated");
+  });
+
+  summaryForm.addEventListener("submit", async function (event) {
+    event.preventDefault();
+    if (!summaryForm.checkValidity()) {
+      summaryForm.classList.add("was-validated");
+      return;
+    }
+    summarySaveButton.disabled = true;
+    summaryError.classList.add("d-none");
+    try {
+      await updateMetadata({
+        title: summaryTitleInput.value.trim(),
+        description: summaryDescriptionInput.value.trim()
+      });
+      settingsModal.hide();
+      showAlert("PRD 제목과 한 줄 소개를 수정했습니다.", "success");
+    } catch (error) {
+      summaryError.textContent = error.message;
+      summaryError.classList.remove("d-none");
+    } finally {
+      summarySaveButton.disabled = false;
+    }
+  });
+
+  function showAfterHidden(currentElement, nextModal) {
+    currentElement.addEventListener("hidden.bs.modal", function showNext() {
+      currentElement.removeEventListener("hidden.bs.modal", showNext);
+      nextModal.show();
+    });
+    bootstrap.Modal.getOrCreateInstance(currentElement).hide();
+  }
+
+  deletePrdButton.addEventListener("click", function () {
+    document.getElementById("write-delete-prd-title").textContent = detail.prd.title;
+    deleteError.classList.add("d-none");
+    deleteError.textContent = "";
+    confirmDeletePrdButton.disabled = false;
+    showAfterHidden(settingsModalElement, deleteConfirmModal);
+  });
+
+  confirmDeletePrdButton.addEventListener("click", async function () {
+    confirmDeletePrdButton.disabled = true;
+    deleteError.classList.add("d-none");
+    try {
+      await api(detailApi + "delete/", {
+        method: "DELETE",
+        body: JSON.stringify({version: detail.prd.version})
+      });
+      window.location.href = "/ideas/?deleted=1";
+    } catch (error) {
+      confirmDeletePrdButton.disabled = false;
+      deleteError.textContent = error.message;
+      deleteError.classList.remove("d-none");
+    }
+  });
+
+  async function changePrdStatus(requested) {
     const previous = detail.prd.status;
-    const requested = statusControl.value;
     statusControl.disabled = true;
     try {
       if (requested === "completed") {
@@ -1000,12 +1090,24 @@
         showAlert("PRD 상태를 변경했습니다.", "success");
       }
     } catch (error) {
-      statusControl.value = previous;
       showAlert(error.message);
     } finally {
       statusControl.disabled = false;
-      if (detail) statusControl.value = detail.prd.status;
+      if (detail) {
+        statusControl.dataset.status = detail.prd.status;
+        statusControlLabel.textContent = statusLabels[detail.prd.status] || detail.prd.status;
+      } else {
+        statusControl.dataset.status = previous;
+      }
     }
+  }
+
+  statusOptions.forEach(function (option) {
+    option.addEventListener("click", function () {
+      if (!option.disabled && option.dataset.prdStatusOption !== detail.prd.status) {
+        changePrdStatus(option.dataset.prdStatusOption);
+      }
+    });
   });
 
   deadlineInput.addEventListener("change", async function () {
