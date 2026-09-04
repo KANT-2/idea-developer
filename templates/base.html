@@ -26,10 +26,7 @@
         {% if request.user.is_authenticated %}
           <button class="navbar-toggler border-0 shadow-none" type="button" data-bs-toggle="collapse" data-bs-target="#studio-navigation" aria-controls="studio-navigation" aria-expanded="false" aria-label="메뉴 열기"><i class="bi bi-list fs-3"></i></button>
           <div class="collapse navbar-collapse" id="studio-navigation">
-            <div class="navbar-nav studio-links mx-lg-auto">
-              <a class="nav-link" href="{% url 'ideas:home' %}"><i class="bi bi-grid-1x2"></i> 내 PRD</a>
-            </div>
-            <div class="studio-actions d-flex align-items-center gap-2">
+            <div class="studio-actions d-flex align-items-center gap-2 ms-lg-auto">
               <a class="btn btn-primary studio-create" href="{% url 'ideas:new-prd' %}"><i class="bi bi-plus-lg"></i> 새 PRD</a>
               <div class="dropdown">
                 <button class="btn studio-profile" data-bs-toggle="dropdown" aria-expanded="false" aria-label="사용자 메뉴">
