@@ -261,11 +261,22 @@ class BackgroundCleanupTests(BrainstormExportCleanupBase):
         old_preview.refresh_from_db()
         fresh_preview.refresh_from_db()
         old_chat.refresh_from_db()
-        # 채팅 결과에도 코치의 수정 제안 전문이 담기므로 초안과 같은 기간만 보관한다.
-        self.assertEqual(result.ai_previews, 2)
+        self.assertEqual(result.ai_previews, 1)
         self.assertIsNone(old_preview.output_data)
-        self.assertIsNone(old_chat.output_data)
         self.assertIsNotNone(fresh_preview.output_data)
+        # 채팅 결과는 미리보기보다 오래 남는다. 8일은 아직 보관 기간 안이다.
+        self.assertIsNotNone(old_chat.output_data)
+
+    def test_chat_payloads_are_cleared_after_the_conversation_retention_window(self):
+        coaching_prompt = self.prompt(AiFeatureType.COACHING)
+        chat = self.job(prompt=coaching_prompt, action=AiActionType.CHAT)
+        AiJob.objects.filter(pk=chat.pk).update(finished_at=self.now - timedelta(days=31))
+
+        result = BackgroundDataCleanupService().run(now=self.now)
+
+        chat.refresh_from_db()
+        self.assertEqual(result.ai_previews, 1)
+        self.assertIsNone(chat.output_data)
 
     def test_cleanup_does_not_reset_terminal_failures(self):
         prompt = self.prompt(AiFeatureType.BRAINSTORM_ANALYSIS)
