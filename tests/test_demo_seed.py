@@ -48,14 +48,14 @@ class DemoWorkspaceSeedTests(TestCase):
     def test_seed_creates_complete_shared_demo_and_is_idempotent(self):
         first_output = self.run_seed()
 
-        self.assertIn("생성 5개", first_output)
-        self.assertEqual(Prd.objects.count(), 5)
-        self.assertEqual(PrdParticipant.objects.count(), 16)
-        self.assertEqual(PrdAnswer.objects.count(), 16)
-        self.assertEqual(PrdComment.objects.count(), 11)
-        self.assertEqual(BrainstormCanvas.objects.count(), 5)
-        self.assertEqual(BrainstormNode.objects.count(), 21)
-        self.assertEqual(BrainstormConnection.objects.count(), 5)
+        self.assertIn("생성 6개", first_output)
+        self.assertEqual(Prd.objects.count(), 6)
+        self.assertEqual(PrdParticipant.objects.count(), 21)
+        self.assertEqual(PrdAnswer.objects.count(), 57)
+        self.assertEqual(PrdComment.objects.count(), 16)
+        self.assertEqual(BrainstormCanvas.objects.count(), 6)
+        self.assertEqual(BrainstormNode.objects.count(), 31)
+        self.assertEqual(BrainstormConnection.objects.count(), 7)
         self.assertEqual(
             set(Prd.objects.values_list("status", flat=True)),
             {"in_progress", "completed", "held", "dropped"},
@@ -63,6 +63,6 @@ class DemoWorkspaceSeedTests(TestCase):
 
         second_output = self.run_seed()
 
-        self.assertIn("기존 유지 5개", second_output)
-        self.assertEqual(Prd.objects.count(), 5)
-        self.assertEqual(BrainstormNode.objects.count(), 21)
+        self.assertIn("기존 유지 6개", second_output)
+        self.assertEqual(Prd.objects.count(), 6)
+        self.assertEqual(BrainstormNode.objects.count(), 31)

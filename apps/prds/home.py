@@ -130,6 +130,7 @@ class HomeQueryService:
                     prd=prd,
                     participants=participants_by_prd.get(prd.id, []),
                     today=today,
+                    context=context,
                 )
                 for prd in page_prds
             ],
@@ -418,7 +419,7 @@ class HomeQueryService:
         return result
 
     @staticmethod
-    def _serialize_card(*, prd, participants, today):
+    def _serialize_card(*, prd, participants, today, context):
         can_edit = bool(
             prd.my_role
             and role_permission_policy.allows(
@@ -429,6 +430,7 @@ class HomeQueryService:
         )
         return {
             "id": prd.id,
+            "version": prd.version,
             "title": prd.title,
             "description": prd.description,
             "prd_type": prd.prd_type,
@@ -442,6 +444,11 @@ class HomeQueryService:
             "participant_count": prd.participant_count,
             "my_role": prd.my_role,
             "can_edit": can_edit,
+            "can_delete": bool(
+                prd.my_role == PrdParticipantRole.OWNER
+                or context.is_staff
+                or context.is_superuser
+            ),
             "ai_coaching_count": prd.ai_coaching_count,
         }
 

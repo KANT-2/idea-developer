@@ -214,6 +214,24 @@ class PrdEvaluationApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["error"]["code"], "validation_error")
 
+    @override_settings(AI_EVALUATION_DEMO_CACHE=True, GEMINI_API_KEY="")
+    def test_development_demo_evaluation_succeeds_immediately_and_is_cached(self):
+        first = self.request(persona="pm", key="demo-cache-first")
+        self.assertEqual(first.status_code, 202)
+        first_job = AiJob.objects.get(pk=first.json()["data"]["id"])
+        self.assertEqual(first_job.status, AiJobStatus.SUCCEEDED)
+        self.assertEqual(first_job.output_data["source"], "demo_cache")
+        self.assertEqual(first_job.output_data["persona"], "pm")
+
+        second = self.request(persona="pm", key="demo-cache-second")
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json()["data"]["id"], str(first_job.pk))
+        self.assertEqual(
+            AiJob.objects.filter(feature_type=AiFeatureType.PRD_EVALUATION).count(),
+            1,
+        )
+        self.assertEqual(first_job.usage_logs.get().model, "development-demo-cache")
+
     def test_held_question_is_excluded_from_evaluation_context_and_freshness(self):
         active = PrdQuestion.objects.create(
             section=self.section,

@@ -30,7 +30,81 @@ from apps.prds.services import CreatePrdCommand, PrdCreationService
 DEMO_PREFIX = "roundless-demo-v1"
 OWNER_ID = 24
 
+RICH_SECTION_ANSWERS = {
+    1: (
+        "대학생 팀 프로젝트에서 일정, 역할, 회의 결과가 여러 도구에 흩어지는 문제를 해결하는 "
+        "통합 협업 서비스입니다. 팀원은 오늘 해야 할 일과 의사결정 근거를 한 화면에서 확인하고, "
+        "팀장은 진행 지연을 조기에 발견할 수 있습니다. 첫 출시에서는 프로젝트 생성, 역할 분담, "
+        "주간 목표, 회의 기록과 알림까지 하나의 흐름으로 제공합니다."
+    ),
+    2: (
+        "핵심 목표는 팀원이 다음 행동을 찾는 시간을 줄이고 약속한 업무의 완료율을 높이는 것입니다. "
+        "기존 메신저와 문서 도구를 대체하기보다 흩어진 결정과 실행 항목을 연결하는 데 집중합니다. "
+        "사용자는 회의 직후 담당자와 마감일이 명확한 할 일을 얻고, 팀 전체는 같은 진행 상태를 공유합니다."
+    ),
+    3: (
+        "사전 인터뷰에서 회의 내용이 채팅에 묻히고 담당자가 불명확해 일정이 반복적으로 늦어진다는 "
+        "문제가 확인되었습니다. 특히 학기 중 여러 과목과 활동을 병행하는 팀은 별도 도구를 꾸준히 "
+        "정리할 여유가 부족했습니다. 지금은 생성형 요약 기술과 학교 단위 협업 수요가 함께 증가해, "
+        "최소 입력만으로 실행 항목을 구조화하는 경험을 검증하기 좋은 시점입니다."
+    ),
+    4: (
+        "첫 사용자는 4~6명이 한 학기 동안 결과물을 만드는 대학생 프로젝트 팀입니다. 매주 한 번 이상 "
+        "회의하고 역할이 자주 바뀌며, 팀장도 전문 프로젝트 관리자가 아닌 상황을 우선합니다. 회의 직후, "
+        "마감 하루 전, 주간 회고 시점에 가장 자주 사용하며 모바일에서는 확인과 완료 처리, PC에서는 "
+        "계획 편집과 회의 정리를 주로 수행합니다."
+    ),
+    5: (
+        "핵심 문제는 정보 부족이 아니라 결정된 내용과 실제 행동이 연결되지 않는 것입니다. 회의에서 좋은 "
+        "아이디어가 나와도 담당자, 기한, 완료 기준이 빠지면 실행되지 않습니다. 따라서 회의 기록에서 실행 "
+        "항목을 제안하고 사용자가 확인한 뒤 팀 보드에 반영하면 누락률과 재확인 시간을 줄일 수 있다는 "
+        "가설을 가장 먼저 검증합니다."
+    ),
+    6: (
+        "MVP에는 이메일 기반 로그인, 팀 프로젝트 생성, 참여자 역할 설정, 주간 목표와 할 일 관리, 회의록 "
+        "작성, 실행 항목 제안, 마감 알림과 기본 활동 기록을 포함합니다. 캘린더 양방향 동기화, 화상회의 "
+        "녹음, 학교별 학사 시스템 연동, 복잡한 간트 차트와 유료 결제는 초기 범위에서 제외합니다. "
+        "웹 반응형 화면을 우선 제공하고 네이티브 앱은 핵심 지표 확인 후 결정합니다."
+    ),
+    7: (
+        "4주 파일럿에서 초대된 팀의 60% 이상이 첫 프로젝트를 만들고, 생성 팀의 50% 이상이 2주 연속 "
+        "주간 목표를 갱신하는 것을 활성화 기준으로 삼습니다. 회의 후 24시간 내 실행 항목 등록률 80%, "
+        "기한 내 완료율 65%, 주간 재방문율 55%를 목표로 합니다. 5개 팀의 사용 로그와 인터뷰를 함께 "
+        "분석하며, 목표 미달 시 알림 빈도보다 생성 과정의 마찰과 역할 명확성을 먼저 점검합니다."
+    ),
+}
+
 DEMO_PRDS = (
+    {
+        "slug": "campus-project-hub",
+        "title": "캠퍼스 팀 프로젝트 운영 허브",
+        "description": "회의의 결정 사항을 역할·일정·실행 항목으로 연결해 팀 프로젝트 완주율을 높이는 협업 서비스",
+        "prd_type": PrdType.NEW_PRODUCT,
+        "status": PrdStatus.IN_PROGRESS,
+        "deadline_days": 28,
+        "members": (24, 21, 22, 23, 2),
+        "fill_all_questions": True,
+        "answers": (),
+        "comments": (
+            (21, "팀장이 아니어도 회의 직후 실행 항목을 제안하고 담당자를 지정할 수 있으면 좋겠습니다."),
+            (22, "모바일에서는 오늘 마감과 내가 맡은 항목이 가장 먼저 보여야 합니다."),
+            (23, "완료 기준이 모호하면 체크만 하고 품질을 확인하기 어려우니 기준 입력란이 필요합니다."),
+            (24, "초기 검증은 실제 수업 프로젝트 5개 팀을 대상으로 4주 동안 진행하겠습니다."),
+            (2, "활성화와 재방문 지표가 구분되어 있습니다. 실행 항목 등록률의 측정 시점을 고정해 주세요."),
+        ),
+        "notes": (
+            ("회의록에서 담당자·기한·완료 기준을 구조화", BrainstormNodeStatus.ACCEPTED, 24, 5, "yellow"),
+            ("오늘 해야 할 일과 지연 항목을 첫 화면에 표시", BrainstormNodeStatus.ACCEPTED, 21, 4, "blue"),
+            ("회의 종료 전 실행 항목을 팀원이 함께 확인", BrainstormNodeStatus.ACCEPTED, 22, 5, "green"),
+            ("주간 목표 달성률과 지연 원인 회고", BrainstormNodeStatus.ACCEPTED, 23, 7, "pink"),
+            ("팀원별 역할과 현재 담당 업무 표시", BrainstormNodeStatus.ACCEPTED, 24, 4, "purple"),
+            ("마감 하루 전 담당자 알림", BrainstormNodeStatus.ACCEPTED, 21, 6, "orange"),
+            ("프로젝트 템플릿으로 첫 설정 시간 단축", BrainstormNodeStatus.ACCEPTED, 22, 6, "yellow"),
+            ("결정 사항 변경 이력과 근거 연결", BrainstormNodeStatus.ACCEPTED, 23, 3, "blue"),
+            ("캘린더 양방향 동기화", BrainstormNodeStatus.DEFAULT, 24, None, "green"),
+            ("학교 LMS 과제 일정 자동 수집", BrainstormNodeStatus.HELD, 21, None, "gray"),
+        ),
+    },
     {
         "slug": "learning-coach",
         "title": "AI 학습 루틴 코치",
@@ -234,7 +308,14 @@ class Command(BaseCommand):
             for section in questions
             for question in section.questions.all().order_by("position", "id")
         ]
-        for question, answer in zip(flat_questions, spec["answers"], strict=False):
+        answers = spec["answers"]
+        if spec.get("fill_all_questions"):
+            answers = tuple(
+                Command._rich_answer(section=section, question=question)
+                for section in questions
+                for question in section.questions.all().order_by("position", "id")
+            )
+        for question, answer in zip(flat_questions, answers, strict=False):
             PrdAnswer.objects.create(
                 question=question,
                 content=answer,
@@ -309,3 +390,13 @@ class Command(BaseCommand):
                 event_type="prd_completed",
                 after_data={"status": PrdStatus.COMPLETED},
             )
+
+    @staticmethod
+    def _rich_answer(*, section, question):
+        base = RICH_SECTION_ANSWERS.get(section.position, RICH_SECTION_ANSWERS[1])
+        return (
+            f"{base}\n\n"
+            f"질문별 확인 사항: ‘{question.prompt}’에 대해서는 사용자 인터뷰, 실제 사용 로그와 "
+            "주간 회고 결과를 함께 근거로 판단합니다. 담당자는 매주 금요일 수치를 확인하고, 목표 대비 "
+            "차이가 15%p 이상이면 원인을 기록한 뒤 다음 주 실험 범위와 우선순위를 조정합니다."
+        )

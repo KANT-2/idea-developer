@@ -8,6 +8,12 @@
   const loading = document.getElementById("home-loading");
   const empty = document.getElementById("home-empty");
   const alertBox = document.getElementById("home-alert");
+  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
+  const deleteConfirmElement = document.getElementById("home-delete-confirm-modal");
+  const deleteConfirmModal = bootstrap.Modal.getOrCreateInstance(deleteConfirmElement);
+  const deleteConfirmButton = document.getElementById("home-delete-confirm");
+  const deleteError = document.getElementById("home-delete-error");
+  let pendingDeletion = null;
 
   function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
   function avatarColor(user) {
@@ -19,8 +25,28 @@
     return hash % 8;
   }
   function showError(message) { alertBox.className = "alert alert-danger"; alertBox.textContent = message; }
+  async function mutation(url, body) {
+    const response = await fetch(url, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
+      body: JSON.stringify(body)
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) throw new Error(payload.error?.message || "요청을 처리하지 못했습니다.");
+    return payload.data;
+  }
   function pageUrl(id) { return "/ideas/prds/" + encodeURIComponent(id) + "/"; }
   function brainstormUrl(id) { return pageUrl(id) + "brainstorm/"; }
+  function deleteUrl(id) { return root.dataset.deleteApiUrlTemplate.replace("/0/delete/", "/" + encodeURIComponent(id) + "/delete/"); }
+  function askToDelete(item) {
+    pendingDeletion = item;
+    document.getElementById("home-delete-prd-title").textContent = item.title;
+    deleteError.classList.add("d-none");
+    deleteError.textContent = "";
+    deleteConfirmButton.disabled = false;
+    deleteConfirmModal.show();
+  }
   function localDateKey(date) {
     return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
   }
@@ -101,13 +127,38 @@
     document.getElementById("home-empty-create").classList.toggle("d-none", state.scope === "viewer");
     data.items.forEach(function (item) {
       const col = el("div", "col-12 col-md-6 col-xl-4"); const card = el("article", "card h-100 border idea-card-hover idea-clickable"); card.tabIndex = 0; card.setAttribute("role", "link");
-      const body = el("div", "card-body d-flex flex-column"); const badges = el("div", "d-flex flex-wrap gap-2 mb-2"); badges.append(el("span", "badge text-bg-light", labels[item.prd_type] || item.prd_type), el("span", "badge " + (item.status === "completed" ? "text-bg-success" : item.status === "in_progress" ? "text-bg-warning" : "text-bg-secondary"), labels[item.status] || item.status)); if (item.my_role === "viewer") badges.append(el("span", "badge viewer-role-badge", "뷰어")); if (item.show_new_badge) badges.append(el("span", "badge text-bg-primary", "NEW"));
+      const body = el("div", "card-body d-flex flex-column");
+      const cardTop = el("div", "prd-card-top mb-2");
+      const badges = el("div", "d-flex flex-wrap gap-2");
+      badges.append(el("span", "badge text-bg-light", labels[item.prd_type] || item.prd_type), el("span", "badge " + (item.status === "completed" ? "text-bg-success" : item.status === "in_progress" ? "text-bg-warning" : "text-bg-secondary"), labels[item.status] || item.status)); if (item.my_role === "viewer") badges.append(el("span", "badge viewer-role-badge", "뷰어")); if (item.show_new_badge) badges.append(el("span", "badge text-bg-primary", "NEW"));
+      const brain = el("a", "prd-card-brainstorm", "아이디어 맵");
+      brain.href = brainstormUrl(item.id);
+      brain.prepend(el("i", "bi bi-lightbulb-fill"));
+      brain.addEventListener("click", function (event) { event.stopPropagation(); });
+      cardTop.append(badges, brain);
       const title = el("h3", "h6 fw-bold", item.title); const description = el("p", "small text-secondary prd-card-description", item.description || "한 줄 소개가 없습니다.");
       const progressText = el("div", "d-flex justify-content-between small mb-1"); progressText.append(el("span", "text-secondary", "완성도"), el("strong", "", item.completion_rate + "%")); const progress = el("div", "progress mb-3"); progress.style.height = "6px"; const bar = el("div", "progress-bar"); bar.style.width = item.completion_rate + "%"; progress.append(bar);
       const footer = el("div", "d-flex justify-content-between align-items-center mt-auto pt-2 border-top"); const avatars = el("div", "d-flex align-items-center"); item.participants.forEach(function (p) { const a = el("span", "participant-avatar avatar-color-" + avatarColor(p), (p.display_name || "?").slice(0, 2)); a.title = p.display_name; avatars.append(a); }); if (item.participant_count > 4) avatars.append(el("span", "small text-secondary ms-1", "+" + (item.participant_count - 4)));
-      const meta = el("div", "small text-secondary text-end", (item.d_day || "마감일 없음") + " · AI " + item.ai_coaching_count + "회"); footer.append(avatars, meta); body.append(badges, title, description, progressText, progress, footer); card.append(body);
+      const meta = el("div", "small text-secondary text-end", (item.d_day || "마감일 없음") + " · AI " + item.ai_coaching_count + "회"); footer.append(avatars, meta); body.append(cardTop, title, description, progressText, progress, footer); card.append(body);
       card.addEventListener("click", function () { window.location.href = pageUrl(item.id); }); card.addEventListener("keydown", function (event) { if (event.key === "Enter") window.location.href = pageUrl(item.id); });
-      const brain = el("a", "btn btn-sm btn-outline-primary position-absolute top-0 end-0 m-3", "아이디어 맵"); brain.href = brainstormUrl(item.id); brain.addEventListener("click", function (event) { event.stopPropagation(); }); card.style.position = "relative"; body.style.paddingTop = "3.25rem"; card.append(brain); col.append(card); list.append(col);
+      if (item.can_delete) {
+        const menuWrap = el("div", "dropdown prd-card-menu");
+        const menuButton = el("button", "prd-card-menu-button");
+        menuButton.type = "button";
+        menuButton.dataset.bsToggle = "dropdown";
+        menuButton.setAttribute("aria-expanded", "false");
+        menuButton.setAttribute("aria-label", item.title + " 메뉴");
+        menuButton.append(el("i", "bi bi-three-dots"));
+        const menu = el("ul", "dropdown-menu dropdown-menu-end");
+        const menuItem = el("li");
+        const remove = el("button", "dropdown-item text-danger", "삭제");
+        remove.type = "button";
+        remove.prepend(el("i", "bi bi-trash3 me-2"));
+        [menuWrap, menuButton, menu, remove].forEach(function (node) { node.addEventListener("click", function (event) { event.stopPropagation(); }); });
+        remove.addEventListener("click", function () { askToDelete(item); });
+        menuItem.append(remove); menu.append(menuItem); menuWrap.append(menuButton, menu); card.append(menuWrap);
+      }
+      col.append(card); list.append(col);
     }); renderPages(data.pagination);
   }
   function renderPages(p) { const rootPages = document.getElementById("home-pagination"); rootPages.replaceChildren(); for (let i = 1; i <= p.total_pages; i += 1) { const li = el("li", "page-item" + (i === p.page ? " active" : "")); const button = el("button", "page-link", String(i)); button.addEventListener("click", function () { state.page = i; fetchData(); }); li.append(button); rootPages.append(li); } }
@@ -146,10 +197,112 @@
       paginationRoot.append(item);
     }
   }
+  async function loadTrash() {
+    const trashList = document.getElementById("prd-trash-list");
+    const trashLoading = document.getElementById("prd-trash-loading");
+    const trashAlert = document.getElementById("prd-trash-alert");
+    trashLoading.classList.remove("d-none");
+    trashAlert.classList.add("d-none");
+    trashList.replaceChildren();
+    try {
+      const response = await fetch(root.dataset.trashApiUrl + "?page_size=50", {credentials: "same-origin"});
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error(payload.error?.message || "휴지통을 불러오지 못했습니다.");
+      renderTrash(payload.data.items);
+    } catch (error) {
+      trashAlert.textContent = error.message;
+      trashAlert.classList.remove("d-none");
+    } finally {
+      trashLoading.classList.add("d-none");
+    }
+  }
+  function renderTrash(items) {
+    const trashList = document.getElementById("prd-trash-list");
+    trashList.replaceChildren();
+    if (!items.length) {
+      trashList.append(el("div", "trash-empty", "휴지통이 비어 있습니다."));
+      return;
+    }
+    items.forEach(function (item) {
+      const row = el("article", "trash-item");
+      const copy = el("div", "trash-item-copy");
+      const description = el("p", "", item.description || "한 줄 소개가 없습니다.");
+      const meta = el("div", "trash-item-meta");
+      const complete = item.state === "deleted_complete";
+      meta.append(
+        el("span", "trash-state" + (complete ? " complete" : ""), complete ? "삭제 완료" : "복구 가능"),
+        el("span", "", complete ? "30일 보관 후 자동 삭제" : "영구 삭제까지 " + item.days_remaining + "일")
+      );
+      copy.append(el("strong", "", item.title), description, meta);
+      const actions = el("div", "trash-item-actions");
+      if (!complete) {
+        const restore = el("button", "btn btn-sm btn-outline-primary", "복구");
+        const remove = el("button", "btn btn-sm btn-outline-danger", "삭제");
+        restore.type = remove.type = "button";
+        restore.addEventListener("click", async function () {
+          restore.disabled = remove.disabled = true;
+          try {
+            await mutation(root.dataset.trashApiUrl + item.id + "/restore/", {version: item.version});
+            await loadTrash();
+            await fetchData();
+          } catch (error) {
+            restore.disabled = remove.disabled = false;
+            window.alert(error.message);
+          }
+        });
+        remove.addEventListener("click", async function () {
+          if (!window.confirm("삭제 완료로 처리할까요? 데이터는 최초 삭제일로부터 30일 뒤 영구 삭제됩니다.")) return;
+          restore.disabled = remove.disabled = true;
+          try {
+            await mutation(root.dataset.trashApiUrl + item.id + "/delete/", {version: item.version});
+            await loadTrash();
+          } catch (error) {
+            restore.disabled = remove.disabled = false;
+            window.alert(error.message);
+          }
+        });
+        actions.append(restore, remove);
+      } else {
+        actions.append(el("span", "small text-secondary", "삭제 완료"));
+      }
+      row.append(copy, actions);
+      trashList.append(row);
+    });
+  }
   document.querySelectorAll(".home-scope-tab").forEach(function (button) { button.addEventListener("click", function () { state.scope = button.dataset.scope; state.page = 1; document.querySelectorAll(".home-scope-tab").forEach(function (item) { const active = item === button; item.classList.toggle("active", active); item.setAttribute("aria-selected", String(active)); }); document.getElementById("home-scope-description").textContent = state.scope === "viewer" ? "읽기 권한으로 참여한 PRD를 모아봅니다." : "작성하거나 편집에 참여하는 PRD입니다."; fetchData(); }); });
   document.querySelectorAll(".home-tab").forEach(function (button) { button.addEventListener("click", function () { state.tab = button.dataset.tab; state.page = 1; document.querySelectorAll(".home-tab").forEach(function (item) { item.className = "btn " + (item === button ? "btn-primary" : "btn-outline-primary") + " home-tab"; }); fetchData(); }); });
   document.getElementById("home-status").addEventListener("change", function (event) { state.status = event.target.value; state.page = 1; fetchData(); }); document.getElementById("home-sort").addEventListener("change", function (event) { state.sort = event.target.value; state.page = 1; fetchData(); });
   document.querySelectorAll(".home-kpi[data-status]").forEach(function (button) { button.addEventListener("click", function () { state.status = button.dataset.status; document.getElementById("home-status").value = state.status; state.page = 1; fetchData(); }); });
   document.getElementById("recent-activity-modal")?.addEventListener("show.bs.modal", function () { fetchRecentActivity(1); });
-  fetchData();
+  document.getElementById("prd-trash-modal")?.addEventListener("show.bs.modal", loadTrash);
+  deleteConfirmButton.addEventListener("click", async function () {
+    if (!pendingDeletion) return;
+    deleteConfirmButton.disabled = true;
+    deleteError.classList.add("d-none");
+    try {
+      const response = await fetch(deleteUrl(pendingDeletion.id), {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
+        body: JSON.stringify({version: pendingDeletion.version})
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error(payload.error?.message || "PRD를 삭제하지 못했습니다.");
+      pendingDeletion = null;
+      deleteConfirmModal.hide();
+      await fetchData();
+    } catch (error) {
+      deleteError.textContent = error.message;
+      deleteError.classList.remove("d-none");
+      deleteConfirmButton.disabled = false;
+    }
+  });
+  fetchData().then(function () {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("deleted") !== "1") return;
+    alertBox.className = "alert alert-success";
+    alertBox.textContent = "PRD를 휴지통으로 이동했습니다. 30일 동안 복구할 수 있습니다.";
+    url.searchParams.delete("deleted");
+    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+  });
 }());

@@ -30,6 +30,8 @@ from apps.prds.models import (
     PrdChangeHistory,
     PrdComment,
     PrdCommentType,
+    PrdDeletionAction,
+    PrdDeletionAuditLog,
     PrdParticipant,
     PrdParticipantRole,
     PrdQuestion,
@@ -239,6 +241,91 @@ class PrdDetailApiTests(TestCase):
         stale = self.patch_json(url, {"deadline": "2027-05-01", "version": 1})
         self.assertEqual(stale.status_code, 409)
         self.assertEqual(stale.json()["error"]["details"]["latest"]["version"], 2)
+
+    def test_editor_can_change_title_and_one_line_description(self):
+        self.login_as(8, role=PrdParticipantRole.EDITOR)
+        previous_title = self.prd.title
+        response = self.patch_json(
+            reverse("prd_api:metadata", args=[self.prd.id]),
+            {
+                "title": "새로운 PRD 제목",
+                "description": "사용자 문제를 한 줄로 설명합니다.",
+                "version": 1,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["title"], "새로운 PRD 제목")
+        self.assertEqual(response.json()["data"]["version"], 2)
+        self.prd.refresh_from_db()
+        self.assertEqual(self.prd.title, "새로운 PRD 제목")
+        self.assertEqual(self.prd.description, "사용자 문제를 한 줄로 설명합니다.")
+        history = PrdChangeHistory.objects.get(event_type="prd_metadata_updated")
+        self.assertEqual(history.before_data["title"], previous_title)
+        self.assertEqual(history.after_data["description"], "사용자 문제를 한 줄로 설명합니다.")
+
+    def test_metadata_rejects_blank_title_and_multiline_description(self):
+        url = reverse("prd_api:metadata", args=[self.prd.id])
+
+        blank_title = self.patch_json(url, {"title": "   ", "version": 1})
+        multiline = self.patch_json(
+            url,
+            {"description": "첫 줄\n두 번째 줄", "version": 1},
+        )
+
+        self.assertEqual(blank_title.status_code, 400)
+        self.assertEqual(multiline.status_code, 400)
+
+    def test_owner_can_move_prd_to_trash_restore_and_confirm_deletion(self):
+        delete_response = self.client.delete(
+            reverse("prd_api:delete", args=[self.prd.id]),
+            json.dumps({"version": 1}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(delete_response.status_code, 200)
+        self.prd.refresh_from_db()
+        self.assertTrue(self.prd.is_deleted)
+        self.assertIsNotNone(self.prd.deleted_at)
+        self.assertTrue(
+            PrdDeletionAuditLog.objects.filter(
+                prd_id=self.prd.id,
+                action=PrdDeletionAction.TRASHED,
+            ).exists()
+        )
+        trash = self.client.get(reverse("prd_api:trash"))
+        self.assertEqual(trash.status_code, 200)
+        self.assertEqual(trash.json()["data"]["items"][0]["state"], "recoverable")
+
+        restored = self.post_json(
+            reverse("prd_api:trash-restore", args=[self.prd.id]),
+            {"version": 2},
+        )
+        self.assertEqual(restored.status_code, 200)
+        self.prd.refresh_from_db()
+        self.assertFalse(self.prd.is_deleted)
+
+        self.client.delete(
+            reverse("prd_api:delete", args=[self.prd.id]),
+            json.dumps({"version": 3}),
+            content_type="application/json",
+        )
+        confirmed = self.post_json(
+            reverse("prd_api:trash-delete", args=[self.prd.id]),
+            {"version": 4},
+        )
+        self.assertEqual(confirmed.status_code, 200)
+        self.assertEqual(confirmed.json()["data"]["state"], "deleted_complete")
+        self.prd.refresh_from_db()
+        self.assertTrue(self.prd.is_deleted)
+        self.assertIsNotNone(self.prd.purge_requested_at)
+        self.assertTrue(Prd.objects.filter(pk=self.prd.pk).exists())
+
+        denied_restore = self.post_json(
+            reverse("prd_api:trash-restore", args=[self.prd.id]),
+            {"version": 5},
+        )
+        self.assertEqual(denied_restore.status_code, 403)
 
     def test_editor_can_change_deadline_but_not_status_and_completed_prd_is_locked(self):
         url = reverse("prd_api:metadata", args=[self.prd.id])
