@@ -166,7 +166,7 @@ class PrdEvaluationApiTests(TestCase):
         self.assertEqual(AiJob.objects.filter(feature_type=AiFeatureType.PRD_EVALUATION).count(), 1)
         job = AiJob.objects.get(feature_type=AiFeatureType.PRD_EVALUATION)
         self.assertEqual(job.input_data["persona"], "engineering")
-        self.assertIn("기술 실현 가능성", job.input_data["evaluation_focus"])
+        self.assertIn("구현 가능성", job.input_data["evaluation_focus"])
 
     def test_successful_result_is_restored_and_becomes_stale_after_answer_change(self):
         response = self.request()

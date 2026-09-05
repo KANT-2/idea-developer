@@ -109,7 +109,6 @@ class GeminiAiProvider:
             "anyOf",
             "oneOf",
             "properties",
-            "additionalProperties",
             "required",
         }
         if isinstance(value, list):
