@@ -116,11 +116,5 @@
   <div class="modal-footer export-modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">닫기</button><div><button id="copy-prd-markdown" type="button" class="btn btn-outline-secondary" disabled><i class="bi bi-clipboard"></i> 복사</button><a id="download-prd-markdown" class="btn btn-primary" href="#"><i class="bi bi-download"></i> .md 다운로드</a></div></div>
 </div></div></div>
 
-<div class="modal fade" id="draft-modal" tabindex="-1" aria-labelledby="draft-title" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
-  <div class="modal-header draft-modal-head"><div><span>AI DRAFT</span><h2 class="modal-title" id="draft-title">AI 질문 초안 미리보기</h2></div><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="닫기"></button></div>
-  <div class="modal-body"><p id="draft-question" class="fw-semibold"></p><label class="form-label" for="draft-content">반영 전 자유롭게 수정해 주세요.</label><textarea id="draft-content" class="form-control" rows="12" maxlength="12000"></textarea><div id="draft-error" class="alert alert-danger mt-3 d-none" role="alert"></div></div>
-  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">닫기</button><button id="draft-apply" type="button" class="btn btn-primary">PRD에 반영</button></div>
-</div></div></div>
-
 {% endblock %}
 {% block extra_js %}<script src="{% static 'prds/js/write.js' %}?v=20260904-22"></script>{% endblock %}

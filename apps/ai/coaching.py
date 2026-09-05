@@ -242,6 +242,8 @@ class AiCoachConversationService:
                 # 저장은 이스케이프된 형태로, 모델에는 원문으로 보낸다.
                 "current_message": model_text(safe_message),
                 "recent_turns": history,
+                # 사용자가 물린 제안을 다시 내지 않도록 근거를 함께 넘긴다.
+                "declined_proposals": self._declined_proposals(conversation),
                 "prd_context": context,
             },
             idempotency_key=idempotency_key,
@@ -256,6 +258,36 @@ class AiCoachConversationService:
     def _next_sequence(conversation) -> int:
         current = conversation.messages.aggregate(value=Max("sequence"))["value"] or 0
         return current + 1
+
+    @staticmethod
+    def _declined_proposals(conversation) -> list[dict[str, Any]]:
+        """이 대화에서 사용자가 거절한 제안 목록.
+
+        최근 대화 텍스트에는 승인·거절 여부가 남지 않으므로 따로 모아 전달한다.
+        """
+        jobs = (
+            AiJob.objects.filter(
+                coach_messages__conversation=conversation,
+                feature_type=AiFeatureType.COACHING,
+                action_type=AiActionType.CHAT,
+                output_data__declined_at__isnull=False,
+            )
+            .order_by("-created_at")
+            .distinct()[: settings.AI_CHAT_RECENT_TURNS]
+        )
+        declined = []
+        for job in jobs:
+            proposal = (job.output_data or {}).get("proposal") or {}
+            if not proposal:
+                continue
+            declined.append(
+                {
+                    "question_id": proposal.get("question_id"),
+                    "content": model_text(proposal.get("content", "")),
+                    "reason": model_text(proposal.get("reason", "")),
+                }
+            )
+        return declined
 
     @staticmethod
     def _recent_complete_turns(conversation) -> list[dict[str, str]]:
@@ -304,6 +336,8 @@ class AiChatProposalService:
         if output.get("applied_at"):
             # 버전 검사에도 걸리지만, 여기서 막아야 이유가 분명한 메시지가 나간다.
             raise ValidationError({"job": "이미 반영한 제안입니다."})
+        if output.get("declined_at"):
+            raise ValidationError({"job": "이미 거절한 제안입니다."})
         return _apply_answer(
             prd=job.prd,
             question_id=proposal.get("question_id"),
@@ -314,6 +348,31 @@ class AiChatProposalService:
             event_type="ai_chat_proposal_applied",
             job=job,
         )
+
+    @transaction.atomic
+    def decline(self, *, job: AiJob, user_id: int) -> AiJob:
+        """거절도 서버에 남긴다.
+
+        남기지 않으면 거절과 아직 고르지 않은 상태를 구분할 수 없어
+        새로고침할 때 제안이 되살아나고, 다음 요청에서 같은 제안을 막을 근거도 없다.
+        """
+        job = AiJob.objects.select_for_update().get(pk=job.pk)
+        if (
+            job.user_id != user_id
+            or job.feature_type != AiFeatureType.COACHING
+            or job.action_type != AiActionType.CHAT
+            or job.status != AiJobStatus.SUCCEEDED
+        ):
+            raise ValidationError({"job": "거절할 수 있는 코치 제안이 아닙니다."})
+        output = job.output_data or {}
+        if not isinstance(output.get("proposal"), dict):
+            raise ValidationError({"job": "이 답변에는 거절할 제안이 없습니다."})
+        if output.get("applied_at"):
+            raise ValidationError({"job": "이미 반영한 제안입니다."})
+        if not output.get("declined_at"):
+            job.output_data = {**output, "declined_at": timezone.now().isoformat()}
+            job.save(update_fields=["output_data", "updated_at"])
+        return job
 
 
 def _apply_answer(
@@ -331,16 +390,21 @@ def _apply_answer(
 
     제안이 만들어진 뒤 질문이 바뀌었으면 덮어쓰지 않고 409로 되돌린다.
     """
+    # 보류 여부는 조회 조건에서 빼고 따로 확인한다.
+    # 함께 걸면 보류된 질문이 "찾을 수 없음"으로 나와 원인을 알 수 없다.
     try:
         question = PrdQuestion.objects.select_for_update().get(
             pk=question_id,
             section__prd=prd,
             section__is_deleted=False,
             is_deleted=False,
-            is_held=False,
         )
     except PrdQuestion.DoesNotExist as exc:
         raise ValidationError({"question_id": "질문을 찾을 수 없습니다."}) from exc
+    if question.is_held:
+        raise ValidationError(
+            {"question_id": "보류한 질문입니다. 보류를 풀고 다시 시도해 주세요."}
+        )
     if question.version != generated_version or question.version != question_version:
         raise AiDraftVersionConflict(question)
     if not isinstance(content, str) or not content.strip():
