@@ -10,7 +10,13 @@ from django.utils import timezone
 from apps.ai.contribution import ContributionEvaluationService
 from apps.ai.exceptions import AiProviderError
 from apps.ai.models import (
+    AiActionType,
     AiFeatureType,
+    AiJob,
+    AiJobStatus,
+    AiPrdApplyItem,
+    AiPrdApplyRecord,
+    AiPrdApplyScope,
     AiPrompt,
     ContributionCommentScore,
     ContributionEvaluation,
@@ -294,9 +300,11 @@ class ContributionEvaluationTests(TestCase):
         self.assertEqual(evaluation.prompt_version, 1)
         self.assertEqual(self.prd.contribution_status, PrdContributionStatus.SUCCEEDED)
         scores = {row.user_id: row for row in ContributionUserScore.objects.all()}
-        self.assertEqual(scores[7].memo_raw, 2)
-        self.assertEqual(scores[8].memo_raw, 1)
-        self.assertEqual(scores[9].memo_raw, 0)
+        # No BRAINSTORM_PRD_APPLY ever ran in this setup, so every accepted memo's
+        # reflection confidence is 0 — accepted alone no longer earns memo credit.
+        self.assertEqual(scores[7].memo_raw, Decimal("0.0000"))
+        self.assertEqual(scores[8].memo_raw, Decimal("0.0000"))
+        self.assertEqual(scores[9].memo_raw, Decimal("0.0000"))
         self.assertEqual(scores[7].comment_contribution, Decimal("80.0000"))
         self.assertEqual(scores[8].comment_contribution, Decimal("20.0000"))
         self.assertEqual(
@@ -338,6 +346,76 @@ class ContributionEvaluationTests(TestCase):
         self.assertEqual(lineage_rows[0]["node_id"], str(newer.pk))
         self.assertEqual(lineage_rows[0]["assignee_id"], 8)
         self.assertEqual(lineage_rows[0]["canvas_version"], 2)
+
+        # A lineage accepted only in the superseded version (never carried into
+        # the latest board) earns no contribution at all, not reduced credit.
+        editor_lineage_rows = [
+            row
+            for row in snapshot["accepted_memos"]
+            if row["lineage_id"] == str(self.editor_node.lineage_id)
+        ]
+        self.assertEqual(editor_lineage_rows, [])
+
+    def test_memo_credit_requires_actual_prd_apply_reflection(self):
+        prd_apply_prompt = AiPromptService().create_version(
+            feature_type=AiFeatureType.BRAINSTORM_PRD_APPLY,
+            system_instructions="apply brainstorm notes to the PRD",
+            output_schema={"type": "object", "additionalProperties": False},
+            model="prd-apply-test-model",
+            activate=True,
+        )
+        job = AiJob.objects.create(
+            prd=self.prd,
+            prompt=prd_apply_prompt,
+            user_id=7,
+            feature_type=AiFeatureType.BRAINSTORM_PRD_APPLY,
+            action_type=AiActionType.PRD_APPLY,
+            idempotency_key="test-prd-apply-job",
+            request_fingerprint="f" * 32,
+            input_data={},
+            max_attempts=1,
+            timeout_seconds=60,
+            status=AiJobStatus.SUCCEEDED,
+        )
+        record = AiPrdApplyRecord.objects.create(
+            prd=self.prd,
+            canvas=self.canvas,
+            preview_job=job,
+            section=self.section,
+            scope=AiPrdApplyScope.SECTION,
+            actor_user_id=7,
+            idempotency_key="test-prd-apply-record",
+            model="prd-apply-test-model",
+            prompt_version=prd_apply_prompt.version,
+        )
+        # Only the owner's memo was actually integrated into the final answer;
+        # the editor's accepted memo was never used by PRD_APPLY.
+        AiPrdApplyItem.objects.create(
+            record=record,
+            question=self.question,
+            question_version_before=1,
+            question_prompt=self.question.prompt,
+            existing_answer="",
+            integrated_answer="최종 답변",
+            source_nodes=[
+                {"node_id": str(self.owner_node.pk), "version": self.owner_node.version}
+            ],
+            preserved_existing_points=[],
+            added_points=["소유자 메모 내용"],
+            confidence=Decimal("0.7500"),
+        )
+
+        evaluation = self.schedule()
+        self.assertTrue(AiJobRunner(provider=ContributionProvider()).run_once())
+        evaluation.refresh_from_db()
+        scores = {
+            row.user_id: row
+            for row in ContributionUserScore.objects.filter(evaluation=evaluation)
+        }
+
+        self.assertEqual(scores[7].memo_raw, Decimal("0.7500"))
+        self.assertEqual(scores[8].memo_raw, Decimal("0.0000"))
+        self.assertGreater(scores[7].memo_contribution, scores[8].memo_contribution)
 
     @override_settings(AI_CONTRIBUTION_MAX_COMMENTS=1)
     def test_oversized_contribution_input_fails_without_reverting_completion(self):

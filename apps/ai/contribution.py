@@ -12,7 +12,12 @@ from django.db import transaction
 from django.db.models import F, Max
 from django.utils import timezone
 
-from apps.brainstorm.models import BrainstormNode, BrainstormNodeStatus, BrainstormNodeType
+from apps.brainstorm.models import (
+    BrainstormCanvas,
+    BrainstormNode,
+    BrainstormNodeStatus,
+    BrainstormNodeType,
+)
 from apps.integration.exceptions import IntegrationError
 from apps.prds.detail import PrdAccess
 from apps.prds.models import (
@@ -34,6 +39,7 @@ from .models import (
     AiActionType,
     AiFeatureType,
     AiJob,
+    AiPrdApplyItem,
     ContributionCommentScore,
     ContributionEvaluation,
     ContributionEvaluationStatus,
@@ -176,25 +182,31 @@ class ContributionEvaluationService:
             participant_user_ids=participant_user_ids,
         )
 
-        accepted_candidates = list(
-            BrainstormNode.objects.filter(
-                canvas__prd=prd,
-                node_type=BrainstormNodeType.NOTE,
-                status=BrainstormNodeStatus.ACCEPTED,
-                is_deleted=False,
-                assignee_id__in=eligible_user_ids,
-            )
-            .select_related("canvas")
-            .order_by("-canvas__version_number", "-updated_at", "id")
+        latest_canvas = (
+            BrainstormCanvas.objects.filter(prd=prd).order_by("-version_number", "-id").first()
         )
-        # A new board version clones the preceding board. Count the same idea
-        # lineage once, using its newest accepted representation and final
-        # assignee, while retaining accepted ideas that exist only in an older
-        # version.
-        nodes_by_lineage = {}
-        for node in accepted_candidates:
-            nodes_by_lineage.setdefault(node.lineage_id, node)
-        nodes = sorted(nodes_by_lineage.values(), key=lambda row: str(row.pk))
+        # Only ideas accepted in the current (latest) board version count toward
+        # contribution — an idea accepted only in an earlier, superseded version
+        # earns nothing.
+        nodes = (
+            list(
+                BrainstormNode.objects.filter(
+                    canvas=latest_canvas,
+                    node_type=BrainstormNodeType.NOTE,
+                    status=BrainstormNodeStatus.ACCEPTED,
+                    is_deleted=False,
+                    assignee_id__in=eligible_user_ids,
+                )
+                .select_related("canvas")
+                .order_by("id")
+            )
+            if latest_canvas is not None
+            else []
+        )
+        reflection_confidence_by_lineage = self._reflection_confidence_by_lineage(
+            prd=prd,
+            lineage_ids={node.lineage_id for node in nodes},
+        )
         comments = list(
             PrdComment.objects.filter(
                 prd=prd,
@@ -244,6 +256,13 @@ class ContributionEvaluationService:
                     "canvas_version": node.canvas.version_number,
                     "version": node.version,
                     "assignee_id": node.assignee_id,
+                    # PRD_APPLY 결과에서 이 메모(의 어느 버전이든)가 실제로 답변에
+                    # 쓰인 적이 있는지 — 없으면 0, 있으면 그때의 confidence 평균.
+                    "reflection_confidence": str(
+                        reflection_confidence_by_lineage.get(
+                            str(node.lineage_id), Decimal("0")
+                        )
+                    ),
                 }
                 for node in nodes
             ],
@@ -251,6 +270,38 @@ class ContributionEvaluationService:
         }
         self._enforce_snapshot_limits(snapshot)
         return snapshot
+
+    @staticmethod
+    def _reflection_confidence_by_lineage(*, prd, lineage_ids):
+        """실제로 PRD_APPLY 답변에 쓰인 메모(라인리지)의 confidence 평균.
+
+        메모의 node_id는 캔버스 버전이 바뀔 때마다 새로 생기므로, 이 PRD의
+        모든 버전에 걸쳐 같은 lineage_id를 공유하는 node_id를 먼저 모은 뒤,
+        그 id들이 과거 어떤 PRD_APPLY 결과의 source_nodes에 등장했는지 찾는다.
+        """
+        if not lineage_ids:
+            return {}
+        node_to_lineage = {
+            str(node_id): str(lineage_id)
+            for node_id, lineage_id in BrainstormNode.objects.filter(
+                canvas__prd=prd, lineage_id__in=lineage_ids
+            ).values_list("id", "lineage_id")
+        }
+        confidences_by_lineage = defaultdict(list)
+        items = AiPrdApplyItem.objects.filter(record__prd=prd).values_list(
+            "source_nodes", "confidence"
+        )
+        for source_nodes, confidence in items:
+            for entry in source_nodes or []:
+                lineage_id = node_to_lineage.get(str(entry.get("node_id")))
+                if lineage_id is not None:
+                    confidences_by_lineage[lineage_id].append(confidence)
+        return {
+            lineage_id: (sum(values) / len(values)).quantize(
+                SCORE_QUANTUM, rounding=ROUND_HALF_UP
+            )
+            for lineage_id, values in confidences_by_lineage.items()
+        }
 
     @staticmethod
     def _enforce_snapshot_limits(snapshot):
@@ -468,10 +519,14 @@ class ContributionResultProcessor:
             )
 
         node_ids = defaultdict(list)
+        memo_raw_totals = defaultdict(lambda: Decimal("0"))
         for row in evaluation.input_snapshot.get("accepted_memos", []):
             node_ids[row["assignee_id"]].append(row["node_id"])
+            memo_raw_totals[row["assignee_id"]] += Decimal(
+                str(row.get("reflection_confidence", "0"))
+            )
         user_ids = [row["user_id"] for row in evaluation.input_snapshot.get("participants", [])]
-        memo_raw = {user_id: len(node_ids[user_id]) for user_id in user_ids}
+        memo_raw = {user_id: memo_raw_totals[user_id] for user_id in user_ids}
         memo_scores = self._normalize(memo_raw, user_ids)
         comment_scores = self._normalize(comment_raw, user_ids)
         participants = {
