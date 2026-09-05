@@ -36,12 +36,13 @@
   // 메모가 늘면 네모도 자란다. 비어 있을 때 크게 열어 둘 이유가 없고,
   // 많아지면 놓을 자리가 필요하므로 개수를 따라 넓힌다.
   var BOARD_FREE_SLOTS = 14;
-  var BOARD_MAX = {w: 3200, h: 1900};
+  var BOARD_MAX = {w: 4600, h: 2900};
   function resizeBoard(total) {
+    // 항목이 7개라 메모가 7개 늘 때마다 각 항목이 한 자리씩 더 필요하다.
     var over = Math.max(0, Number(total || 0) - BOARD_FREE_SLOTS);
     var steps = Math.ceil(over / 7);
-    BOARD.w = Math.min(BOARD_MAX.w, BOARD_BASE.w + steps * 220);
-    BOARD.h = Math.min(BOARD_MAX.h, BOARD_BASE.h + steps * 130);
+    BOARD.w = Math.min(BOARD_MAX.w, BOARD_BASE.w + steps * 260);
+    BOARD.h = Math.min(BOARD_MAX.h, BOARD_BASE.h + steps * 170);
   }
   // 미분류 메모를 두는 오른쪽 여백. 네모가 자라면 같이 밀린다.
   function trayBox() {
@@ -232,6 +233,9 @@
     var boardPair = window.React.useState("canvas"), boardView = boardPair[0], setBoardView = boardPair[1];
     var sourcePair = window.React.useState(null), source = sourcePair[0], setSource = sourcePair[1];
     var focusPair = window.React.useState(null), focused = focusPair[0], setFocused = focusPair[1];
+    // 연결선이 많아지면 서로 어지럽게 교차한다. 메모를 가리키거나 고른 동안만
+    // 그 메모로 이어진 선을 도드라지게 하고 나머지는 옅게 깔아 둔다.
+    var hoverPair = window.React.useState(null), hoveredNode = hoverPair[0], setHoveredNode = hoverPair[1];
     var viewPair = window.React.useState({x: 0, y: 0, zoom: 1}), view = viewPair[0], setView = viewPair[1];
     var noticePair = window.React.useState(null), notice = noticePair[0], setNotice = noticePair[1];
     var busyPair = window.React.useState(false), busy = busyPair[0], setBusy = busyPair[1];
@@ -323,8 +327,9 @@
       if (editor.node) {
         refresh(request(apiBase + "nodes/" + editor.node.id + "/content/", {method: "PATCH", body: JSON.stringify({content: content, version: editor.node.version})}));
       } else {
-        var x = Math.max(20, Math.min(CANVAS_W - NODE_W, (window.innerWidth / 2 - view.x) / view.zoom - NODE_W / 2));
-        var y = Math.max(20, Math.min(CANVAS_H - NODE_H, ((window.innerHeight - 190) / 2 - view.y) / view.zoom - NODE_H / 2));
+        // 배율로 나눈 좌표는 소수점이 길게 남는다. 서버가 자릿수를 12개로 제한하므로 반올림한다.
+        var x = Math.round(Math.max(20, Math.min(CANVAS_W - NODE_W, (window.innerWidth / 2 - view.x) / view.zoom - NODE_W / 2)));
+        var y = Math.round(Math.max(20, Math.min(CANVAS_H - NODE_H, ((window.innerHeight - 190) / 2 - view.y) / view.zoom - NODE_H / 2)));
         refresh(request(apiBase + "nodes/", {method: "POST", headers: {"Idempotency-Key": key()}, body: JSON.stringify({content: content, color: editor.color, x: x, y: y, section_id: sectionAt(x, y)})}));
       }
       setEditor(null);
@@ -384,6 +389,8 @@
     }
 
     function moveNode(node, x, y, sectionId) {
+      // 배율로 나눈 좌표는 소수점이 길게 남는다. 서버가 자릿수를 12개로 제한하므로 반올림한다.
+      x = Math.round(x); y = Math.round(y);
       // 서버 응답을 기다리지 않고 화면에 먼저 반영한다.
       // 영역 크기가 메모 수를 따라가므로 놓는 즉시 땅이 넓어지는 것이 보여야 한다.
       setState(function (current) {
@@ -545,6 +552,40 @@
         placed[node.id] = spot;
       });
       return placed;
+    }
+    // 메모를 고르면 아래에 뜨는 조작 막대의 자리를 정한다.
+    // 그대로 두면 항목 경계를 넘거나 다른 메모·이름표·연결선을 덮는다.
+    // 아래·위·왼쪽아래·왼쪽위 순서로 시도해 아무것도 가리지 않는 자리를 고른다.
+    var ACTIONS_W = 290, ACTIONS_H = 46, ACTIONS_GAP = 7;
+    function actionsOffset(node, spot) {
+      var index = node.section_id ? laneIndex(node.section_id) : -1;
+      var path = index >= 0 ? new Path2D(regionPath(index)) : null;
+      var others = visible.filter(function (row) {
+        return row.id !== node.id && row.node_type !== "title" && positions[row.id];
+      }).map(function (row) { return positions[row.id]; });
+      var labels = state.sections.map(function (section, i) { return labelBox(i); });
+      var candidates = [
+        {dx: 0, dy: NODE_H + ACTIONS_GAP},
+        {dx: 0, dy: -(ACTIONS_H + ACTIONS_GAP)},
+        {dx: NODE_W - ACTIONS_W, dy: NODE_H + ACTIONS_GAP},
+        {dx: NODE_W - ACTIONS_W, dy: -(ACTIONS_H + ACTIONS_GAP)}
+      ];
+      for (var i = 0; i < candidates.length; i += 1) {
+        var x = spot.x + candidates[i].dx, y = spot.y + candidates[i].dy;
+        // 항목 안에 완전히 들어가는가.
+        if (path) {
+          var corners = [[x, y], [x + ACTIONS_W, y], [x, y + ACTIONS_H], [x + ACTIONS_W, y + ACTIONS_H]];
+          if (!corners.every(function (p) { return hitContext.isPointInPath(path, p[0], p[1]); })) continue;
+        }
+        // 다른 메모나 항목 이름을 덮지 않는가.
+        var clash = others.some(function (row) {
+          return overlaps(x, y, ACTIONS_W, ACTIONS_H, row.x, row.y, NODE_W, NODE_H);
+        }) || labels.some(function (box) {
+          return overlaps(x, y, ACTIONS_W, ACTIONS_H, box.x, box.y, box.w, box.h);
+        });
+        if (!clash) return candidates[i];
+      }
+      return candidates[0];
     }
     // 같은 영역에 이미 놓인 메모들의 좌표.
     function takenSpots(sectionId, exceptId) {
@@ -715,7 +756,7 @@
         var taken = placed[keyName] || (placed[keyName] = []);
         var slot = slotInRegion(laneIndex(node.section_id), order, taken);
         taken.push(slot);
-        return {id: node.id, version: node.version, section_id: node.section_id, x: slot.x, y: slot.y};
+        return {id: node.id, version: node.version, section_id: node.section_id, x: Math.round(slot.x), y: Math.round(slot.y)};
       });
       if (nodes.length) refresh(request(apiBase + "auto-layout/", {method: "POST", body: JSON.stringify({nodes: nodes})}));
     }
@@ -810,9 +851,42 @@
       // 어느 쪽으로도 못 비키면 곧게 잇는다.
       return shapes[0];
     }
+    // 한 메모에 여러 선이 붙으면 모두 같은 중심에서 출발해 겹쳐 보인다.
+    // 강조 중인 메모에서는 선들을 테두리에 부챗살처럼 나눠 붙여 서로 떨어뜨린다.
+    function spreadAnchor(spotlight, connection, cx, cy, towardX, towardY) {
+      if (!spotlight) return {x: cx, y: cy};
+      var siblings = state.connections.filter(function (row) {
+        return row.node_a_id === spotlight || row.node_b_id === spotlight;
+      });
+      if (siblings.length < 2) return {x: cx, y: cy};
+      // 상대 메모의 방향 순서대로 줄을 세워야 선끼리 꼬이지 않는다.
+      var ordered = siblings.map(function (row) {
+        var otherId = row.node_a_id === spotlight ? row.node_b_id : row.node_a_id;
+        var other = positions[otherId];
+        return {id: row.id, angle: other ? Math.atan2(other.y - cy, other.x - cx) : 0};
+      }).sort(function (left, right) { return left.angle - right.angle; });
+      var slot = ordered.findIndex(function (row) { return row.id === connection.id; });
+      if (slot < 0) return {x: cx, y: cy};
+      // 상대 쪽을 향한 방향을 기준으로 좌우로 고르게 벌린다.
+      var base = Math.atan2(towardY - cy, towardX - cx);
+      var spread = Math.min(1.1, 0.34 * (ordered.length - 1));
+      var offset = ordered.length < 2 ? 0 : -spread / 2 + spread * (slot / (ordered.length - 1));
+      var angle = base + offset;
+      var radiusX = NODE_W / 2 - 6, radiusY = NODE_H / 2 - 6;
+      return {x: cx + Math.cos(angle) * radiusX, y: cy + Math.sin(angle) * radiusY};
+    }
     function line(connection) {
       var a = positions[connection.node_a_id], b = positions[connection.node_b_id]; if (!a || !b) return null;
       var x1 = a.x + NODE_W / 2, y1 = a.y + NODE_H / 2, x2 = b.x + NODE_W / 2, y2 = b.y + NODE_H / 2;
+      // 강조 중인 메모 쪽 끝만 부챗살로 벌려 선끼리 겹치지 않게 한다.
+      var spotlightId = hoveredNode || focused;
+      if (spotlightId === connection.node_a_id) {
+        var fanA = spreadAnchor(spotlightId, connection, x1, y1, x2, y2);
+        x1 = fanA.x; y1 = fanA.y;
+      } else if (spotlightId === connection.node_b_id) {
+        var fanB = spreadAnchor(spotlightId, connection, x2, y2, x1, y1);
+        x2 = fanB.x; y2 = fanB.y;
+      }
       var blockers = visible.filter(function (node) {
         return node.node_type !== "title" && node.id !== connection.node_a_id && node.id !== connection.node_b_id;
       }).map(function (node) {
@@ -830,18 +904,25 @@
       var handleY = (y1 + 3 * bend.ay + 3 * bend.by + y2) / 8;
       var curve = "M " + x1 + " " + y1 + " C " + bend.ax.toFixed(1) + " " + bend.ay.toFixed(1)
         + ", " + bend.bx.toFixed(1) + " " + bend.by.toFixed(1) + ", " + x2 + " " + y2;
-      return h("g", {key: connection.id}, h("path", {d: curve, className: "brain-connection" + (connection.pending ? " pending" : "")}), canEdit && !connection.pending ? h("circle", {cx: handleX, cy: handleY, r: 9, className: "brain-connection-delete", onClick: function () { deleteConnection(connection); }}) : null);
+      // 가리키거나 고른 메모가 있으면 그 메모로 이어진 선만 살리고 나머지는 죽인다.
+      var spotlight = hoveredNode || focused;
+      var touches = spotlight && (connection.node_a_id === spotlight || connection.node_b_id === spotlight);
+      var emphasis = !spotlight ? "" : touches ? " highlighted" : " dimmed";
+      return h("g", {key: connection.id}, h("path", {d: curve, className: "brain-connection" + emphasis + (connection.pending ? " pending" : "")}), canEdit && !connection.pending ? h("circle", {cx: handleX, cy: handleY, r: 9, className: "brain-connection-delete" + emphasis, onClick: function () { deleteConnection(connection); }}) : null);
     }
     function note(node) {
       var p = positions[node.id], selected = focused === node.id, connect = source?.id === node.id;
       var assignee = (state.participants || []).find(function (participant) { return participant.user_id === node.assignee_id; });
-      return h("article", {key: node.id, "data-node": "true", "data-color": node.color, className: "brain-note " + (selected ? "selected " : "") + (connect ? "connect-source" : ""), style: {left: p.x, top: p.y}, onMouseDown: function (event) { beginMove(event, node); }, onDoubleClick: function (event) { event.stopPropagation(); if (canEdit) editNode(node); }},
+      return h("article", {key: node.id, "data-node": "true", "data-color": node.color, className: "brain-note " + (selected ? "selected " : "") + (connect ? "connect-source" : ""), style: {left: p.x, top: p.y}, onMouseDown: function (event) { beginMove(event, node); }, onMouseEnter: function () { setHoveredNode(node.id); }, onMouseLeave: function () { setHoveredNode(function (current) { return current === node.id ? null : current; }); }, onDoubleClick: function (event) { event.stopPropagation(); if (canEdit) editNode(node); }},
         h("div", {className: "brain-note-top"}, h("span", {className: "brain-note-status " + node.status}, node.status === "accepted" ? "채택" : "아이디어"), canEdit ? h("div", {className: "brain-note-controls", onMouseDown: function (event) { event.stopPropagation(); }}, h("button", {type: "button", onClick: function (event) { event.stopPropagation(); editNode(node); }, title: "내용 수정", "aria-label": "내용 수정"}, "✎"), h("button", {type: "button", onClick: function (event) { event.stopPropagation(); deleteNode(node); }, title: "삭제", "aria-label": "삭제"}, "×")) : null),
         h("p", null, node.content),
         h("footer", null, h("span", null, "v" + node.version), h("span", {title: assignee ? "담당자 " + assignee.display_name : "담당자 없음"}, assignee ? "담당 " + assignee.display_name : "담당자 없음")),
-        selected && canEdit ? h("div", {className: "brain-note-actions", onMouseDown: function (event) { event.stopPropagation(); }},
-          h("button", {type: "button", onClick: function () { statusNode(node, "held"); }}, "보류"),
-          assigneeButton(node)) : null);
+        selected && canEdit ? (function () {
+          var place = actionsOffset(node, p);
+          return h("div", {className: "brain-note-actions", style: {left: place.dx, top: place.dy}, onMouseDown: function (event) { event.stopPropagation(); }},
+            h("button", {type: "button", onClick: function () { statusNode(node, "held"); }}, "보류"),
+            assigneeButton(node));
+        })() : null);
     }
 
     function member(userId) {
