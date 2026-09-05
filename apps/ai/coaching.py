@@ -390,16 +390,21 @@ def _apply_answer(
 
     제안이 만들어진 뒤 질문이 바뀌었으면 덮어쓰지 않고 409로 되돌린다.
     """
+    # 보류 여부는 조회 조건에서 빼고 따로 확인한다.
+    # 함께 걸면 보류된 질문이 "찾을 수 없음"으로 나와 원인을 알 수 없다.
     try:
         question = PrdQuestion.objects.select_for_update().get(
             pk=question_id,
             section__prd=prd,
             section__is_deleted=False,
             is_deleted=False,
-            is_held=False,
         )
     except PrdQuestion.DoesNotExist as exc:
         raise ValidationError({"question_id": "질문을 찾을 수 없습니다."}) from exc
+    if question.is_held:
+        raise ValidationError(
+            {"question_id": "보류한 질문입니다. 보류를 풀고 다시 시도해 주세요."}
+        )
     if question.version != generated_version or question.version != question_version:
         raise AiDraftVersionConflict(question)
     if not isinstance(content, str) or not content.strip():
