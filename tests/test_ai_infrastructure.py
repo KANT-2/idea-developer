@@ -269,15 +269,28 @@ class AiJobRunnerTests(AiInfrastructureTestCase):
         self.assertEqual(usage.prompt_version, self.prompt.version)
 
     @override_settings(AI_PROVIDER_CLASS="tests.test_ai_infrastructure.InvalidOutputProvider")
-    def test_invalid_structured_output_fails_without_retry(self):
+    def test_invalid_structured_output_waits_for_retry(self):
         job, _ = self.enqueue()
 
         AiJobRunner().run_once()
 
         job.refresh_from_db()
         usage = AiUsageLog.objects.get(job=job)
-        self.assertEqual(job.status, AiJobStatus.FAILED)
+        self.assertEqual(job.status, AiJobStatus.RETRY_WAIT)
         self.assertEqual(usage.error_code, "invalid_output")
+
+    @override_settings(
+        AI_PROVIDER_CLASS="tests.test_ai_infrastructure.InvalidOutputProvider",
+        AI_JOB_MAX_ATTEMPTS=1,
+    )
+    def test_invalid_structured_output_fails_after_attempt_limit(self):
+        job, _ = self.enqueue()
+
+        AiJobRunner().run_once()
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, AiJobStatus.FAILED)
+        self.assertEqual(AiUsageLog.objects.get(job=job).error_code, "invalid_output")
 
     @override_settings(
         AI_PROVIDER_CLASS="tests.test_ai_infrastructure.TimeoutProvider",

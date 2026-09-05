@@ -14,6 +14,7 @@ from .exceptions import (
     AiOutputValidationError,
     AiProviderError,
     AiProviderTimeout,
+    AiReferenceValidationError,
 )
 from .models import AiJob, AiJobStatus, AiUsageLog, AiUsageStatus
 from .services import (
@@ -117,12 +118,23 @@ class AiJobRunner:
                 error_message="AI provider request failed.",
                 retryable=exc.retryable,
             )
+        except AiReferenceValidationError:
+            # 이 PRD의 것이 아닌 대상을 가리킨 응답이다. 다시 물어도 같은 대상을 가리킬 뿐이고
+            # 남의 자료를 건드리려는 시도일 수도 있어 곧바로 끝낸다.
+            self._finish_failure(
+                job.pk,
+                error_code="invalid_output",
+                error_message="AI output referenced data outside this PRD.",
+                retryable=False,
+            )
         except AiOutputValidationError:
+            # 모델이 형식을 한 번 어기는 일은 흔하고, 같은 요청을 다시 보내면 대개 통과한다.
+            # 매번 사용자가 직접 다시 누르게 하는 대신 정해진 횟수까지만 자동으로 다시 시도한다.
             self._finish_failure(
                 job.pk,
                 error_code="invalid_output",
                 error_message="AI output failed server validation.",
-                retryable=False,
+                retryable=True,
             )
         except Exception:
             logger.exception("Unexpected AI job failure", extra={"ai_job_id": str(job.pk)})
