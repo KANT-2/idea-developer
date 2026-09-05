@@ -144,8 +144,8 @@ class TemplateContractTests(SimpleTestCase):
         self.assertIn('"담당자 지정"', source)
         self.assertNotIn('h("select", {value: String(node.assignee_id', source)
         selected_actions = source.split(
-            'selected && canEdit ? h("div", {className: "brain-note-actions"', 1
-        )[1].split(") : null);", 1)[0]
+            'h("div", {className: "brain-note-actions"', 1
+        )[1].split("})() : null);", 1)[0]
         self.assertNotIn("editNode(node)", selected_actions)
         self.assertIn('"보류"', selected_actions)
         self.assertIn("assigneeButton(node)", selected_actions)
@@ -165,7 +165,7 @@ class TemplateContractTests(SimpleTestCase):
         self.assertNotIn("export/markdown/", source)
         self.assertIn('useState("canvas")', source)
         self.assertIn("var CANVAS_W = 4200", source)
-        self.assertIn("function resizeBoard(total)", source)
+        self.assertIn("function resizeBoard(total, busiestRegion)", source)
         self.assertIn("function fitBoardView()", source)
         self.assertIn("Math.max(.3, Math.min(2", source)
         self.assertIn("onWheel: wheelCanvas", source)

@@ -544,24 +544,49 @@
           // 끌고 있는 메모는 손을 따라와야 한다. 자리만 차지한 것으로 친다.
           if (node.id === dragging) return taken.push(placed[node.id]);
           var spot = settleInRegion(index, placed[node.id].x, placed[node.id].y, taken);
-          if (spot) placed[node.id] = spot;
-          taken.push(placed[node.id]);
+          if (!spot) {
+            // 자리를 못 찾아도 항목 밖에 그리면 분류된 메모가 미분류처럼 보인다.
+            // 이름표 아래 가운데로 들여놓아 적어도 제 항목 안에는 있게 한다.
+            var box = regionCenter(index);
+            spot = {x: box.x - NODE_W / 2, y: box.top + LABEL_BAND + 8};
+          }
+          placed[node.id] = spot;
+          taken.push(spot);
         });
       });
-      // 분류하지 않은 메모가 네모에 걸쳐 있으면 어느 항목인지 알 수 없다.
-      // 왼쪽 여백은 메모 하나가 들어갈 만큼도 안 되므로 오른쪽 여백으로 내보낸다.
+      // 분류하지 않은 메모는 오른쪽 여백 안에 있어야 한다.
+      // 네모에 걸치면 어느 항목인지 알 수 없고, 여백을 벗어나면 화면 밖으로 사라져
+      // 미분류 개수와 눈에 보이는 수가 어긋난다.
+      var tray = trayBox();
       var trayLabel = trayLabelBox();
+      var trayTop = Math.max(tray.y, trayLabel.bottom);
+      var minX = tray.x, maxX = tray.x + tray.w - NODE_W;
+      var minY = trayTop, maxY = tray.y + tray.h - NODE_H;
+      var trayTaken = [];
       nodes.forEach(function (node) {
         if (node.section_id || node.node_type === "title" || node.id === dragging) return;
         var spot = placed[node.id];
-        if (overlaps(spot.x, spot.y, NODE_W, NODE_H, BOARD.x, BOARD.y, BOARD.w, BOARD.h)) {
-          spot = {x: BOARD.x + BOARD.w + Math.round(TRAY_GAP / 2), y: spot.y};
-        }
-        // "미분류" 이름표는 여백 맨 위 한 줄뿐이다. 거기에 걸리면 바로 아래로 내린다.
-        if (overlaps(spot.x, spot.y, NODE_W, NODE_H, trayLabel.x, trayLabel.y, trayLabel.w, trayLabel.h)) {
-          spot = {x: spot.x, y: trayLabel.bottom};
+        var ok = spot.x >= minX && spot.x <= maxX && spot.y >= minY && spot.y <= maxY
+          && !trayTaken.some(function (row) {
+            return overlaps(spot.x, spot.y, NODE_W, NODE_H, row.x, row.y, NODE_W, NODE_H);
+          });
+        if (!ok) {
+          // 여백을 벗어났거나 다른 미분류 메모와 겹치면 빈 칸을 찾아 앉힌다.
+          var columns = Math.max(1, Math.floor(tray.w / (NODE_W + 20)));
+          for (var slot = 0; slot < 200; slot += 1) {
+            var candidate = {
+              x: minX + 12 + (slot % columns) * (NODE_W + 20),
+              y: minY + 12 + Math.floor(slot / columns) * (NODE_H + 18)
+            };
+            if (candidate.y > maxY) break;
+            var clash = trayTaken.some(function (row) {
+              return overlaps(candidate.x, candidate.y, NODE_W, NODE_H, row.x, row.y, NODE_W, NODE_H);
+            });
+            if (!clash) { spot = candidate; break; }
+          }
         }
         placed[node.id] = spot;
+        trayTaken.push(spot);
       });
       return placed;
     }
