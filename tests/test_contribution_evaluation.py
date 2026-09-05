@@ -11,6 +11,7 @@ from apps.ai.contribution import ContributionEvaluationService
 from apps.ai.exceptions import AiProviderError
 from apps.ai.models import (
     AiFeatureType,
+    AiPrompt,
     ContributionCommentScore,
     ContributionEvaluation,
     ContributionEvaluationStatus,
@@ -221,6 +222,9 @@ class ContributionEvaluationTests(TestCase):
             previous_status=PrdStatus.IN_PROGRESS,
             new_status=PrdStatus.COMPLETED,
         )
+        # 마이그레이션이 심어 둔 실제 프롬프트를 걷어내고 시작한다.
+        # 남겨 두면 이 테스트가 만드는 판이 2판이 되어 기록되는 판 번호가 어긋난다.
+        AiPrompt.objects.filter(feature_type=AiFeatureType.CONTRIBUTION_EVALUATION).delete()
         AiPromptService().create_version(
             feature_type=AiFeatureType.CONTRIBUTION_EVALUATION,
             system_instructions="Evaluate semantic reflection, not word overlap.",
