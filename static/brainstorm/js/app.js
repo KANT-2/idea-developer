@@ -20,8 +20,171 @@
   var LANE_GAP = 20;
   var LANE_TOP = 350;
   var LANE_H = 2200;
-  var CANVAS_W = 4800;
-  var CANVAS_H = 3200;
+  var CANVAS_W = 4200;
+  var CANVAS_H = 2400;
+  // 도화지 네모 하나를 곡선으로 갈라 영역을 만든다.
+  // 이웃한 조각이 같은 경계식을 쓰므로 사이에 빈틈이 생기지 않는다.
+  // 메모를 넉넉히 놓을 수 있도록 크게 잡는다.
+  // 대신 화면을 열 때 도화지 전체가 보이도록 배율을 자동으로 맞춘다.
+  // 네모 밖은 여백으로 두어 분류하지 않은 메모를 놓는 자리로 쓴다.
+  // 도화지 = 네모(항목 영역) + 오른쪽 여백(미분류 자리).
+  // 화면을 열면 이 둘이 나란히 한눈에 들어와야 한다.
+  var TRAY_W = 700;            // 오른쪽 미분류 여백의 너비
+  var TRAY_GAP = 46;           // 네모와 여백 사이 간격
+  var BOARD_BASE = {x: 55, y: 45, w: 1900, h: 1150};
+  var BOARD = {x: BOARD_BASE.x, y: BOARD_BASE.y, w: BOARD_BASE.w, h: BOARD_BASE.h};
+  // 메모가 늘면 네모도 자란다. 비어 있을 때 크게 열어 둘 이유가 없고,
+  // 많아지면 놓을 자리가 필요하므로 개수를 따라 넓힌다.
+  var BOARD_FREE_SLOTS = 14;
+  var BOARD_MAX = {w: 3200, h: 1900};
+  function resizeBoard(total) {
+    var over = Math.max(0, Number(total || 0) - BOARD_FREE_SLOTS);
+    var steps = Math.ceil(over / 7);
+    BOARD.w = Math.min(BOARD_MAX.w, BOARD_BASE.w + steps * 220);
+    BOARD.h = Math.min(BOARD_MAX.h, BOARD_BASE.h + steps * 130);
+  }
+  // 미분류 메모를 두는 오른쪽 여백. 네모가 자라면 같이 밀린다.
+  function trayBox() {
+    return {x: BOARD.x + BOARD.w + TRAY_GAP, y: BOARD.y, w: TRAY_W, h: BOARD.h};
+  }
+  // 화면에 들어와야 할 전체 폭·높이 = 네모 + 간격 + 여백.
+  function canvasContentSize() {
+    return {w: BOARD.x * 2 + BOARD.w + TRAY_GAP + TRAY_W, h: BOARD.y * 2 + BOARD.h};
+  }
+  var REGION_CELLS = [
+    {row: 0, col: 0}, {row: 0, col: 1}, {row: 0, col: 2},
+    {row: 1, col: 0}, {row: 1, col: 1}, {row: 1, col: 2},
+    {row: 2, col: 0}
+  ];
+  var ROW_COUNT = 3;
+  // 메모가 많이 붙은 항목이 더 넓은 땅을 갖도록 영역별 무게를 둔다.
+  // 아무것도 없을 때는 모두 1이라 균등하게 나뉜다.
+  var regionWeights = REGION_CELLS.map(function () { return 1; });
+  function setRegionWeights(counts) {
+    regionWeights = REGION_CELLS.map(function (cell, index) {
+      // 비어 있어도 이름표가 들어갈 최소 땅은 남긴다.
+      return 1 + Math.min(6, Number(counts[index] || 0)) * 0.55;
+    });
+  }
+  function cellsInRow(row) {
+    return REGION_CELLS.map(function (cell, index) { return {cell: cell, index: index}; })
+      .filter(function (item) { return item.cell.row === row; });
+  }
+  // 무게 목록을 0~1 사이 누적 경계로 바꾼다. 한 조각이 지나치게 작아지지 않도록 눌러 준다.
+  function toEdges(weights) {
+    var floor = 0.16, total = weights.reduce(function (sum, value) { return sum + value; }, 0) || 1;
+    var shares = weights.map(function (value) { return Math.max(floor, value / total); });
+    var scale = shares.reduce(function (sum, value) { return sum + value; }, 0);
+    var edges = [0], running = 0;
+    shares.forEach(function (share) { running += share / scale; edges.push(running); });
+    edges[edges.length - 1] = 1;
+    return edges;
+  }
+  function rowEdges() {
+    var weights = [];
+    for (var row = 0; row < ROW_COUNT; row += 1) {
+      weights.push(cellsInRow(row).reduce(function (sum, item) { return sum + regionWeights[item.index]; }, 0));
+    }
+    return toEdges(weights);
+  }
+  function rowSplits(row) {
+    var edges = toEdges(cellsInRow(row).map(function (item) { return regionWeights[item.index]; }));
+    return edges.slice(1, -1);
+  }
+  // 가로 경계선: 도화지를 가로지르며 물결친다. 위아래 두 조각이 이 선을 함께 쓴다.
+  function edgeY(edge, xRatio) {
+    var edges = rowEdges();
+    var base = BOARD.y + BOARD.h * edges[edge];
+    if (edge === 0 || edge === edges.length - 1) return base;
+    return base + Math.sin(xRatio * Math.PI * 2.2 + edge * 1.9) * 34;
+  }
+  // 세로 경계선: 양 끝(모서리)에서는 흔들림이 0이라 조각들이 정확히 맞물린다.
+  function edgeX(colRatio, row, t) {
+    var base = BOARD.x + BOARD.w * colRatio;
+    if (colRatio === 0 || colRatio === 1) return base;
+    return base + Math.sin(Math.PI * t) * 44 * (row % 2 === 0 ? 1 : -1);
+  }
+  function cellRatios(cell) {
+    var lefts = [0].concat(rowSplits(cell.row)).concat([1]);
+    return {left: lefts[cell.col], right: lefts[cell.col + 1]};
+  }
+  function regionPoints(index) {
+    var cell = REGION_CELLS[index % REGION_CELLS.length];
+    var side = cellRatios(cell);
+    var topEdge = cell.row, bottomEdge = cell.row + 1;
+    var steps = 26;
+    var points = [];
+    // 위 경계: 왼쪽 → 오른쪽
+    for (var a = 0; a <= steps; a += 1) {
+      var xr = side.left + (side.right - side.left) * (a / steps);
+      points.push([BOARD.x + BOARD.w * xr, edgeY(topEdge, xr)]);
+    }
+    // 오른쪽 경계: 위 → 아래
+    for (var b = 1; b <= steps; b += 1) {
+      var t = b / steps;
+      var yTop = edgeY(topEdge, side.right), yBottom = edgeY(bottomEdge, side.right);
+      points.push([edgeX(side.right, cell.row, t), yTop + (yBottom - yTop) * t]);
+    }
+    // 아래 경계: 오른쪽 → 왼쪽
+    for (var c = 1; c <= steps; c += 1) {
+      var xr2 = side.right + (side.left - side.right) * (c / steps);
+      points.push([BOARD.x + BOARD.w * xr2, edgeY(bottomEdge, xr2)]);
+    }
+    // 왼쪽 경계: 아래 → 위
+    for (var d = 1; d < steps; d += 1) {
+      var u = 1 - d / steps;
+      var yTop2 = edgeY(topEdge, side.left), yBottom2 = edgeY(bottomEdge, side.left);
+      points.push([edgeX(side.left, cell.row, u), yTop2 + (yBottom2 - yTop2) * u]);
+    }
+    return points;
+  }
+  function regionPath(index) {
+    return regionPoints(index).reduce(function (path, point, i) {
+      return path + (i === 0 ? "M " : " L ") + point[0].toFixed(1) + " " + point[1].toFixed(1);
+    }, "") + " Z";
+  }
+  // 곡선 영역을 감싸는 최소 사각형. 빈 자리를 훑을 범위로 쓴다.
+  function regionBounds(index) {
+    var points = regionPoints(index);
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    points.forEach(function (point) {
+      minX = Math.min(minX, point[0]); maxX = Math.max(maxX, point[0]);
+      minY = Math.min(minY, point[1]); maxY = Math.max(maxY, point[1]);
+    });
+    return {x: minX, y: minY, w: maxX - minX, h: maxY - minY};
+  }
+  // 영역 이름표와 메모 배치에 쓸 대략의 중심.
+  function regionCenter(index) {
+    var cell = REGION_CELLS[index % REGION_CELLS.length];
+    var side = cellRatios(cell);
+    var midRatio = (side.left + side.right) / 2;
+    return {
+      x: BOARD.x + BOARD.w * midRatio,
+      y: (edgeY(cell.row, midRatio) + edgeY(cell.row + 1, midRatio)) / 2,
+      w: BOARD.w * (side.right - side.left),
+      h: BOARD.h * (rowEdges()[cell.row + 1] - rowEdges()[cell.row]),
+      top: edgeY(cell.row, midRatio)
+    };
+  }
+  // 곡선 안에 점이 들어있는지는 브라우저의 Path2D 판정을 그대로 쓴다.
+  var hitContext = document.createElement("canvas").getContext("2d");
+  // 도화지가 화면에 통째로 들어오도록 배율과 위치를 계산한다.
+  function fitBoardView() {
+    var stage = document.querySelector(".brain-stage");
+    var width = stage ? stage.clientWidth : window.innerWidth;
+    var height = stage ? stage.clientHeight : window.innerHeight - 220;
+    var margin = 28;
+    var content = canvasContentSize();
+    var zoom = Math.max(.2, Math.min(1.4, Math.min(
+      (width - margin * 2) / content.w,
+      (height - margin * 2) / content.h
+    )));
+    return {
+      x: (width - content.w * zoom) / 2,
+      y: margin / 2,
+      zoom: zoom
+    };
+  }
   var laneColors = [
     ["#eef2ff", "#c7d2fe", "#4338ca"], ["#ecfeff", "#a5f3fc", "#0e7490"],
     ["#ecfdf5", "#a7f3d0", "#047857"], ["#fff7ed", "#fed7aa", "#c2410c"],
@@ -82,6 +245,14 @@
     var cursorRef = window.React.useRef(null);
     var initialViewport = window.React.useRef(false);
     var viewportSaveRef = window.React.useRef(null);
+    // 지금 끌고 있는 메모. 이 메모만은 자리 정리에서 빼 손을 그대로 따라오게 한다.
+    var draggingRef = window.React.useRef(null);
+    // 첫 그림에는 이름표 글자가 아직 없어 자리를 어림잡을 수밖에 없다.
+    // 글자가 생긴 다음 한 번 더 그려서 잰 크기로 자리를 확정한다.
+    var measuredPair = window.React.useState(false), measured = measuredPair[0], setMeasured = measuredPair[1];
+    window.React.useEffect(function () {
+      if (!measured && state) setMeasured(true);
+    });
     var fullSyncGenerationRef = window.React.useRef(0);
 
     function fullSync(canvasId) {
@@ -96,9 +267,16 @@
           if (generation !== fullSyncGenerationRef.current) return;
           activeCanvasId = data.canvas.id;
           cursorRef.current = data.cursor; setState(data); setSync("connected");
-          if (!initialViewport.current && data.viewport) {
-            setView({x: Number(data.viewport.viewport_x || 0), y: Number(data.viewport.viewport_y || 0), zoom: Math.max(.3, Math.min(2, Number(data.viewport.zoom_level || 1)))});
+          if (!initialViewport.current) {
+            resizeBoard((data.nodes || []).filter(function (n) { return n.node_type === "note" && n.status !== "held"; }).length);
+            // 페이지를 열 때는 언제나 도화지 전체가 한눈에 들어오게 맞춘다.
+            // 지난번에 확대해 둔 배율을 그대로 복원하면 들어오자마자 축소해야 한다.
+            setView(fitBoardView());
             initialViewport.current = true;
+            // 첫 계산은 무대가 아직 그려지기 전일 수 있어 한 번 더 맞춘다.
+            window.requestAnimationFrame(function () {
+              window.requestAnimationFrame(function () { setView(fitBoardView()); });
+            });
           }
         }).catch(function (error) {
           if (generation !== fullSyncGenerationRef.current) return;
@@ -206,6 +384,18 @@
     }
 
     function moveNode(node, x, y, sectionId) {
+      // 서버 응답을 기다리지 않고 화면에 먼저 반영한다.
+      // 영역 크기가 메모 수를 따라가므로 놓는 즉시 땅이 넓어지는 것이 보여야 한다.
+      setState(function (current) {
+        if (!current) return current;
+        return Object.assign({}, current, {
+          nodes: current.nodes.map(function (item) {
+            return item.id === node.id
+              ? Object.assign({}, item, {x: x, y: y, section_id: sectionId})
+              : item;
+          })
+        });
+      });
       refresh(request(apiBase + "nodes/" + node.id + "/position/", {method: "PATCH", body: JSON.stringify({version: node.version, x: x, y: y, section_id: sectionId})}));
     }
 
@@ -213,18 +403,148 @@
       statusNode(node, "held");
     }
 
-    function canvasWidth() { return Math.max(CANVAS_W, state.sections.length * (LANE_W + LANE_GAP) + 400); }
+    function canvasWidth() { return CANVAS_W; }
     function laneIndex(sectionId) { return state.sections.findIndex(function (section) { return section.id === sectionId; }); }
+    // 이름표가 차지하는 띠의 높이. 번호·제목·개수 세 줄이 여기에 들어간다.
+    var LABEL_BAND = 118;
+    // 그리는 위치는 저장된 좌표 그대로다.
+    // 끌고 다니는 동안 밀어내면 메모가 손을 따라오지 않아 어디에 놓이는지 알 수 없다.
+    // 자리 정리는 손을 뗀 뒤 settleInRegion이 한 번만 한다.
     function displayPosition(node) {
       return {x: Number(node.x), y: Number(node.y)};
+    }
+    function overlaps(ax, ay, aw, ah, bx, by, bw, bh) {
+      return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+    }
+    // 이름표가 놓인 자리. 메모가 조금이라도 겹치면 안 된다.
+    // 번호·제목·개수의 실제 글자 크기를 재서 쓴다. 제목 길이가 영역마다 달라
+    // 어림잡은 폭으로는 긴 제목의 끝을 가리게 된다.
+    function labelBox(index) {
+      var box = regionCenter(index);
+      var group = document.querySelectorAll(".brain-region")[index];
+      var texts = group ? group.querySelectorAll("text") : [];
+      var pad = 14;
+      var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (var i = 0; i < texts.length; i += 1) {
+        try {
+          var b = texts[i].getBBox();
+          minX = Math.min(minX, b.x); maxX = Math.max(maxX, b.x + b.width);
+          minY = Math.min(minY, b.y); maxY = Math.max(maxY, b.y + b.height);
+        } catch (error) { /* 아직 그려지지 않은 글자는 건너뛴다 */ }
+      }
+      if (minX < maxX) {
+        return {x: minX - pad, y: minY - pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2};
+      }
+      // 화면에 없으면 이름표가 차지할 자리를 어림잡는다.
+      var half = Math.min(260, Math.max(120, box.w / 2 - 20));
+      return {x: box.x - half, y: box.top + 18, w: half * 2, h: LABEL_BAND};
+    }
+    // 놓은 자리를 영역 안의 빈 곳으로 옮겨 준다.
+    // 네 모서리가 모두 영역 안에 들어가야 하므로 곡선 밖으로 삐져나오지 않는다.
+    // taken은 이미 자리를 차지한 메모들의 좌표다.
+    function settleInRegion(index, wantX, wantY, taken) {
+      var path = new Path2D(regionPath(index));
+      var bounds = regionBounds(index);
+      var label = labelBox(index);
+      var GAP = 10;
+      // 경계선에 딱 붙으면 어느 영역 것인지 헷갈린다. 이만큼은 안쪽으로 들여 놓는다.
+      var PAD = 24;
+      // 네 모서리에 각 변의 가운데까지 본다.
+      // 곡선이 안쪽으로 부풀면 모서리만으로는 선을 넘은 것을 놓친다.
+      function inside(x, y, pad) {
+        var left = x - pad, top = y - pad;
+        var right = x + NODE_W + pad, bottom = y + NODE_H + pad;
+        var midX = (left + right) / 2, midY = (top + bottom) / 2;
+        var probes = [
+          [left, top], [right, top], [left, bottom], [right, bottom],
+          [midX, top], [midX, bottom], [left, midY], [right, midY]
+        ];
+        return probes.every(function (point) {
+          return hitContext.isPointInPath(path, point[0], point[1]);
+        });
+      }
+      // level 0: 여백·이름표·이웃을 모두 지킨다.
+      // level 1: 이웃과의 겹침만 눈감는다. 좁은 영역에 메모가 몰린 경우다.
+      // level 2: 안쪽 여백까지 포기한다. 그래도 영역 밖과 이름표는 끝까지 지킨다.
+      function fits(x, y, level) {
+        if (!inside(x, y, level >= 2 ? 0 : PAD)) return false;
+        if (overlaps(x, y, NODE_W, NODE_H, label.x, label.y, label.w, label.h)) return false;
+        if (level >= 1) return true;
+        return !taken.some(function (spot) {
+          return overlaps(x, y, NODE_W, NODE_H, spot.x - GAP, spot.y - GAP, NODE_W + GAP * 2, NODE_H + GAP * 2);
+        });
+      }
+      // 놓은 자리가 이미 멀쩡하면 그대로 둔다.
+      if (fits(wantX, wantY, 0)) return {x: wantX, y: wantY};
+      function nearest(level) {
+        var step = 14, best = null, bestDistance = Infinity;
+        for (var y = bounds.y; y <= bounds.y + bounds.h - NODE_H; y += step) {
+          for (var x = bounds.x; x <= bounds.x + bounds.w - NODE_W; x += step) {
+            var distance = (x - wantX) * (x - wantX) + (y - wantY) * (y - wantY);
+            if (distance >= bestDistance || !fits(x, y, level)) continue;
+            best = {x: x, y: y}; bestDistance = distance;
+          }
+        }
+        return best;
+      }
+      return nearest(0) || nearest(1) || nearest(2);
+    }
+    // 화면에 그릴 자리를 한 번에 정한다.
+    // 영역의 넓이가 메모 수를 따라 움직이는 탓에, 메모 하나를 옮기면 다른 영역의
+    // 경계까지 밀려서 잘 놓여 있던 메모가 선을 넘거나 이름표를 덮는다.
+    // 그래서 그릴 때마다 어긋난 것만 안쪽으로 들인다. 저장된 좌표는 건드리지 않으므로
+    // 서버에 다시 쓰지 않고, 함께 편집 중인 사람과 부딪히지도 않는다.
+    function layoutPositions(nodes) {
+      var placed = {};
+      var dragging = draggingRef.current;
+      nodes.forEach(function (node) { placed[node.id] = {x: Number(node.x), y: Number(node.y)}; });
+      state.sections.forEach(function (section, index) {
+        var taken = [];
+        nodes.forEach(function (node) {
+          if (node.node_type === "title" || node.section_id !== section.id) return;
+          // 끌고 있는 메모는 손을 따라와야 한다. 자리만 차지한 것으로 친다.
+          if (node.id === dragging) return taken.push(placed[node.id]);
+          var spot = settleInRegion(index, placed[node.id].x, placed[node.id].y, taken);
+          if (spot) placed[node.id] = spot;
+          taken.push(placed[node.id]);
+        });
+      });
+      // 분류하지 않은 메모가 네모에 걸쳐 있으면 어느 항목인지 알 수 없다.
+      // 왼쪽 여백은 메모 하나가 들어갈 만큼도 안 되므로 오른쪽 여백으로 내보낸다.
+      nodes.forEach(function (node) {
+        if (node.section_id || node.node_type === "title" || node.id === dragging) return;
+        var spot = placed[node.id];
+        if (!overlaps(spot.x, spot.y, NODE_W, NODE_H, BOARD.x, BOARD.y, BOARD.w, BOARD.h)) return;
+        placed[node.id] = {x: BOARD.x + BOARD.w + Math.round(TRAY_GAP / 2), y: spot.y};
+      });
+      return placed;
+    }
+    // 같은 영역에 이미 놓인 메모들의 좌표.
+    function takenSpots(sectionId, exceptId) {
+      return state.nodes.filter(function (item) {
+        return item.id !== exceptId && item.section_id === sectionId
+          && item.node_type === "note" && item.status !== "held";
+      }).map(function (item) { return {x: Number(item.x), y: Number(item.y)}; });
     }
     function sectionAt(x, y) {
       var centerX = x + NODE_W / 2, centerY = y + NODE_H / 2;
       for (var index = 0; index < state.sections.length; index += 1) {
-        var left = 40 + index * (LANE_W + LANE_GAP);
-        if (centerX >= left && centerX <= left + LANE_W && centerY >= LANE_TOP && centerY <= LANE_TOP + LANE_H) return state.sections[index].id;
+        if (hitContext.isPointInPath(new Path2D(regionPath(index)), centerX, centerY)) {
+          return state.sections[index].id;
+        }
       }
+      // 어느 영역에도 닿지 않으면 도화지의 빈 공간이므로 분류하지 않은 상태로 둔다.
       return null;
+    }
+    // 영역 안에서 메모가 겹치지 않게 놓을 자리를 고른다.
+    // 격자로 어림잡은 뒤 settleInRegion에 맡겨 곡선 밖과 이름표를 피하게 한다.
+    function slotInRegion(index, order, taken) {
+      var box = regionCenter(index);
+      var perRow = Math.max(1, Math.floor((box.w * 0.78) / (NODE_W * 0.62)));
+      var column = order % perRow, row = Math.floor(order / perRow);
+      var guessX = box.x - (perRow * NODE_W * 0.62) / 2 + column * NODE_W * 0.62;
+      var guessY = box.top + LABEL_BAND + 8 + row * NODE_H * 0.72;
+      return settleInRegion(index, guessX, guessY, taken || []) || {x: guessX, y: guessY};
     }
 
     function createConnection(nodeA, nodeB) {
@@ -299,23 +619,30 @@
         setSource(null); setTool("select"); return;
       }
       if (!state.permissions.can_edit || state.permissions.is_completed || event.button !== 0) return;
-      var start = displayPosition(node), sx = event.clientX, sy = event.clientY, moved = false;
+      // 화면에 보이는 자리에서 잡아야 손에 쥐는 순간 메모가 튀지 않는다.
+      var start = positions[node.id] || displayPosition(node);
+      var sx = event.clientX, sy = event.clientY, moved = false;
       function moving(moveEvent) {
         var deltaX = moveEvent.clientX - sx, deltaY = moveEvent.clientY - sy;
         if (!moved && Math.abs(deltaX) + Math.abs(deltaY) < 5) return;
         moved = true;
+        draggingRef.current = node.id;
         var x = Math.max(10, Math.min(canvasWidth() - NODE_W, start.x + deltaX / view.zoom)), y = Math.max(10, Math.min(CANVAS_H - NODE_H, start.y + deltaY / view.zoom));
         setState(function (previous) { return Object.assign({}, previous, {nodes: previous.nodes.map(function (item) { return item.id === node.id ? Object.assign({}, item, {x: x, y: y}) : item; })}); });
       }
       function done(upEvent) {
         window.removeEventListener("mousemove", moving); window.removeEventListener("mouseup", done);
+        draggingRef.current = null;
         if (!moved) return;
         if (document.elementFromPoint(upEvent.clientX, upEvent.clientY)?.closest(".brain-held")) {
           holdNode(node);
           return;
         }
         var x = Math.max(10, Math.min(canvasWidth() - NODE_W, start.x + (upEvent.clientX - sx) / view.zoom)), y = Math.max(10, Math.min(CANVAS_H - NODE_H, start.y + (upEvent.clientY - sy) / view.zoom));
-        moveNode(node, x, y, sectionAt(x, y));
+        // 손을 뗀 지금에서야 자리를 정리한다.
+        var sectionId = sectionAt(x, y), spot = {x: x, y: y}, index = sectionId ? laneIndex(sectionId) : -1;
+        if (index >= 0) spot = settleInRegion(index, x, y, takenSpots(sectionId, node.id)) || spot;
+        moveNode(node, spot.x, spot.y, sectionId);
       }
       window.addEventListener("mousemove", moving); window.addEventListener("mouseup", done);
     }
@@ -349,11 +676,19 @@
     }
 
     function autoLayout() {
-      var counters = {};
+      var counters = {}, placed = {};
       var nodes = state.nodes.filter(function (node) { return node.node_type === "note" && node.status !== "held"; }).map(function (node) {
-        var keyName = node.section_id ? String(node.section_id) : "none", index = counters[keyName] || 0; counters[keyName] = index + 1;
-        if (!node.section_id) return {id: node.id, version: node.version, section_id: null, x: 55 + (index % 6) * 205, y: 115 + Math.floor(index / 6) * 145};
-        return {id: node.id, version: node.version, section_id: node.section_id, x: 55 + laneIndex(node.section_id) * (LANE_W + LANE_GAP) + (index % 2) * 128, y: LANE_TOP + 90 + Math.floor(index / 2) * 155};
+        var keyName = node.section_id ? String(node.section_id) : "none", order = counters[keyName] || 0; counters[keyName] = order + 1;
+        // 분류하지 않은 메모는 오른쪽 여백에 두 줄로 늘어놓는다.
+        if (!node.section_id) {
+          var tray = trayBox();
+          return {id: node.id, version: node.version, section_id: null, x: tray.x + 24 + (order % 2) * (NODE_W + 20), y: tray.y + 92 + Math.floor(order / 2) * (NODE_H + 18)};
+        }
+        // 같은 영역에 앞서 배치한 자리를 넘겨야 서로 겹치지 않는다.
+        var taken = placed[keyName] || (placed[keyName] = []);
+        var slot = slotInRegion(laneIndex(node.section_id), order, taken);
+        taken.push(slot);
+        return {id: node.id, version: node.version, section_id: node.section_id, x: slot.x, y: slot.y};
       });
       if (nodes.length) refresh(request(apiBase + "auto-layout/", {method: "POST", body: JSON.stringify({nodes: nodes})}));
     }
@@ -400,13 +735,75 @@
     var canEdit = state.permissions.can_edit && !state.permissions.is_completed;
     var canCreateNote = state.permissions.can_create_note && !state.permissions.is_completed;
     var visible = state.nodes.filter(function (node) { return node.node_type === "title" || filter === "all" || node.status === filter; });
-    var positions = {}; visible.forEach(function (node) { positions[node.id] = displayPosition(node); });
+    var positions = layoutPositions(visible);
 
     function toolButton(value, icon, label) { return h("button", {type: "button", className: "brain-tool " + (tool === value ? "active" : ""), onClick: function () { setTool(value); if (value !== "connect") setSource(null); }}, h("i", {className: icon}), label); }
+    // 연결선이 상관없는 메모 위를 지나가면 그 메모까지 이어진 것처럼 보이고,
+    // 항목 이름 위를 지나가면 글자를 읽기 어렵다. 둘 다 피해서 잇는다.
+    // 조종점 두 개를 따로 밀 수 있어야 한쪽 끝에 가까이 붙은 것도 비켜 갈 수 있다.
+    // blockers는 {x, y, w, h, margin} 꼴의 사각형들이다.
+    function routeConnection(x1, y1, x2, y2, blockers) {
+      var dx = x2 - x1, dy = y2 - y1;
+      var length = Math.sqrt(dx * dx + dy * dy) || 1;
+      var awayX = -dy / length, awayY = dx / length;
+      function control(first, second) {
+        return {
+          ax: x1 + dx / 3 + awayX * first, ay: y1 + dy / 3 + awayY * first,
+          bx: x1 + dx * 2 / 3 + awayX * second, by: y1 + dy * 2 / 3 + awayY * second
+        };
+      }
+      function hits(c) {
+        // 이은 두 메모는 blockers에서 이미 빠졌으므로 선 전체를 살핀다.
+        for (var step = 1; step <= 47; step += 1) {
+          var t = step / 48, u = 1 - t;
+          var px = u * u * u * x1 + 3 * u * u * t * c.ax + 3 * u * t * t * c.bx + t * t * t * x2;
+          var py = u * u * u * y1 + 3 * u * u * t * c.ay + 3 * u * t * t * c.by + t * t * t * y2;
+          var blocked = blockers.some(function (spot) {
+            var edge = spot.margin;
+            return px > spot.x - edge && px < spot.x + spot.w + edge
+              && py > spot.y - edge && py < spot.y + spot.h + edge;
+          });
+          if (blocked) return true;
+        }
+        return false;
+      }
+      // 0은 곧은 선. 그다음부터 양쪽을 함께, 앞쪽만, 뒤쪽만 순서로 넓혀 간다.
+      var steps = [110, 220, 340, 470, 620];
+      var shapes = [control(0, 0)];
+      steps.forEach(function (amount) {
+        [amount, -amount].forEach(function (signed) {
+          shapes.push(control(signed, signed));
+          shapes.push(control(signed, 0));
+          shapes.push(control(0, signed));
+        });
+      });
+      for (var i = 0; i < shapes.length; i += 1) {
+        if (!hits(shapes[i])) return shapes[i];
+      }
+      // 어느 쪽으로도 못 비키면 곧게 잇는다.
+      return shapes[0];
+    }
     function line(connection) {
       var a = positions[connection.node_a_id], b = positions[connection.node_b_id]; if (!a || !b) return null;
       var x1 = a.x + NODE_W / 2, y1 = a.y + NODE_H / 2, x2 = b.x + NODE_W / 2, y2 = b.y + NODE_H / 2;
-      return h("g", {key: connection.id}, h("path", {d: "M " + x1 + " " + y1 + " C " + (x1 + x2) / 2 + " " + y1 + ", " + (x1 + x2) / 2 + " " + y2 + ", " + x2 + " " + y2, className: "brain-connection" + (connection.pending ? " pending" : "")}), canEdit && !connection.pending ? h("circle", {cx: (x1 + x2) / 2, cy: (y1 + y2) / 2, r: 9, className: "brain-connection-delete", onClick: function () { deleteConnection(connection); }}) : null);
+      var blockers = visible.filter(function (node) {
+        return node.node_type !== "title" && node.id !== connection.node_a_id && node.id !== connection.node_b_id;
+      }).map(function (node) {
+        var spot = positions[node.id];
+        return spot ? {x: spot.x, y: spot.y, w: NODE_W, h: NODE_H, margin: 12} : null;
+      }).filter(Boolean);
+      // 항목 이름표도 피해야 한다. labelBox가 이미 여유를 두고 재므로 조금만 더 준다.
+      state.sections.forEach(function (section, index) {
+        var box = labelBox(index);
+        blockers.push({x: box.x, y: box.y, w: box.w, h: box.h, margin: 4});
+      });
+      var bend = routeConnection(x1, y1, x2, y2, blockers);
+      // 곡선의 한가운데. 삭제 단추를 여기에 둔다.
+      var handleX = (x1 + 3 * bend.ax + 3 * bend.bx + x2) / 8;
+      var handleY = (y1 + 3 * bend.ay + 3 * bend.by + y2) / 8;
+      var curve = "M " + x1 + " " + y1 + " C " + bend.ax.toFixed(1) + " " + bend.ay.toFixed(1)
+        + ", " + bend.bx.toFixed(1) + " " + bend.by.toFixed(1) + ", " + x2 + " " + y2;
+      return h("g", {key: connection.id}, h("path", {d: curve, className: "brain-connection" + (connection.pending ? " pending" : "")}), canEdit && !connection.pending ? h("circle", {cx: handleX, cy: handleY, r: 9, className: "brain-connection-delete", onClick: function () { deleteConnection(connection); }}) : null);
     }
     function note(node) {
       var p = positions[node.id], selected = focused === node.id, connect = source?.id === node.id;
@@ -478,11 +875,11 @@
     function moveToSection(node, sectionId) {
       var sectionNodes = state.nodes.filter(function (item) { return item.node_type === "note" && item.section_id === sectionId && item.status !== "held" && item.id !== node.id; });
       if (sectionId === null) {
-        moveNode(node, 55 + (sectionNodes.length % 6) * 205, 115 + Math.floor(sectionNodes.length / 6) * 145, null);
+        moveNode(node, trayBox().x + 24 + (sectionNodes.length % 2) * 252, trayBox().y + 92 + Math.floor(sectionNodes.length / 2) * 162, null);
         return;
       }
-      var index = sectionNodes.length;
-      moveNode(node, 55 + laneIndex(sectionId) * (LANE_W + LANE_GAP) + (index % 2) * 128, LANE_TOP + 90 + Math.floor(index / 2) * 155, sectionId);
+      var slot = slotInRegion(laneIndex(sectionId), sectionNodes.length, takenSpots(sectionId, node.id));
+      moveNode(node, slot.x, slot.y, sectionId);
     }
 
     function dropNode(event, sectionId) {
@@ -563,12 +960,37 @@
     }
 
     function renderCanvas() {
+      // 그리기 전에 도화지 크기와 영역 배분을 메모 수에 맞춰 다시 계산한다.
+      resizeBoard(visible.length);
+      setRegionWeights(state.sections.map(function (section) {
+        return visible.filter(function (node) { return node.section_id === section.id; }).length;
+      }));
       return h("main", {className: "brain-stage", onMouseDown: pan, onWheel: wheelCanvas},
         h("div", {className: "brain-canvas-hint"}, h("i", {className: "bi bi-arrows-move"}), " 빈 공간을 드래그해 이동 · 휠로 패닝 · Ctrl+휠로 확대/축소"),
-        h("div", {className: "brain-zoom"}, h("button", {onClick: function () { zoom(.1); }}, "+"), h("span", null, Math.round(view.zoom * 100) + "%"), h("button", {onClick: function () { zoom(-.1); }}, "−"), h("button", {onClick: function () { var next = {x: 0, y: 0, zoom: 1}; setView(next); saveView(next); }}, "⌂")),
+        h("div", {className: "brain-zoom"}, h("button", {onClick: function () { zoom(.1); }}, "+"), h("span", null, Math.round(view.zoom * 100) + "%"), h("button", {onClick: function () { zoom(-.1); }}, "−"), h("button", {title: "도화지 전체 보기", onClick: function () { var next = fitBoardView(); setView(next); saveView(next); }}, "⌂")),
         h("div", {className: "brain-canvas", style: {width: canvasWidth(), height: CANVAS_H, transform: "translate(" + view.x + "px," + view.y + "px) scale(" + view.zoom + ")"}},
-          h("section", {className: "brain-free-zone", style: {width: canvasWidth() - 80}}, h("div", null, h("strong", null, "미분류 아이디어"), h("span", null, state.counts.unclassified)), h("p", null, "메모를 자유롭게 작성한 뒤 아래 섹션으로 드래그해 분류하세요")),
-          state.sections.map(function (section, index) { var color = laneColors[index % laneColors.length], count = visible.filter(function (node) { return node.section_id === section.id; }).length; return h("section", {key: section.id, className: "brain-lane", style: {left: 40 + index * (LANE_W + LANE_GAP), top: LANE_TOP, width: LANE_W, height: LANE_H, background: color[0], borderColor: color[1]}}, h("header", {style: {background: color[1], color: color[2]}}, h("span", null, String(index + 1).padStart(2, "0")), h("strong", null, section.title), h("small", null, count + "개 아이디어")), state.permissions.can_apply_ai && !state.permissions.is_completed ? h("button", {className: "brain-lane-apply", style: {color: color[2], borderColor: color[1]}, onClick: previewPrd}, "✦ AI PRD 적용") : null); }),
+          h("svg", {className: "brain-regions", width: CANVAS_W, height: CANVAS_H},
+            h("rect", {className: "brain-board", x: BOARD.x, y: BOARD.y, width: BOARD.w, height: BOARD.h, rx: 26}),
+            (function () {
+              var tray = trayBox();
+              // trayBox()는 w/h로 주지만 svg rect는 width/height 속성만 읽는다.
+              // 그대로 넘기면 크기가 0이 되어 테두리가 안 보인다.
+              return h("rect", {className: "brain-tray", rx: 22, x: tray.x, y: tray.y, width: tray.w, height: tray.h});
+            })(),
+            h("text", {className: "brain-tray-title", x: trayBox().x + trayBox().w / 2, y: trayBox().y + trayBox().h / 2 - 6}, "미분류"),
+            h("text", {className: "brain-tray-hint", x: trayBox().x + trayBox().w / 2, y: trayBox().y + trayBox().h / 2 + 20},
+              state.counts.unclassified + "개 · 네모 밖에 두면 분류되지 않습니다"),
+            state.sections.map(function (section, index) {
+              var color = laneColors[index % laneColors.length];
+              var box = regionCenter(index);
+              var count = visible.filter(function (node) { return node.section_id === section.id; }).length;
+              return h("g", {key: section.id, className: "brain-region"},
+                h("path", {d: regionPath(index), fill: color[0], stroke: color[1]}),
+                h("text", {className: "brain-region-index", x: box.x, y: box.top + 46, fill: color[2]}, String(index + 1).padStart(2, "0")),
+                h("text", {className: "brain-region-title", x: box.x, y: box.top + 76, fill: color[2]}, section.title),
+                h("text", {className: "brain-region-count", x: box.x, y: box.top + 98, fill: color[2]}, count + "개 아이디어")
+              );
+            })),
           h("svg", {className: "brain-lines", width: canvasWidth(), height: CANVAS_H}, state.connections.map(line)),
           visible.map(note)));
     }
