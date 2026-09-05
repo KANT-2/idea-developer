@@ -116,9 +116,9 @@ class TemplateContractTests(SimpleTestCase):
         api_client = (
             Path(settings.BASE_DIR) / "static" / "brainstorm" / "js" / "api-client.js"
         ).read_text(encoding="utf-8")
-        layout = (
-            Path(settings.BASE_DIR) / "static" / "brainstorm" / "js" / "layout.js"
-        ).read_text(encoding="utf-8")
+        layout = (Path(settings.BASE_DIR) / "static" / "brainstorm" / "js" / "layout.js").read_text(
+            encoding="utf-8"
+        )
 
         self.assertIn('"events/?cursor="', source)
         self.assertIn('apiBase + "canvas/"', source)

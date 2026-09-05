@@ -14,6 +14,7 @@ from apps.ai.models import (
     AiJob,
     AiPrdApplyItem,
     AiPrdApplyRecord,
+    AiPrompt,
 )
 from apps.ai.providers import AiProviderResult
 from apps.ai.services import AiPromptService
@@ -192,6 +193,9 @@ class PrdApplyAiTests(TestCase):
             node_a=self.accepted_a,
             node_b=self.accepted_a_extra,
         )
+        # 마이그레이션이 심어 둔 실제 프롬프트를 걷어내고 시작한다.
+        # 남겨 두면 이 테스트가 만드는 판이 2판이 되어 기록되는 판 번호가 어긋난다.
+        AiPrompt.objects.filter(feature_type=AiFeatureType.BRAINSTORM_PRD_APPLY).delete()
         AiPromptService().create_version(
             feature_type=AiFeatureType.BRAINSTORM_PRD_APPLY,
             system_instructions="Integrate existing answers and selected notes naturally.",
@@ -321,7 +325,7 @@ class PrdApplyAiTests(TestCase):
         )
         self.assertEqual(record.actor_user_id, 7)
         self.assertEqual(record.model, "gemini-free-test")
-        self.assertEqual(record.prompt_version, 2)
+        self.assertEqual(record.prompt_version, 1)
         self.assertTrue(PrdChangeHistory.objects.filter(event_type="brainstorm_ai_prd_applied"))
         self.assertTrue(BrainstormChangeLog.objects.filter(action="prd_apply_completed"))
         self.assertTrue(AuditLog.objects.filter(action="prd_apply_completed"))

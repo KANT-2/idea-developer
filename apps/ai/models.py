@@ -389,7 +389,7 @@ class ContributionUserScore(models.Model):
     )
     user_id = models.PositiveBigIntegerField()
     participant_id = models.PositiveBigIntegerField()
-    memo_raw = models.PositiveIntegerField(default=0)
+    memo_raw = models.DecimalField(max_digits=12, decimal_places=4)
     memo_contribution = models.DecimalField(max_digits=7, decimal_places=4)
     comment_raw = models.DecimalField(max_digits=12, decimal_places=4)
     comment_contribution = models.DecimalField(max_digits=7, decimal_places=4)
