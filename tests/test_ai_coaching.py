@@ -299,6 +299,34 @@ class AiCoachingApiTests(TestCase):
         self.assertEqual(job.status, AiJobStatus.FAILED)
         self.assertFalse(PrdAnswer.objects.filter(question=other_question).exists())
 
+    def test_held_question_explains_why_the_proposal_cannot_be_applied(self):
+        CoachingProvider.proposal = {
+            "question_id": self.question.pk,
+            "content": "보류된 질문에 넣으려는 답변",
+            "reason": "보완 필요",
+        }
+        self.assertEqual(self.request_chat(key="held-proposal").status_code, 202)
+        self.run_job()
+        messages = self.client.get(self.url("conversation")).json()["data"]["messages"]
+        proposal = messages[1]["proposal"]
+
+        # 제안을 받은 뒤 사용자가 그 질문을 보류했다.
+        self.question.is_held = True
+        self.question.save(update_fields=["is_held"])
+
+        blocked = self.post(
+            "apply-chat-proposal",
+            {"question_version": proposal["question_version"], "content": proposal["content"]},
+            job_id=messages[1]["job"]["id"],
+        )
+
+        self.assertEqual(blocked.status_code, 400)
+        self.assertIn(
+            "보류",
+            blocked.json()["error"]["details"]["question_id"][0],
+        )
+        self.assertFalse(PrdAnswer.objects.filter(question=self.question).exists())
+
     def test_changed_answer_rejects_stale_coach_proposal_with_409(self):
         CoachingProvider.proposal = {
             "question_id": self.question.pk,
