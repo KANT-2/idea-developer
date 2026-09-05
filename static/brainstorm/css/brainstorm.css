@@ -70,6 +70,5 @@ body:has(#brainstorm-root) .studio-header{display:none}.studio-main:has(#brainst
 .brain-region-index{font-size:15px;opacity:.6;letter-spacing:.08em}
 .brain-region-title{font-size:20px}
 .brain-region-count{font-size:13px;font-weight:700;opacity:.72}
-.brain-tray{fill:#f4f5f8;stroke:#c6ccd8;stroke-width:2.5;stroke-dasharray:12 8}
 .brain-tray-title{fill:#697386;font-size:22px;font-weight:850;text-anchor:middle;stroke:none}
 .brain-tray-hint{fill:#a3aab8;font-size:14px;font-weight:600;text-anchor:middle;stroke:none}

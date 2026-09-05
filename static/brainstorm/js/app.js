@@ -439,6 +439,26 @@
       var half = Math.min(260, Math.max(120, box.w / 2 - 20));
       return {x: box.x - half, y: box.top + 18, w: half * 2, h: LABEL_BAND};
     }
+    // 미분류는 칸이 아니라 그냥 빈 여백이라 이름표가 상단 한 줄뿐이다.
+    // 실제 글자 크기를 재서 그 자리에 메모가 걸리면 아래로 비켜 준다.
+    function trayLabelBox() {
+      var tray = trayBox();
+      var title = document.querySelector(".brain-tray-title");
+      var hint = document.querySelector(".brain-tray-hint");
+      var pad = 14, minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      [title, hint].forEach(function (el) {
+        if (!el) return;
+        try {
+          var b = el.getBBox();
+          minX = Math.min(minX, b.x); maxX = Math.max(maxX, b.x + b.width);
+          minY = Math.min(minY, b.y); maxY = Math.max(maxY, b.y + b.height);
+        } catch (error) { /* 아직 그려지지 않은 글자는 건너뛴다 */ }
+      });
+      if (minX < maxX) {
+        return {x: minX - pad, y: minY - pad, w: maxX - minX + pad * 2, h: maxY - minY + pad * 2, bottom: maxY + pad};
+      }
+      return {x: tray.x, y: tray.y, w: tray.w, h: 92, bottom: tray.y + 92};
+    }
     // 놓은 자리를 영역 안의 빈 곳으로 옮겨 준다.
     // 네 모서리가 모두 영역 안에 들어가야 하므로 곡선 밖으로 삐져나오지 않는다.
     // taken은 이미 자리를 차지한 메모들의 좌표다.
@@ -511,11 +531,18 @@
       });
       // 분류하지 않은 메모가 네모에 걸쳐 있으면 어느 항목인지 알 수 없다.
       // 왼쪽 여백은 메모 하나가 들어갈 만큼도 안 되므로 오른쪽 여백으로 내보낸다.
+      var trayLabel = trayLabelBox();
       nodes.forEach(function (node) {
         if (node.section_id || node.node_type === "title" || node.id === dragging) return;
         var spot = placed[node.id];
-        if (!overlaps(spot.x, spot.y, NODE_W, NODE_H, BOARD.x, BOARD.y, BOARD.w, BOARD.h)) return;
-        placed[node.id] = {x: BOARD.x + BOARD.w + Math.round(TRAY_GAP / 2), y: spot.y};
+        if (overlaps(spot.x, spot.y, NODE_W, NODE_H, BOARD.x, BOARD.y, BOARD.w, BOARD.h)) {
+          spot = {x: BOARD.x + BOARD.w + Math.round(TRAY_GAP / 2), y: spot.y};
+        }
+        // "미분류" 이름표는 여백 맨 위 한 줄뿐이다. 거기에 걸리면 바로 아래로 내린다.
+        if (overlaps(spot.x, spot.y, NODE_W, NODE_H, trayLabel.x, trayLabel.y, trayLabel.w, trayLabel.h)) {
+          spot = {x: spot.x, y: trayLabel.bottom};
+        }
+        placed[node.id] = spot;
       });
       return placed;
     }
@@ -971,14 +998,9 @@
         h("div", {className: "brain-canvas", style: {width: canvasWidth(), height: CANVAS_H, transform: "translate(" + view.x + "px," + view.y + "px) scale(" + view.zoom + ")"}},
           h("svg", {className: "brain-regions", width: CANVAS_W, height: CANVAS_H},
             h("rect", {className: "brain-board", x: BOARD.x, y: BOARD.y, width: BOARD.w, height: BOARD.h, rx: 26}),
-            (function () {
-              var tray = trayBox();
-              // trayBox()는 w/h로 주지만 svg rect는 width/height 속성만 읽는다.
-              // 그대로 넘기면 크기가 0이 되어 테두리가 안 보인다.
-              return h("rect", {className: "brain-tray", rx: 22, x: tray.x, y: tray.y, width: tray.w, height: tray.h});
-            })(),
-            h("text", {className: "brain-tray-title", x: trayBox().x + trayBox().w / 2, y: trayBox().y + trayBox().h / 2 - 6}, "미분류"),
-            h("text", {className: "brain-tray-hint", x: trayBox().x + trayBox().w / 2, y: trayBox().y + trayBox().h / 2 + 20},
+            // 미분류는 칸을 가진 영역이 아니라 그냥 빈 여백이다. 테두리 없이 이름만 위쪽에 둔다.
+            h("text", {className: "brain-tray-title", x: trayBox().x + trayBox().w / 2, y: trayBox().y + 42}, "미분류"),
+            h("text", {className: "brain-tray-hint", x: trayBox().x + trayBox().w / 2, y: trayBox().y + 68},
               state.counts.unclassified + "개 · 네모 밖에 두면 분류되지 않습니다"),
             state.sections.map(function (section, index) {
               var color = laneColors[index % laneColors.length];
