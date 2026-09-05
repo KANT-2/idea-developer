@@ -1310,7 +1310,7 @@ def _serialize_contribution(evaluation, *, display_names=None):
                 "user_id": score.user_id,
                 "display_name": display_names.get(score.user_id, "알 수 없는 참여자"),
                 "participant_id": score.participant_id,
-                "memo_raw": score.memo_raw,
+                "memo_raw": float(score.memo_raw),
                 "memo_contribution": float(score.memo_contribution),
                 "comment_raw": float(score.comment_raw),
                 "comment_contribution": float(score.comment_contribution),
