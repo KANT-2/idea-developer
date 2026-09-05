@@ -11,11 +11,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.accounts.models import LocalUserMapping
-from apps.ai.coaching import delete_expired_chat_history
 from apps.ai.exceptions import AiProviderError
 from apps.ai.models import (
     AiActionType,
-    AiCoachChatLog,
     AiCoachConversation,
     AiCoachMessage,
     AiConversationMessageRole,
@@ -198,20 +196,6 @@ class AiCoachingApiTests(TestCase):
         question = detail.json()["data"]["sections"][0]["questions"][0]
         self.assertEqual(question["version"], 1)
 
-    def test_chat_history_is_purged_with_the_conversation_after_thirty_days(self):
-        self.assertEqual(self.request_chat(key="ttl-chat").status_code, 202)
-        self.run_job()
-        self.assertEqual(AiCoachChatLog.objects.filter(prd=self.prd).count(), 1)
-
-        # 30일이 지나기 전에는 남아 있어야 한다.
-        AiCoachChatLog.objects.update(created_at=timezone.now() - timedelta(days=29))
-        delete_expired_chat_history()
-        self.assertEqual(AiCoachChatLog.objects.filter(prd=self.prd).count(), 1)
-
-        AiCoachChatLog.objects.update(created_at=timezone.now() - timedelta(days=31))
-        delete_expired_chat_history()
-        self.assertEqual(AiCoachChatLog.objects.filter(prd=self.prd).count(), 0)
-
     def test_user_message_reaches_the_model_without_html_escaping(self):
         self.assertEqual(
             self.request_chat(message="<b>범위</b> & 일정", key="escape-key").status_code,
@@ -222,9 +206,9 @@ class AiCoachingApiTests(TestCase):
         sent = CoachingProvider.requests[-1].user_data["untrusted_user_data"]
         self.assertEqual(sent["current_message"], "<b>범위</b> & 일정")
 
-        # 저장과 화면 표시는 이스케이프된 형태를 유지한다.
+        # 대화의 원문은 DB에 그대로 저장하고 화면은 textContent로 안전하게 표시한다.
         stored = AiCoachMessage.objects.get(role=AiConversationMessageRole.USER)
-        self.assertEqual(stored.content, "&lt;b&gt;범위&lt;/b&gt; &amp; 일정")
+        self.assertEqual(stored.content, "<b>범위</b> & 일정")
 
     def test_coach_proposal_is_preview_only_until_the_user_approves(self):
         CoachingProvider.proposal = {
@@ -370,7 +354,7 @@ class AiCoachingApiTests(TestCase):
         self.assertEqual([item["role"] for item in restored["messages"]], ["user", "assistant"])
         self.assertEqual(other["messages"], [])
         self.assertEqual(whole["messages"], [])
-        self.assertIn("&lt;script&gt;", restored["messages"][1]["content"])
+        self.assertIn("<script>", restored["messages"][1]["content"])
 
     def test_atomic_message_append_does_not_overwrite_an_older_request(self):
         first = self.request_chat(section_id=self.section_a.pk, key="append-1")
@@ -384,6 +368,18 @@ class AiCoachingApiTests(TestCase):
             [1, 2],
         )
         self.assertEqual(conversation.messages.count(), 2)
+
+    def test_flat_chat_history_pairs_concurrent_requests_by_job(self):
+        self.request_chat(message="첫 번째 질문", key="history-pair-1")
+        self.request_chat(message="두 번째 질문", key="history-pair-2")
+        self.run_job()
+        self.run_job()
+
+        response = self.client.get(reverse("prd_api:ai-chats", args=[self.prd.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        prompts = [item["prompt"] for item in response.json()["data"]["items"]]
+        self.assertEqual(prompts, ["두 번째 질문", "첫 번째 질문"])
 
     def test_only_recent_three_complete_turns_are_sent_to_model(self):
         for index in range(4):

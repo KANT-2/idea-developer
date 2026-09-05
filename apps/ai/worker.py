@@ -36,10 +36,9 @@ class AiJobRunner:
         self.worker_id = worker_id or f"{socket.gethostname()}:{os.getpid()}"
 
     def run_once(self) -> bool:
-        from .coaching import delete_expired_chat_history, delete_expired_conversations
+        from .coaching import delete_expired_conversations
 
         delete_expired_conversations()
-        delete_expired_chat_history()
         if self._recover_one_expired_job():
             return True
         job = self._claim_one()

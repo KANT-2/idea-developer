@@ -8,7 +8,14 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.ai.models import AiActionType, AiFeatureType, AiJob, AiJobStatus
+from apps.ai.models import (
+    AiActionType,
+    AiFeatureType,
+    AiJob,
+    AiJobStatus,
+    AiPrdApplyRecord,
+    ContributionEvaluation,
+)
 from apps.brainstorm.models import BrainstormConnection, BrainstormNode
 from apps.prds.models import Prd, PrdDeletionAction, PrdDeletionAuditLog
 
@@ -66,7 +73,14 @@ class BackgroundDataCleanupService:
                 details={"deleted_at": prd.deleted_at.isoformat()},
             )
         if prds:
-            Prd.objects.filter(pk__in=[prd.pk for prd in prds]).delete()
+            prd_ids = [prd.pk for prd in prds]
+            # These records intentionally protect the exact source rows used for
+            # AI application and contribution calculation while a PRD exists.
+            # At the end of the PRD retention window the detailed records share
+            # the PRD's lifecycle, so remove their roots before the PRD cascade.
+            AiPrdApplyRecord.objects.filter(prd_id__in=prd_ids).delete()
+            ContributionEvaluation.objects.filter(prd_id__in=prd_ids).delete()
+            Prd.objects.filter(pk__in=prd_ids).delete()
         return len(prds)
 
     @staticmethod

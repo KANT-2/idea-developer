@@ -87,9 +87,7 @@ class PrdQuerySet(models.QuerySet):
             )
         )
 
-    def accessible_home(
-        self, *, user_id: int, round_id: int | None, team_id: int | None
-    ):
+    def accessible_home(self, *, user_id: int, round_id: int | None, team_id: int | None):
         participant_access = PrdParticipant.objects.filter(
             prd_id=OuterRef("pk"),
             user_id=user_id,
@@ -272,7 +270,13 @@ class Prd(models.Model):
             ),
             models.UniqueConstraint(
                 fields=["creator_user_id", "round_id", "creation_idempotency_key"],
-                name="uniq_prd_creation_request",
+                condition=Q(round_id__isnull=False),
+                name="uniq_prd_creation_round_request",
+            ),
+            models.UniqueConstraint(
+                fields=["creator_user_id", "creation_idempotency_key"],
+                condition=Q(round_id__isnull=True),
+                name="uniq_prd_creation_roundless_request",
             ),
             models.CheckConstraint(
                 condition=(
@@ -372,6 +376,7 @@ class PrdParticipant(models.Model):
     user_id = models.PositiveBigIntegerField()
     participant_id = models.PositiveBigIntegerField(null=True, blank=True)
     role = models.CharField(max_length=16, choices=PrdParticipantRole.choices)
+    version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -388,6 +393,10 @@ class PrdParticipant(models.Model):
             models.CheckConstraint(
                 condition=Q(role__in=PrdParticipantRole.values),
                 name="prd_participant_role_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(version__gte=1),
+                name="prd_participant_version_positive",
             ),
             models.UniqueConstraint(fields=["prd", "user_id"], name="uniq_prd_participant_user"),
             models.UniqueConstraint(
@@ -551,6 +560,7 @@ class PrdComment(models.Model):
     is_contribution_eligible = models.BooleanField()
     is_deleted = models.BooleanField(default=False)
     deleted_at = models.DateTimeField(null=True, blank=True)
+    version = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -583,6 +593,10 @@ class PrdComment(models.Model):
             models.CheckConstraint(
                 condition=~Q(content=""),
                 name="prd_comment_content_not_blank",
+            ),
+            models.CheckConstraint(
+                condition=Q(version__gte=1),
+                name="prd_comment_version_positive",
             ),
             models.CheckConstraint(
                 condition=(

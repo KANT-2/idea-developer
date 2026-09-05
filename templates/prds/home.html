@@ -4,19 +4,19 @@
 {% block title %}PRD 홈 | 아이디어 디벨로퍼{% endblock %}
 
 {% block extra_head %}
-  <link href="{% static 'prds/css/home.css' %}?v=20260904-11" rel="stylesheet">
+  <link href="{% static 'prds/css/home.css' %}?v=20260906-2" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
-  <div id="prd-home-app" data-api-url="{{ home_api_url }}" data-recent-activity-api-url="{{ recent_activity_api_url }}" data-new-url="{{ new_prd_url }}" data-trash-api-url="{{ trash_api_url }}" data-delete-api-url-template="{{ delete_api_url_template }}">
+  <div id="prd-home-app" data-api-url="{{ home_api_url }}" data-tutor-students-api-url="{{ tutor_students_api_url }}" data-recent-activity-api-url="{{ recent_activity_api_url }}" data-new-url="{{ new_prd_url }}" data-trash-api-url="{{ trash_api_url }}" data-delete-api-url-template="{{ delete_api_url_template }}">
     <div id="home-alert" class="alert d-none" role="alert"></div>
     <div class="home-hero d-flex flex-wrap justify-content-between align-items-center gap-4 mb-4">
       <div>
         <span class="home-eyebrow"><i class="bi bi-stars"></i> PRODUCT WORKSPACE</span>
         <h1 id="home-greeting" class="home-title">PRD를 불러오는 중입니다.</h1>
-        <p class="home-subtitle mb-0">흩어진 아이디어를 팀과 함께 실행 가능한 제품 문서로 발전시켜 보세요.</p>
+        <p id="home-subtitle" class="home-subtitle mb-0">흩어진 아이디어를 팀과 함께 실행 가능한 제품 문서로 발전시켜 보세요.</p>
       </div>
-      <div class="home-hero-actions"><a href="{{ new_prd_url }}" class="btn btn-primary home-create"><i class="bi bi-plus-lg"></i> 새 PRD 만들기</a></div>
+      <div id="home-hero-actions" class="home-hero-actions"><a href="{{ new_prd_url }}" class="btn btn-primary home-create"><i class="bi bi-plus-lg"></i> 새 PRD 만들기</a></div>
     </div>
 
     <section class="row g-3 mb-4" aria-label="PRD 요약">
@@ -24,7 +24,7 @@
       <div class="col-6 col-md-4 col-xl-2"><button class="home-kpi w-100 text-start h-100" data-status="in_progress"><span class="kpi-icon kpi-blue"><i class="bi bi-lightning-charge"></i></span><span>진행 중</span><strong id="kpi-progress">-</strong></button></div>
       <div class="col-6 col-md-4 col-xl-2"><button class="home-kpi w-100 text-start h-100" data-status="completed"><span class="kpi-icon kpi-green"><i class="bi bi-check2-circle"></i></span><span>완료됨</span><strong id="kpi-completed">-</strong></button></div>
       <div class="col-6 col-md-4 col-xl-2"><div class="home-kpi h-100"><span class="kpi-icon kpi-cyan"><i class="bi bi-bar-chart"></i></span><span>평균 완성도</span><strong id="kpi-average">-</strong></div></div>
-      <div class="col-6 col-md-4 col-xl-2"><div class="home-kpi h-100"><span class="kpi-icon kpi-purple"><i class="bi bi-stars"></i></span><span>AI 코칭</span><strong id="kpi-ai">-</strong></div></div>
+      <div class="col-6 col-md-4 col-xl-2"><div class="home-kpi h-100"><span id="kpi-ai-icon" class="kpi-icon kpi-purple"><i class="bi bi-stars"></i></span><span id="kpi-ai-label">AI 코칭</span><strong id="kpi-ai">-</strong></div></div>
       <div class="col-6 col-md-4 col-xl-2"><div class="home-kpi h-100"><span class="kpi-icon kpi-rose"><i class="bi bi-calendar2-week"></i></span><span>이번 주 마감</span><strong id="kpi-due">-</strong></div></div>
     </section>
 
@@ -34,13 +34,21 @@
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
         <div>
           <h2 id="prd-list-title" class="visually-hidden">PRD 목록</h2>
-          <div class="home-scope-tabs" role="tablist" aria-label="PRD 참여 역할">
+          <div id="standard-home-navigation" class="home-scope-tabs" role="tablist" aria-label="PRD 참여 역할">
             <button class="home-scope-tab active" type="button" role="tab" aria-selected="true" data-scope="mine"><i class="bi bi-folder2-open"></i><span>내 PRD</span></button>
             <button class="home-scope-tab" type="button" role="tab" aria-selected="false" data-scope="viewer"><i class="bi bi-eye"></i><span>뷰어로 참여한 PRD</span></button>
             <button class="home-trash-icon" type="button" data-bs-toggle="modal" data-bs-target="#prd-trash-modal" aria-label="삭제한 PRD 열기"><i class="bi bi-trash3"></i><span>삭제한 PRD</span></button>
           </div>
+          <div id="tutor-home-heading" class="tutor-home-heading d-none">
+            <span><i class="bi bi-journal-richtext"></i> 담당 프로젝트</span>
+            <strong>함께하고 있는 프로젝트의 진행 상황을 관리합니다.</strong>
+          </div>
+          <div id="tutor-dashboard-navigation" class="tutor-dashboard-navigation d-none" role="tablist" aria-label="튜터 대시보드 모드">
+            <button class="tutor-dashboard-tab active" type="button" role="tab" aria-selected="true" data-dashboard-view="tutoring"><i class="bi bi-person-video3"></i> 튜터 관리</button>
+            <button class="tutor-dashboard-tab" type="button" role="tab" aria-selected="false" data-dashboard-view="editing"><i class="bi bi-folder2-open"></i> 내 PRD</button>
+          </div>
           <p id="home-scope-description" class="home-scope-description">작성하거나 편집에 참여하는 PRD입니다.</p>
-          <div class="btn-group home-tabs" role="group" aria-label="PRD 범위">
+          <div id="standard-home-tabs" class="btn-group home-tabs" role="group" aria-label="PRD 범위">
             <button class="btn btn-primary home-tab" data-tab="all">전체</button>
             <button class="btn btn-outline-primary home-tab" data-tab="project">프로젝트</button>
             <button class="btn btn-outline-primary home-tab" data-tab="team">팀</button>
@@ -48,6 +56,15 @@
           </div>
         </div>
         <div class="home-filters d-flex flex-wrap gap-2 align-self-end">
+          <select id="home-round-filter" class="form-select form-select-sm" aria-label="회차 필터">
+            <option value="all">모든 회차</option>
+          </select>
+          <select id="home-project-scope" class="form-select form-select-sm" aria-label="프로젝트 구분">
+            <option value="all">전체 구분</option>
+            <option value="round_team">회차 팀 PRD</option>
+            <option value="team">일반 팀 PRD</option>
+            <option value="personal">개인 PRD</option>
+          </select>
           <select id="home-status" class="form-select form-select-sm" aria-label="상태 필터">
             <option value="">모든 상태</option><option value="in_progress">진행 중</option><option value="completed">완료</option><option value="held">홀딩</option><option value="dropped">드랍</option>
           </select>
@@ -56,6 +73,23 @@
           </select>
         </div>
       </div>
+      <section id="tutor-student-filter" class="tutor-student-filter d-none" aria-labelledby="tutor-student-filter-title">
+        <div class="tutor-student-filter-copy">
+          <span>STUDENT FINDER</span>
+          <h3 id="tutor-student-filter-title">학생별 프로젝트 찾기</h3>
+          <p>이름을 검색하면 함께 참여 중이며 해당 학생이 편집자인 PRD만 모아 보여드립니다.</p>
+        </div>
+        <div class="tutor-student-search-area">
+          <label class="tutor-student-search" for="tutor-student-query">
+            <i class="bi bi-search"></i>
+            <input id="tutor-student-query" type="search" minlength="2" maxlength="100" autocomplete="off" placeholder="학생 이름을 입력하세요" aria-describedby="tutor-student-help">
+            <span id="tutor-student-spinner" class="spinner-border spinner-border-sm d-none" aria-hidden="true"></span>
+          </label>
+          <small id="tutor-student-help">이름을 2자 이상 입력해 주세요.</small>
+          <div id="tutor-student-results" class="tutor-student-results d-none" aria-live="polite"></div>
+          <div id="tutor-selected-student" class="tutor-selected-student d-none" aria-live="polite"></div>
+        </div>
+      </section>
       <div id="home-loading" class="text-center py-5"><span class="spinner-border text-primary" aria-hidden="true"></span><span class="visually-hidden">불러오는 중</span></div>
       <div id="home-empty" class="card border-0 shadow-sm text-center py-5 d-none"><div class="card-body"><div class="display-6 mb-2">📭</div><h3 id="home-empty-title" class="h6">조건에 맞는 PRD가 없습니다.</h3><a id="home-empty-create" href="{{ new_prd_url }}" class="btn btn-sm btn-primary mt-2">첫 PRD 만들기</a></div></div>
       <div id="home-list" class="row g-3" aria-live="polite"></div>
@@ -116,4 +150,4 @@
   </div>
 {% endblock %}
 
-{% block extra_js %}<script src="{% static 'prds/js/home.js' %}?v=20260904-8"></script>{% endblock %}
+{% block extra_js %}<script src="{% static 'prds/js/home.js' %}?v=20260906-3"></script>{% endblock %}

@@ -321,7 +321,7 @@ class PrdApplyAiTests(TestCase):
         )
         self.assertEqual(record.actor_user_id, 7)
         self.assertEqual(record.model, "gemini-free-test")
-        self.assertEqual(record.prompt_version, 1)
+        self.assertEqual(record.prompt_version, 2)
         self.assertTrue(PrdChangeHistory.objects.filter(event_type="brainstorm_ai_prd_applied"))
         self.assertTrue(BrainstormChangeLog.objects.filter(action="prd_apply_completed"))
         self.assertTrue(AuditLog.objects.filter(action="prd_apply_completed"))

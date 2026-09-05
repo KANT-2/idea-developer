@@ -5,7 +5,7 @@ import json
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Count, Q
-from django.http import Http404, HttpResponse
+from django.http import Http404
 from django.shortcuts import render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
@@ -22,7 +22,6 @@ from apps.prds.views import (
     get_integration_repository,
 )
 
-from .exporting import BrainstormMarkdownExporter, MarkdownExportOptions
 from .models import (
     BrainstormCanvas,
     BrainstormChangeLog,
@@ -388,9 +387,7 @@ def canvas_versions(request, prd_id):
     try:
         if request.method == "GET":
             _, access, _, _ = _access(request, prd_id, create_canvas=True)
-            rows = BrainstormCanvas.objects.filter(prd=access.prd).order_by(
-                "version_number", "id"
-            )
+            rows = BrainstormCanvas.objects.filter(prd=access.prd).order_by("version_number", "id")
             return api_success(
                 {"items": [_serialize_canvas_version(row) for row in rows]},
                 request_id=_request_id(request),
@@ -418,22 +415,6 @@ def canvas_versions(request, prd_id):
             status=201 if created else 200,
             request_id=_request_id(request),
         )
-    except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
-        return _error(request, exc)
-
-
-@require_GET
-def export_markdown(request, prd_id):
-    if response := _authentication_error(request):
-        return response
-    try:
-        _, _, canvas_row = _access(request, prd_id)
-        options = MarkdownExportOptions.from_query(request.GET)
-        exported = BrainstormMarkdownExporter().export(canvas=canvas_row, options=options)
-        response = HttpResponse(exported.content, content_type="text/markdown; charset=utf-8")
-        response["Content-Disposition"] = exported.content_disposition
-        response["X-Content-Type-Options"] = "nosniff"
-        return response
     except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
         return _error(request, exc)
 

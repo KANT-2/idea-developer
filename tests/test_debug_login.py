@@ -83,8 +83,7 @@ class DebugLoginFlowTests(TestCase):
 
         self.assertRedirects(
             response,
-            reverse("accounts_debug:login")
-            + "?next=%2Fideas%2Fprds%2F1%2Fbrainstorm%2F",
+            reverse("accounts_debug:login") + "?next=%2Fideas%2Fprds%2F1%2Fbrainstorm%2F",
             fetch_redirect_response=False,
         )
 

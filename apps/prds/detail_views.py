@@ -14,14 +14,14 @@ from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_GET, require_http_methods
 
 from apps.accounts.permissions import ParticipantAction, role_permission_policy
-from apps.ai.contribution import ContributionEvaluationService
 from apps.ai.exceptions import AiJobNotRetryable, AiPromptNotConfigured, AiUsageLimitExceeded
-from apps.ai.models import AiCoachChatLog, AiJob, AiJobStatus, AiUsageLog, ContributionEvaluation
+from apps.ai.models import AiJob, AiJobStatus
 from apps.common.responses import api_error, api_success
+from apps.integration.context import is_admin_context
 from apps.integration.exceptions import IntegrationError
 
-from .comment_services import PrdCommentService
-from .detail import PrdAccessService, PrdNotFound, PrdPermissionPresenter
+from .comment_services import PrdCommentService, PrdCommentVersionConflict
+from .detail import PrdAccess, PrdAccessService, PrdNotFound, PrdPermissionPresenter
 from .exporting import PrdMarkdownExporter
 from .models import (
     Prd,
@@ -37,7 +37,7 @@ from .models import (
     PrdSection,
     PrdStatus,
 )
-from .services import PrdParticipantService
+from .services import PrdParticipantService, PrdParticipantVersionConflict
 from .status_services import PrdStatusConflict, PrdStatusService
 from .views import (
     _context_error,
@@ -55,6 +55,22 @@ class PrdQuestionVersionConflict(Exception):
 class PrdVersionConflict(Exception):
     def __init__(self, prd):
         self.prd = prd
+
+
+def _required_version(payload):
+    version = payload.get("version")
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+        raise ValidationError({"version": "1 이상의 현재 version이 필요합니다."})
+    return version
+
+
+def _lock_current_access(access: PrdAccess) -> PrdAccess:
+    """Lock the PRD status boundary before a child resource mutation."""
+    try:
+        prd = Prd.objects.select_for_update().get(pk=access.prd.pk, is_deleted=False)
+    except Prd.DoesNotExist as exc:
+        raise PrdNotFound from exc
+    return PrdAccess(prd=prd, role=access.role, is_admin=access.is_admin)
 
 
 def _get_access(request, prd_id):
@@ -112,9 +128,32 @@ def _error_response(request, exc):
             details={
                 "latest": {
                     "version": exc.prd.version,
+                    "title": exc.prd.title,
+                    "description": exc.prd.description,
                     "status": exc.prd.status,
                     "deadline": exc.prd.deadline.isoformat() if exc.prd.deadline else None,
                 }
+            },
+            request_id=_request_id(request),
+        )
+    if isinstance(exc, PrdParticipantVersionConflict):
+        return api_error(
+            code="version_conflict",
+            message="다른 사용자가 먼저 참여자 정보를 변경했습니다. 최신 내용을 확인해 주세요.",
+            status=409,
+            details={"latest": _serialize_participant(exc.participant)},
+            request_id=_request_id(request),
+        )
+    if isinstance(exc, PrdCommentVersionConflict):
+        return api_error(
+            code="version_conflict",
+            message="다른 사용자가 먼저 코멘트를 변경했습니다. 최신 내용을 확인해 주세요.",
+            status=409,
+            details={
+                "latest": _serialize_comment(
+                    exc.comment,
+                    display_name=f"사용자 {exc.comment.author_user_id}",
+                )
             },
             request_id=_request_id(request),
         )
@@ -205,6 +244,7 @@ def _serialize_participant(participant, *, display_name=None):
         "user_id": participant.user_id,
         "participant_id": participant.participant_id,
         "role": participant.role,
+        "version": participant.version,
         "display_name": display_name or f"사용자 {participant.user_id}",
         "created_at": participant.created_at.isoformat(),
     }
@@ -483,7 +523,7 @@ def _deleted_prd_for_context(*, context, prd_id, for_update=False):
         prd = queryset.get(pk=prd_id, is_deleted=True)
     except Prd.DoesNotExist as exc:
         raise PrdNotFound from exc
-    if prd.creator_user_id != context.user_id and not (context.is_staff or context.is_superuser):
+    if prd.creator_user_id != context.user_id and not is_admin_context(context):
         raise PermissionDenied("이 휴지통 PRD에 접근할 권한이 없습니다.")
     return prd
 
@@ -497,7 +537,7 @@ def trash_prds(request):
         page = max(1, int(request.GET.get("page", "1")))
         page_size = min(50, max(1, int(request.GET.get("page_size", "20"))))
         queryset = Prd.objects.filter(is_deleted=True)
-        if not (context.is_staff or context.is_superuser):
+        if not is_admin_context(context):
             queryset = queryset.filter(creator_user_id=context.user_id)
         total_items = queryset.count()
         rows = list(
@@ -555,7 +595,7 @@ def restore_prd(request, prd_id):
             prd = _deleted_prd_for_context(context=context, prd_id=prd_id, for_update=True)
             if prd.version != version:
                 raise PrdVersionConflict(prd)
-            is_admin = context.is_staff or context.is_superuser
+            is_admin = is_admin_context(context)
             if prd.purge_requested_at is not None and not is_admin:
                 raise PermissionDenied("삭제 완료된 PRD는 관리자를 통해서만 복구할 수 있습니다.")
             prd.is_deleted = False
@@ -658,17 +698,19 @@ def participants(request, prd_id):
         context, access = _get_access(request, prd_id)
         repository = get_integration_repository()
         if request.method == "POST":
-            _enforce_participant_management(access)
-            payload = _parse_json(request)
-            user_id = payload.get("user_id")
-            if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id < 1:
-                raise ValidationError({"user_id": "사용자 ID가 올바르지 않습니다."})
-            participant, created = PrdParticipantService(repository).add_participant(
-                prd=access.prd,
-                user_id=user_id,
-                role=payload.get("role", PrdParticipantRole.EDITOR),
-                actor_user_id=context.user_id,
-            )
+            with transaction.atomic():
+                access = _lock_current_access(access)
+                _enforce_participant_management(access)
+                payload = _parse_json(request)
+                user_id = payload.get("user_id")
+                if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id < 1:
+                    raise ValidationError({"user_id": "사용자 ID가 올바르지 않습니다."})
+                participant, created = PrdParticipantService(repository).add_participant(
+                    prd=access.prd,
+                    user_id=user_id,
+                    role=payload.get("role", PrdParticipantRole.EDITOR),
+                    actor_user_id=context.user_id,
+                )
             summaries = _participant_summaries(
                 repository,
                 user_ids=(participant.user_id,),
@@ -723,30 +765,35 @@ def participant_item(request, prd_id, user_id):
         return response
     try:
         context, access = _get_access(request, prd_id)
-        _enforce_participant_management(access)
-        try:
-            participant = PrdParticipant.objects.select_related("prd").get(
-                prd=access.prd,
-                user_id=user_id,
-            )
-        except PrdParticipant.DoesNotExist as exc:
-            raise PrdNotFound from exc
-        service = PrdParticipantService(get_integration_repository())
-        if request.method == "PATCH":
+        with transaction.atomic():
+            access = _lock_current_access(access)
+            _enforce_participant_management(access)
             payload = _parse_json(request)
-            participant = service.update_role(
+            expected_version = _required_version(payload)
+            try:
+                participant = PrdParticipant.objects.select_related("prd").get(
+                    prd=access.prd,
+                    user_id=user_id,
+                )
+            except PrdParticipant.DoesNotExist as exc:
+                raise PrdNotFound from exc
+            service = PrdParticipantService(get_integration_repository())
+            if request.method == "PATCH":
+                participant = service.update_role(
+                    participant=participant,
+                    role=payload.get("role"),
+                    actor_user_id=context.user_id,
+                    expected_version=expected_version,
+                )
+                return api_success(
+                    _serialize_participant(participant),
+                    request_id=_request_id(request),
+                )
+            reassigned_nodes = service.remove_participant(
                 participant=participant,
-                role=payload.get("role"),
                 actor_user_id=context.user_id,
+                expected_version=expected_version,
             )
-            return api_success(
-                _serialize_participant(participant),
-                request_id=_request_id(request),
-            )
-        reassigned_nodes = service.remove_participant(
-            participant=participant,
-            actor_user_id=context.user_id,
-        )
         return api_success(
             {
                 "deleted": True,
@@ -754,7 +801,13 @@ def participant_item(request, prd_id, user_id):
             },
             request_id=_request_id(request),
         )
-    except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
+    except (
+        PrdNotFound,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+        PrdParticipantVersionConflict,
+    ) as exc:
         return _error_response(request, exc)
 
 
@@ -777,6 +830,7 @@ def complete_prd(request, prd_id):
             {
                 "id": prd.id,
                 "status": prd.status,
+                "version": prd.version,
                 "completed_at": prd.completed_at.isoformat(),
                 "contribution_status": prd.contribution_status,
             },
@@ -808,6 +862,7 @@ def reopen_prd(request, prd_id):
             {
                 "id": prd.id,
                 "status": prd.status,
+                "version": prd.version,
                 "completed_at": None,
                 "contribution_status": prd.contribution_status,
             },
@@ -878,6 +933,9 @@ def question_answer(request, prd_id, question_id):
         if isinstance(version, bool) or not isinstance(version, int) or version < 1:
             raise ValidationError({"version": "질문 version이 올바르지 않습니다."})
         with transaction.atomic():
+            access = _lock_current_access(access)
+            if not PrdPermissionPresenter().describe(access)["can_edit"]:
+                raise PermissionDenied("PRD 답변을 수정할 권한이 없습니다.")
             try:
                 question = (
                     PrdQuestion.objects.select_for_update()
@@ -944,6 +1002,9 @@ def question_hold(request, prd_id, question_id):
         if isinstance(version, bool) or not isinstance(version, int) or version < 1:
             raise ValidationError({"version": "질문 version이 올바르지 않습니다."})
         with transaction.atomic():
+            access = _lock_current_access(access)
+            if not PrdPermissionPresenter().describe(access)["can_edit"]:
+                raise PermissionDenied("질문 보류 상태를 변경할 권한이 없습니다.")
             try:
                 question = (
                     PrdQuestion.objects.select_for_update()
@@ -1005,22 +1066,25 @@ def comments(request, prd_id):
     try:
         context, access = _get_access(request, prd_id)
         if request.method == "POST":
-            payload = _parse_json(request)
-            question_id = payload.get("section_question_id")
-            if isinstance(question_id, bool) or (
-                question_id is not None and (not isinstance(question_id, int) or question_id <= 0)
-            ):
-                raise ValidationError({"section_question_id": "질문 ID가 올바르지 않습니다."})
-            comment_type = payload.get("comment_type")
-            if comment_type is not None and comment_type not in PrdCommentType.values:
-                raise ValidationError({"comment_type": "코멘트 유형이 올바르지 않습니다."})
-            comment = PrdCommentService().create(
-                access=access,
-                author_user_id=context.user_id,
-                content=payload.get("content", ""),
-                section_question_id=question_id,
-                requested_type=comment_type,
-            )
+            with transaction.atomic():
+                access = _lock_current_access(access)
+                payload = _parse_json(request)
+                question_id = payload.get("section_question_id")
+                if isinstance(question_id, bool) or (
+                    question_id is not None
+                    and (not isinstance(question_id, int) or question_id <= 0)
+                ):
+                    raise ValidationError({"section_question_id": "질문 ID가 올바르지 않습니다."})
+                comment_type = payload.get("comment_type")
+                if comment_type is not None and comment_type not in PrdCommentType.values:
+                    raise ValidationError({"comment_type": "코멘트 유형이 올바르지 않습니다."})
+                comment = PrdCommentService().create(
+                    access=access,
+                    author_user_id=context.user_id,
+                    content=payload.get("content", ""),
+                    section_question_id=question_id,
+                    requested_type=comment_type,
+                )
             return api_success(
                 _serialize_comment(
                     comment,
@@ -1083,42 +1147,52 @@ def comment_item(request, prd_id, comment_id):
         return response
     try:
         context, access = _get_access(request, prd_id)
-        try:
-            comment = PrdComment.objects.get(
-                pk=comment_id,
-                prd=access.prd,
-                is_deleted=False,
-            )
-        except PrdComment.DoesNotExist as exc:
-            raise PrdNotFound from exc
-        service = PrdCommentService()
-        if request.method == "PATCH":
-            payload = _parse_json(request)
-            comment = service.update(
+        payload = _parse_json(request)
+        with transaction.atomic():
+            access = _lock_current_access(access)
+            try:
+                comment = PrdComment.objects.get(
+                    pk=comment_id,
+                    prd=access.prd,
+                    is_deleted=False,
+                )
+            except PrdComment.DoesNotExist as exc:
+                raise PrdNotFound from exc
+            service = PrdCommentService()
+            if request.method == "PATCH":
+                comment = service.update(
+                    access=access,
+                    comment=comment,
+                    actor_user_id=context.user_id,
+                    content=payload.get("content", ""),
+                    expected_version=payload.get("version"),
+                )
+                return api_success(
+                    _serialize_comment(
+                        comment,
+                        display_name=_author_display_name(
+                            user_id=context.user_id,
+                            round_id=context.round_id,
+                        ),
+                        actor_user_id=context.user_id,
+                        access=access,
+                    ),
+                    request_id=_request_id(request),
+                )
+            service.delete(
                 access=access,
                 comment=comment,
                 actor_user_id=context.user_id,
-                content=payload.get("content", ""),
+                expected_version=payload.get("version"),
             )
-            return api_success(
-                _serialize_comment(
-                    comment,
-                    display_name=_author_display_name(
-                        user_id=context.user_id,
-                        round_id=context.round_id,
-                    ),
-                    actor_user_id=context.user_id,
-                    access=access,
-                ),
-                request_id=_request_id(request),
-            )
-        service.delete(
-            access=access,
-            comment=comment,
-            actor_user_id=context.user_id,
-        )
         return api_success({"deleted": True}, request_id=_request_id(request))
-    except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
+    except (
+        PrdNotFound,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+        PrdCommentVersionConflict,
+    ) as exc:
         return _error_response(request, exc)
 
 
@@ -1144,6 +1218,7 @@ def _serialize_comment(comment, *, display_name, actor_user_id=None, access=None
         },
         "comment_type": comment.comment_type,
         "content": comment.content,
+        "version": comment.version,
         "is_contribution_eligible": comment.is_contribution_eligible,
         "can_modify": can_modify,
         "created_at": comment.created_at.isoformat(),
@@ -1157,197 +1232,3 @@ def _author_display_name(*, user_id, round_id):
         user_ids=(user_id,),
         round_id=round_id,
     ).get(user_id, f"사용자 {user_id}")
-
-
-@require_GET
-def ai_usage_history(request, prd_id):
-    return _paginated_detail_endpoint(
-        request,
-        prd_id,
-        lambda prd: AiUsageLog.objects.filter(prd=prd).order_by("-created_at", "-id"),
-        lambda row: {
-            "id": row.id,
-            "user_id": row.user_id,
-            "feature_type": row.feature_type,
-            "action_type": row.action_type,
-            "status": row.status,
-            "total_tokens": row.total_tokens,
-            "created_at": row.created_at.isoformat(),
-        },
-    )
-
-
-@require_GET
-def ai_chat_history(request, prd_id):
-    return _paginated_detail_endpoint(
-        request,
-        prd_id,
-        lambda prd: AiCoachChatLog.objects.filter(prd=prd),
-        lambda row: {
-            "id": row.id,
-            "user_id": row.user_id,
-            "prompt": row.prompt,
-            "response": row.response,
-            "created_at": row.created_at.isoformat(),
-        },
-    )
-
-
-@require_GET
-def change_history(request, prd_id):
-    return _paginated_detail_endpoint(
-        request,
-        prd_id,
-        lambda prd: prd.change_history.all(),
-        lambda row: {
-            "id": row.id,
-            "actor_user_id": row.actor_user_id,
-            "event_type": row.event_type,
-            "before_data": row.before_data,
-            "after_data": row.after_data,
-            "created_at": row.created_at.isoformat(),
-        },
-    )
-
-
-@require_GET
-def contribution_results(request, prd_id):
-    if response := _require_authentication(request):
-        return response
-    try:
-        _, access = _get_access(request, prd_id)
-        if not access.is_admin:
-            raise PermissionDenied("기여도 결과는 관리자만 조회할 수 있습니다.")
-        evaluations = (
-            ContributionEvaluation.objects.filter(prd=access.prd)
-            .select_related("job")
-            .prefetch_related("user_scores", "comment_scores")
-            .order_by("-calculation_version")
-        )
-        user_ids = tuple(
-            dict.fromkeys(
-                score.user_id
-                for evaluation in evaluations
-                for score in evaluation.user_scores.all()
-            )
-        )
-        display_names = _participant_summaries(
-            get_integration_repository(),
-            user_ids=user_ids,
-            round_id=access.prd.round_id,
-        )
-        return api_success(
-            {
-                "items": [
-                    _serialize_contribution(row, display_names=display_names) for row in evaluations
-                ]
-            },
-            request_id=_request_id(request),
-        )
-    except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
-        return _error_response(request, exc)
-
-
-@require_http_methods(["POST"])
-def retry_contribution(request, prd_id, calculation_version):
-    if response := _require_authentication(request):
-        return response
-    try:
-        _, access = _get_access(request, prd_id)
-        if not access.is_admin:
-            raise PermissionDenied("기여도 재평가는 관리자만 실행할 수 있습니다.")
-        try:
-            evaluation = ContributionEvaluation.objects.get(
-                prd=access.prd,
-                calculation_version=calculation_version,
-            )
-        except ContributionEvaluation.DoesNotExist as exc:
-            raise PrdNotFound from exc
-        evaluation = ContributionEvaluationService().retry_same_input(
-            evaluation=evaluation,
-            access=access,
-        )
-        display_names = _participant_summaries(
-            get_integration_repository(),
-            user_ids=tuple(score.user_id for score in evaluation.user_scores.all()),
-            round_id=access.prd.round_id,
-        )
-        return api_success(
-            _serialize_contribution(evaluation, display_names=display_names),
-            status=202,
-            request_id=_request_id(request),
-        )
-    except (
-        PrdNotFound,
-        PermissionDenied,
-        IntegrationError,
-        ValidationError,
-        AiJobNotRetryable,
-        AiPromptNotConfigured,
-        AiUsageLimitExceeded,
-    ) as exc:
-        return _error_response(request, exc)
-
-
-def _serialize_contribution(evaluation, *, display_names=None):
-    display_names = display_names or {}
-    return {
-        "calculation_version": evaluation.calculation_version,
-        "prd_version": evaluation.prd_version,
-        "status": evaluation.status,
-        "input_fingerprint": evaluation.input_fingerprint,
-        "model": evaluation.model or None,
-        "prompt_version": evaluation.prompt_version,
-        "target_node_ids": evaluation.target_node_ids,
-        "target_comment_ids": evaluation.target_comment_ids,
-        "evidence": evaluation.evidence,
-        "failure_code": evaluation.failure_code or None,
-        "calculated_at": (
-            evaluation.calculated_at.isoformat() if evaluation.calculated_at else None
-        ),
-        "scores": [
-            {
-                "user_id": score.user_id,
-                "display_name": display_names.get(score.user_id, "알 수 없는 참여자"),
-                "participant_id": score.participant_id,
-                "memo_raw": score.memo_raw,
-                "memo_contribution": float(score.memo_contribution),
-                "comment_raw": float(score.comment_raw),
-                "comment_contribution": float(score.comment_contribution),
-                "total_score": float(score.total_score),
-                "node_ids": score.node_ids,
-                "comment_ids": score.comment_ids,
-                "evidence": score.evidence,
-            }
-            for score in evaluation.user_scores.all()
-        ],
-        "comment_scores": [
-            {
-                "comment_id": score.comment_id,
-                "author_user_id": score.author_user_id,
-                "reflection_score": float(score.reflection_score),
-                "matched_question_ids": score.matched_question_ids,
-                "evidence": score.evidence,
-                "reason": score.reason,
-                "confidence": float(score.confidence),
-            }
-            for score in evaluation.comment_scores.all()
-        ],
-    }
-
-
-def _paginated_detail_endpoint(request, prd_id, queryset_factory, serializer):
-    if response := _require_authentication(request):
-        return response
-    try:
-        _, access = _get_access(request, prd_id)
-        page, page_size = _pagination(request)
-        data = _paginate(
-            queryset_factory(access.prd),
-            page=page,
-            page_size=page_size,
-            serializer=serializer,
-        )
-        return api_success(data, request_id=_request_id(request))
-    except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
-        return _error_response(request, exc)

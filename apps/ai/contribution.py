@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
+import unicodedata
 from collections import defaultdict
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
@@ -12,7 +14,13 @@ from django.db import transaction
 from django.db.models import F, Max
 from django.utils import timezone
 
-from apps.brainstorm.models import BrainstormNode, BrainstormNodeStatus, BrainstormNodeType
+from apps.brainstorm.models import (
+    BrainstormChangeLog,
+    BrainstormChangeTarget,
+    BrainstormNode,
+    BrainstormNodeStatus,
+    BrainstormNodeType,
+)
 from apps.integration.exceptions import IntegrationError
 from apps.prds.detail import PrdAccess
 from apps.prds.models import (
@@ -119,11 +127,10 @@ class ContributionEvaluationService:
     def retry_same_input(self, *, evaluation: ContributionEvaluation, access: PrdAccess):
         if not access.is_admin:
             raise PermissionDenied("Only an administrator can retry contribution evaluation.")
-        evaluation = (
-            ContributionEvaluation.objects.select_for_update()
-            .select_related("job", "prd", "completion_audit")
-            .get(pk=evaluation.pk)
-        )
+        # ``job`` is nullable. PostgreSQL cannot lock the nullable side of the
+        # OUTER JOIN produced by select_related("job"). Lock only the
+        # evaluation row and fetch related rows normally when accessed below.
+        evaluation = ContributionEvaluation.objects.select_for_update().get(pk=evaluation.pk)
         if evaluation.status != ContributionEvaluationStatus.FAILED:
             raise ValidationError({"evaluation": "실패한 기여도 계산만 재평가할 수 있습니다."})
         if not {"participants", "comments", "prd", "accepted_memos"}.issubset(
@@ -195,6 +202,11 @@ class ContributionEvaluationService:
         for node in accepted_candidates:
             nodes_by_lineage.setdefault(node.lineage_id, node)
         nodes = sorted(nodes_by_lineage.values(), key=lambda row: str(row.pk))
+        contributors_by_lineage = self._memo_contributors(
+            prd=prd,
+            nodes=nodes,
+            eligible_user_ids=eligible_user_ids,
+        )
         comments = list(
             PrdComment.objects.filter(
                 prd=prd,
@@ -244,6 +256,7 @@ class ContributionEvaluationService:
                     "canvas_version": node.canvas.version_number,
                     "version": node.version,
                     "assignee_id": node.assignee_id,
+                    "contributor_user_ids": contributors_by_lineage[node.lineage_id],
                 }
                 for node in nodes
             ],
@@ -251,6 +264,55 @@ class ContributionEvaluationService:
         }
         self._enforce_snapshot_limits(snapshot)
         return snapshot
+
+    @classmethod
+    def _memo_contributors(cls, *, prd, nodes, eligible_user_ids):
+        """Return each accepted idea's creator and meaningful content editors.
+
+        Canvas cloning, assignment, section/status, colour, and position changes
+        do not create contribution credit. A user receives at most one credit for
+        a lineage, regardless of how many board versions they edit.
+        """
+        if not nodes:
+            return {}
+        lineage_ids = {node.lineage_id for node in nodes}
+        lineage_nodes = list(
+            BrainstormNode.objects.filter(
+                canvas__prd=prd,
+                lineage_id__in=lineage_ids,
+                node_type=BrainstormNodeType.NOTE,
+            ).values("id", "lineage_id")
+        )
+        lineage_by_target_id = {str(row["id"]): row["lineage_id"] for row in lineage_nodes}
+        contributors = {lineage_id: set() for lineage_id in lineage_ids}
+        for node in nodes:
+            if node.author_id in eligible_user_ids:
+                contributors[node.lineage_id].add(node.author_id)
+
+        content_changes = BrainstormChangeLog.objects.filter(
+            canvas__prd=prd,
+            action="node_content_updated",
+            target_type=BrainstormChangeTarget.NODE,
+            target_id__in=lineage_by_target_id,
+            actor_user_id__in=eligible_user_ids,
+        ).order_by("created_at", "id")
+        for change in content_changes:
+            before = change.before_data.get("content")
+            after = change.after_data.get("content")
+            if not isinstance(before, str) or not isinstance(after, str):
+                continue
+            if cls._normalize_memo_content(before) == cls._normalize_memo_content(after):
+                continue
+            lineage_id = lineage_by_target_id.get(change.target_id)
+            if lineage_id is not None:
+                contributors[lineage_id].add(change.actor_user_id)
+
+        return {lineage_id: sorted(user_ids) for lineage_id, user_ids in contributors.items()}
+
+    @staticmethod
+    def _normalize_memo_content(value: str) -> str:
+        normalized = unicodedata.normalize("NFKC", value).strip()
+        return re.sub(r"\s+", " ", normalized)
 
     @staticmethod
     def _enforce_snapshot_limits(snapshot):
@@ -276,8 +338,7 @@ class ContributionEvaluationService:
             raise ValidationError(
                 {
                     "input": (
-                        "기여도 평가 입력이 "
-                        f"{settings.AI_CONTRIBUTION_MAX_CHARS}자를 초과했습니다."
+                        f"기여도 평가 입력이 {settings.AI_CONTRIBUTION_MAX_CHARS}자를 초과했습니다."
                     )
                 }
             )
@@ -469,7 +530,13 @@ class ContributionResultProcessor:
 
         node_ids = defaultdict(list)
         for row in evaluation.input_snapshot.get("accepted_memos", []):
-            node_ids[row["assignee_id"]].append(row["node_id"])
+            # Snapshots created before lineage contribution tracking retain the
+            # former final-assignee behaviour for safe, repeatable retries.
+            contributor_user_ids = row.get("contributor_user_ids")
+            if contributor_user_ids is None:
+                contributor_user_ids = [row["assignee_id"]]
+            for user_id in contributor_user_ids:
+                node_ids[user_id].append(row["node_id"])
         user_ids = [row["user_id"] for row in evaluation.input_snapshot.get("participants", [])]
         memo_raw = {user_id: len(node_ids[user_id]) for user_id in user_ids}
         memo_scores = self._normalize(memo_raw, user_ids)

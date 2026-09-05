@@ -6,13 +6,25 @@ from decimal import ROUND_HALF_UP, Decimal
 from math import ceil
 
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db.models import Avg, Case, Count, F, IntegerField, Q, Value, When, Window
+from django.db.models import (
+    Avg,
+    Case,
+    Count,
+    Exists,
+    F,
+    IntegerField,
+    OuterRef,
+    Q,
+    Value,
+    When,
+    Window,
+)
 from django.db.models.functions import RowNumber, TruncDate
 from django.utils import timezone
 
 from apps.accounts.permissions import ParticipantAction, role_permission_policy
 from apps.ai.models import AiActionType, AiFeatureType, AiUsageLog, AiUsageStatus
-from apps.integration.context import IntegrationContext
+from apps.integration.context import IntegrationContext, is_admin_context, is_tutor_context
 from apps.integration.repository import IntegrationRepository
 
 from .models import (
@@ -27,6 +39,8 @@ from .status_services import PrdStatusService
 
 HOME_TABS = {"all", "project", "team", "personal"}
 HOME_SCOPES = {"all", "mine", "viewer"}
+TUTOR_PROJECT_SCOPES = {"all", "round_team", "team", "personal"}
+TUTOR_DASHBOARD_VIEWS = {"tutoring", "editing"}
 HOME_SORTS = {
     "default",
     "deadline_asc",
@@ -46,6 +60,9 @@ class HomeFilters:
     deadline_to: date | None = None
     participant_user_id: int | None = None
     team_id: int | None = None
+    round_scope: str = "all"
+    project_scope: str = "all"
+    dashboard_view: str = "tutoring"
     sort: str = "default"
     page: int = 1
     page_size: int = 12
@@ -72,6 +89,16 @@ class HomeFilters:
             errors["participant_user_id"] = "참여자 ID가 올바르지 않습니다."
         if self.team_id is not None and self.team_id != context.team_id:
             raise PermissionDenied("Another round team cannot be queried.")
+        if self.round_scope not in {"all", "none"}:
+            try:
+                if int(self.round_scope) <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                errors["round_scope"] = "회차 필터 값이 올바르지 않습니다."
+        if self.project_scope not in TUTOR_PROJECT_SCOPES:
+            errors["project_scope"] = "지원하지 않는 프로젝트 구분입니다."
+        if self.dashboard_view not in TUTOR_DASHBOARD_VIEWS:
+            errors["dashboard_view"] = "지원하지 않는 튜터 화면입니다."
         if errors:
             raise ValidationError(errors)
 
@@ -83,25 +110,28 @@ class HomeQueryService:
     def get_home(self, *, context: IntegrationContext, filters: HomeFilters):
         filters.validate(context=context)
         today = timezone.localdate()
-        base = Prd.objects.accessible_home(
-            user_id=context.user_id,
-            round_id=context.round_id,
-            team_id=context.team_id,
+        tutor_mode = self.is_tutor_context(context)
+        tutor_management_mode = tutor_mode and filters.dashboard_view == "tutoring"
+        base = self._dashboard_base(
+            context=context,
+            tutor_mode=tutor_mode,
+            dashboard_view=filters.dashboard_view,
         )
         PrdStatusService().complete_overdue(
             prd_ids=base.values_list("id", flat=True),
             today=today,
         )
-        base = Prd.objects.accessible_home(
-            user_id=context.user_id,
-            round_id=context.round_id,
-            team_id=context.team_id,
+        base = self._dashboard_base(
+            context=context,
+            tutor_mode=tutor_mode,
+            dashboard_view=filters.dashboard_view,
         )
         kpis = self._get_kpis(base=base, today=today)
         queryset = self._apply_filters(
             base.with_home_metrics(user_id=context.user_id),
             filters=filters,
             context=context,
+            tutor_mode=tutor_management_mode,
         )
         queryset = self._apply_sort(queryset, filters.sort)
         total_items = queryset.count()
@@ -124,6 +154,8 @@ class HomeQueryService:
                 user_ids=(context.user_id,),
             ).get(context.user_id)
         return {
+            "dashboard_mode": "tutor" if tutor_mode else "standard",
+            "dashboard_view": filters.dashboard_view if tutor_mode else "editing",
             "user": {
                 "id": context.user_id,
                 "display_name": (
@@ -135,12 +167,14 @@ class HomeQueryService:
             "recent_activity": recent_activity["items"],
             "recent_activity_pagination": recent_activity["pagination"],
             "applied_filters": self._serialize_filters(filters),
+            "filter_options": self._filter_options(base=base, context=context),
             "items": [
                 self._serialize_card(
                     prd=prd,
                     participants=participants_by_prd.get(prd.id, []),
                     today=today,
                     context=context,
+                    tutor_mode=tutor_management_mode,
                 )
                 for prd in page_prds
             ],
@@ -149,6 +183,175 @@ class HomeQueryService:
                 "page_size": filters.page_size,
                 "total_items": total_items,
                 "total_pages": ceil(total_items / filters.page_size) if total_items else 0,
+            },
+        }
+
+    @staticmethod
+    def is_tutor_context(context: IntegrationContext) -> bool:
+        return is_tutor_context(context)
+
+    @staticmethod
+    def _dashboard_base(
+        *,
+        context: IntegrationContext,
+        tutor_mode: bool,
+        dashboard_view: str = "tutoring",
+    ):
+        participant = PrdParticipant.objects.filter(
+            prd_id=OuterRef("pk"),
+            user_id=context.user_id,
+        )
+        queryset = Prd.objects.active().annotate(_is_participant=Exists(participant))
+        if tutor_mode:
+            tutor_participation = participant.filter(role=PrdParticipantRole.TUTOR)
+            if dashboard_view == "tutoring":
+                return queryset.annotate(_is_tutor_participant=Exists(tutor_participation)).filter(
+                    _is_tutor_participant=True
+                )
+            editing_participation = participant.filter(
+                role__in=(
+                    PrdParticipantRole.OWNER,
+                    PrdParticipantRole.EDITOR,
+                )
+            )
+            return queryset.annotate(_is_editing_participant=Exists(editing_participation)).filter(
+                _is_editing_participant=True
+            )
+        if context.round_id is not None and context.team_id is not None:
+            return queryset.filter(
+                Q(_is_participant=True)
+                | Q(
+                    round_id=context.round_id,
+                    team_id=context.team_id,
+                    is_team_shared=True,
+                )
+            )
+        return queryset.filter(_is_participant=True)
+
+    def _filter_options(self, *, base, context: IntegrationContext):
+        rounds = []
+        round_ids = list(
+            base.exclude(round_id__isnull=True)
+            .order_by("-round_id")
+            .values_list("round_id", flat=True)
+            .distinct()
+        )
+        for round_id in round_ids:
+            membership = self.repository.get_membership(context.user_id, round_id)
+            rounds.append(
+                {
+                    "id": round_id,
+                    "title": membership.round_title if membership else f"회차 #{round_id}",
+                }
+            )
+        return {
+            "rounds": rounds,
+            "has_roundless": base.filter(round_id__isnull=True).exists(),
+            "project_scopes": ["round_team", "team", "personal"],
+        }
+
+    def get_tutor_students(
+        self,
+        *,
+        context: IntegrationContext,
+        query: str,
+        page: int,
+        page_size: int,
+        round_scope: str = "all",
+        project_scope: str = "all",
+    ):
+        if not self.is_tutor_context(context):
+            raise PermissionDenied("Tutor project access is required.")
+        normalized_query = query.strip()
+        errors = {}
+        if len(normalized_query) < 2:
+            errors["q"] = "학생 이름을 2자 이상 입력해 주세요."
+        if len(normalized_query) > 100:
+            errors["q"] = "학생 이름 검색어는 100자 이하여야 합니다."
+        if page <= 0 or page_size <= 0:
+            errors["pagination"] = "페이지 값은 1 이상이어야 합니다."
+        if errors:
+            raise ValidationError(errors)
+
+        filters = HomeFilters(round_scope=round_scope, project_scope=project_scope)
+        filters.validate(context=context)
+        base = self._apply_project_filters(
+            self._dashboard_base(
+                context=context,
+                tutor_mode=True,
+                dashboard_view="tutoring",
+            ).with_home_metrics(user_id=context.user_id),
+            filters=filters,
+        )
+        candidate_rows = list(
+            PrdParticipant.objects.filter(
+                prd_id__in=base.values("id"),
+                role=PrdParticipantRole.EDITOR,
+            )
+            .exclude(user_id=context.user_id)
+            .values("user_id")
+            .annotate(project_count=Count("prd_id", distinct=True))
+            .order_by("user_id")
+        )
+        candidate_ids = tuple(row["user_id"] for row in candidate_rows)
+        summaries = {}
+        selected_round_id = int(round_scope) if round_scope not in {"all", "none"} else None
+        summary_round_id = (
+            selected_round_id
+            if selected_round_id is not None
+            else context.round_id
+            if round_scope == "all"
+            else None
+        )
+        if summary_round_id is not None:
+            summaries.update(
+                self.repository.get_round_user_summaries(
+                    user_ids=candidate_ids,
+                    round_id=summary_round_id,
+                )
+            )
+        missing_ids = tuple(user_id for user_id in candidate_ids if user_id not in summaries)
+        if missing_ids:
+            summaries.update(self.repository.get_user_summaries(user_ids=missing_ids))
+
+        matching = []
+        folded_query = normalized_query.casefold()
+        for row in candidate_rows:
+            summary = summaries.get(row["user_id"])
+            display_name = summary.display_name if summary else f"사용자 {row['user_id']}"
+            if folded_query not in display_name.casefold():
+                continue
+            matching.append(
+                {
+                    "user_id": row["user_id"],
+                    "display_name": display_name,
+                    "project_count": row["project_count"],
+                }
+            )
+        matching.sort(key=lambda row: (row["display_name"].casefold(), row["user_id"]))
+        name_counts = {}
+        for row in matching:
+            key = row["display_name"].casefold()
+            name_counts[key] = name_counts.get(key, 0) + 1
+
+        total_items = len(matching)
+        offset = (page - 1) * page_size
+        items = matching[offset : offset + page_size]
+        for row in items:
+            duplicate = name_counts[row["display_name"].casefold()] > 1
+            row["has_duplicate_name"] = duplicate
+            row["email"] = None
+            if duplicate:
+                parent_user = self.repository.get_user(row["user_id"])
+                if parent_user:
+                    row["email"] = parent_user.primary_email or parent_user.user_email
+        return {
+            "items": items,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_items": total_items,
+                "total_pages": ceil(total_items / page_size) if total_items else 0,
             },
         }
 
@@ -199,10 +402,9 @@ class HomeQueryService:
     ):
         if page <= 0 or page_size <= 0:
             raise ValidationError({"pagination": "페이지 값은 1 이상이어야 합니다."})
-        base = Prd.objects.accessible_home(
-            user_id=context.user_id,
-            round_id=context.round_id,
-            team_id=context.team_id,
+        base = self._dashboard_base(
+            context=context,
+            tutor_mode=self.is_tutor_context(context),
         )
         participant_prd_ids = base.filter(
             participants__user_id=context.user_id,
@@ -274,6 +476,8 @@ class HomeQueryService:
             "participant_added": "참여자를 추가했습니다.",
             "participant_role_changed": "참여자 역할을 변경했습니다.",
             "participant_removed": "참여자를 제외했습니다.",
+            "prd_created": "새 PRD를 만들었습니다.",
+            "comment_created": "새 코멘트를 작성했습니다.",
             "prd_completed": "PRD를 완료했습니다.",
             "prd_reopened": "PRD를 다시 열었습니다.",
         }
@@ -292,6 +496,7 @@ class HomeQueryService:
             total_prds=Count("id", distinct=True),
             in_progress_prds=Count("id", filter=Q(status=PrdStatus.IN_PROGRESS), distinct=True),
             completed_prds=Count("id", filter=Q(status=PrdStatus.COMPLETED), distinct=True),
+            held_prds=Count("id", filter=Q(status=PrdStatus.HELD), distinct=True),
             due_this_week=Count(
                 "id",
                 filter=Q(deadline__range=(today, due_end))
@@ -318,19 +523,25 @@ class HomeQueryService:
         }
 
     @staticmethod
-    def _apply_filters(queryset, *, filters: HomeFilters, context: IntegrationContext):
-        if filters.scope == "mine":
+    def _apply_filters(
+        queryset,
+        *,
+        filters: HomeFilters,
+        context: IntegrationContext,
+        tutor_mode: bool = False,
+    ):
+        if not tutor_mode and filters.scope == "mine":
             queryset = queryset.filter(
                 Q(my_role__isnull=True) | ~Q(my_role=PrdParticipantRole.VIEWER)
             )
-        elif filters.scope == "viewer":
+        elif not tutor_mode and filters.scope == "viewer":
             queryset = queryset.filter(my_role=PrdParticipantRole.VIEWER)
 
-        if filters.tab == "project":
+        if not tutor_mode and filters.tab == "project":
             queryset = queryset.filter(prd_type=PrdType.NEW_PRODUCT)
-        elif filters.tab == "team":
+        elif not tutor_mode and filters.tab == "team":
             queryset = queryset.filter(Q(participant_count__gte=2) | Q(is_team_shared=True))
-        elif filters.tab == "personal":
+        elif not tutor_mode and filters.tab == "personal":
             queryset = queryset.filter(
                 participant_count=1,
                 is_team_shared=False,
@@ -346,9 +557,41 @@ class HomeQueryService:
         if filters.deadline_to:
             queryset = queryset.filter(deadline__lte=filters.deadline_to)
         if filters.participant_user_id:
-            queryset = queryset.filter(participants__user_id=filters.participant_user_id)
+            if tutor_mode:
+                selected_editor = PrdParticipant.objects.filter(
+                    prd_id=OuterRef("pk"),
+                    user_id=filters.participant_user_id,
+                    role=PrdParticipantRole.EDITOR,
+                )
+                queryset = queryset.annotate(_has_selected_editor=Exists(selected_editor)).filter(
+                    _has_selected_editor=True
+                )
+            else:
+                queryset = queryset.filter(participants__user_id=filters.participant_user_id)
         if filters.team_id:
             queryset = queryset.filter(team_id=filters.team_id)
+        queryset = HomeQueryService._apply_project_filters(queryset, filters=filters)
+        return queryset
+
+    @staticmethod
+    def _apply_project_filters(queryset, *, filters: HomeFilters):
+        if filters.round_scope == "none":
+            queryset = queryset.filter(round_id__isnull=True)
+        elif filters.round_scope != "all":
+            queryset = queryset.filter(round_id=int(filters.round_scope))
+
+        if filters.project_scope == "round_team":
+            queryset = queryset.filter(round_id__isnull=False)
+        elif filters.project_scope == "team":
+            queryset = queryset.filter(round_id__isnull=True).filter(
+                Q(participant_count__gte=2) | Q(is_team_shared=True)
+            )
+        elif filters.project_scope == "personal":
+            queryset = queryset.filter(
+                round_id__isnull=True,
+                participant_count=1,
+                is_team_shared=False,
+            )
         return queryset
 
     @staticmethod
@@ -429,7 +672,7 @@ class HomeQueryService:
         return result
 
     @staticmethod
-    def _serialize_card(*, prd, participants, today, context):
+    def _serialize_card(*, prd, participants, today, context, tutor_mode=False):
         can_edit = bool(
             prd.my_role
             and role_permission_policy.allows(
@@ -455,10 +698,22 @@ class HomeQueryService:
             "my_role": prd.my_role,
             "can_edit": can_edit,
             "can_delete": bool(
-                prd.my_role == PrdParticipantRole.OWNER or context.is_staff or context.is_superuser
+                not tutor_mode
+                and (prd.my_role == PrdParticipantRole.OWNER or is_admin_context(context))
             ),
             "ai_coaching_count": prd.ai_coaching_count,
+            "round_id": prd.round_id,
+            "team_id": prd.team_id,
+            "project_scope": HomeQueryService._project_scope(prd),
         }
+
+    @staticmethod
+    def _project_scope(prd):
+        if prd.round_id is not None:
+            return "round_team"
+        if prd.participant_count >= 2 or prd.is_team_shared:
+            return "team"
+        return "personal"
 
     @staticmethod
     def _format_d_day(deadline, today):
@@ -480,5 +735,8 @@ class HomeQueryService:
             "deadline_to": filters.deadline_to.isoformat() if filters.deadline_to else None,
             "participant_user_id": filters.participant_user_id,
             "team_id": filters.team_id,
+            "round_scope": filters.round_scope,
+            "project_scope": filters.project_scope,
+            "dashboard_view": filters.dashboard_view,
             "sort": filters.sort,
         }

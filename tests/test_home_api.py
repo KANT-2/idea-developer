@@ -24,14 +24,14 @@ TODAY = date(2026, 9, 2)
 NOW = datetime(2026, 9, 2, 12, tzinfo=UTC)
 
 
-def user_row(user_id):
+def user_row(user_id, *, role="student"):
     return {
         "user_id": user_id,
         "user_email": f"user{user_id}@example.test",
         "primary_email": f"user{user_id}@example.test",
         "first_name": "사용자",
         "last_name": str(user_id),
-        "role": "student",
+        "role": role,
         "approval_status": "fixture-approved",
         "is_active": True,
         "is_staff": False,
@@ -39,7 +39,7 @@ def user_row(user_id):
     }
 
 
-def membership_row(user_id, *, round_id=3, team_id=30):
+def membership_row(user_id, *, round_id=3, team_id=30, display_name=None):
     return {
         "user_id": user_id,
         "round_id": round_id,
@@ -48,7 +48,7 @@ def membership_row(user_id, *, round_id=3, team_id=30):
         "participant_id": user_id * 10,
         "team_id": team_id,
         "team_name": f"팀 {team_id}",
-        "display_name_snapshot": f"표시명 {user_id}",
+        "display_name_snapshot": display_name or f"표시명 {user_id}",
     }
 
 
@@ -269,11 +269,12 @@ class HomeApiTests(TestCase):
         self.assertEqual(
             data["kpis"],
             {
-                "total_prds": 4,
-                "in_progress_prds": 1,
+                "total_prds": 5,
+                "in_progress_prds": 2,
                 "completed_prds": 1,
+                "held_prds": 1,
                 "due_this_week": 1,
-                "average_completion_rate": 38,
+                "average_completion_rate": 30,
                 "ai_coaching_count": 2,
             },
         )
@@ -281,12 +282,14 @@ class HomeApiTests(TestCase):
             [item["id"] for item in data["items"]],
             [
                 self.personal.id,
+                self.other_round.id,
                 self.collaborative.id,
                 self.team_shared.id,
                 self.dropped.id,
             ],
         )
-        personal = data["items"][0]
+        cards = {item["id"]: item for item in data["items"]}
+        personal = cards[self.personal.id]
         self.assertEqual(personal["version"], self.personal.version)
         self.assertTrue(personal["show_new_badge"])
         self.assertEqual(personal["completion_rate"], 50)
@@ -294,7 +297,7 @@ class HomeApiTests(TestCase):
         self.assertEqual(personal["my_role"], "owner")
         self.assertTrue(personal["can_edit"])
         self.assertTrue(personal["can_delete"])
-        collaborative = data["items"][1]
+        collaborative = cards[self.collaborative.id]
         self.assertFalse(collaborative["show_new_badge"])
         self.assertEqual(collaborative["d_day"], "D-6")
         self.assertEqual(collaborative["participant_count"], 6)
@@ -302,7 +305,7 @@ class HomeApiTests(TestCase):
         self.assertEqual(collaborative["ai_coaching_count"], 2)
         self.assertFalse(collaborative["can_edit"])
         self.assertFalse(collaborative["can_delete"])
-        team_shared = data["items"][2]
+        team_shared = cards[self.team_shared.id]
         self.assertIsNone(team_shared["my_role"])
         self.assertFalse(team_shared["can_edit"])
         self.assertFalse(team_shared["can_delete"])
@@ -382,13 +385,36 @@ class HomeApiTests(TestCase):
             401,
         )
 
+    def test_comment_and_participant_events_have_recent_activity_labels(self):
+        comment = PrdChangeHistory.objects.create(
+            prd=self.personal,
+            actor_user_id=7,
+            event_type="comment_created",
+        )
+        participant = PrdChangeHistory.objects.create(
+            prd=self.personal,
+            actor_user_id=7,
+            event_type="participant_added",
+        )
+        PrdChangeHistory.objects.filter(pk=comment.pk).update(created_at=NOW - timedelta(minutes=2))
+        PrdChangeHistory.objects.filter(pk=participant.pk).update(
+            created_at=NOW - timedelta(minutes=1)
+        )
+
+        items = self.get_home().json()["data"]["recent_activity"]
+
+        self.assertEqual(
+            [item["description"] for item in items[:2]],
+            ["참여자를 추가했습니다.", "새 코멘트를 작성했습니다."],
+        )
+
     def test_kpis_do_not_change_when_list_filters_return_empty(self):
         response = self.get_home(status="completed", prd_type="new_product")
 
         data = response.json()["data"]
         self.assertEqual(data["items"], [])
         self.assertEqual(data["pagination"]["total_items"], 0)
-        self.assertEqual(data["kpis"]["total_prds"], 4)
+        self.assertEqual(data["kpis"]["total_prds"], 5)
         self.assertEqual(data["applied_filters"]["statuses"], ["completed"])
 
     def test_tabs_use_server_participant_count_and_explicit_team_sharing(self):
@@ -398,9 +424,9 @@ class HomeApiTests(TestCase):
             item["id"] for item in self.get_home(tab="personal").json()["data"]["items"]
         }
 
-        self.assertEqual(project_ids, {self.personal.id})
+        self.assertEqual(project_ids, {self.personal.id, self.other_round.id})
         self.assertEqual(team_ids, {self.collaborative.id, self.team_shared.id})
-        self.assertEqual(personal_ids, {self.personal.id, self.dropped.id})
+        self.assertEqual(personal_ids, {self.personal.id, self.dropped.id, self.other_round.id})
 
     def test_home_scope_separates_explicit_viewer_participation(self):
         mine = self.get_home(scope="mine").json()["data"]
@@ -408,7 +434,7 @@ class HomeApiTests(TestCase):
 
         self.assertEqual(
             {item["id"] for item in mine["items"]},
-            {self.personal.id, self.team_shared.id, self.dropped.id},
+            {self.personal.id, self.team_shared.id, self.dropped.id, self.other_round.id},
         )
         self.assertEqual([item["id"] for item in viewer["items"]], [self.collaborative.id])
         self.assertEqual(viewer["items"][0]["my_role"], PrdParticipantRole.VIEWER)
@@ -424,7 +450,7 @@ class HomeApiTests(TestCase):
         self.assertEqual(ids, {self.collaborative.id, self.team_shared.id})
 
         all_statuses = self.get_home(status="in_progress,completed,held,dropped")
-        self.assertEqual(all_statuses.json()["data"]["pagination"]["total_items"], 4)
+        self.assertEqual(all_statuses.json()["data"]["pagination"]["total_items"], 5)
 
     def test_date_boundaries_and_dropped_completed_exclusion(self):
         response = self.get_home(
@@ -477,8 +503,8 @@ class HomeApiTests(TestCase):
 
     def test_pagination_and_invalid_filters(self):
         page = self.get_home(page=2, page_size=2).json()["data"]
-        self.assertEqual(page["pagination"]["total_items"], 4)
-        self.assertEqual(page["pagination"]["total_pages"], 2)
+        self.assertEqual(page["pagination"]["total_items"], 5)
+        self.assertEqual(page["pagination"]["total_pages"], 3)
         self.assertEqual(len(page["items"]), 2)
 
         for params in (
@@ -487,6 +513,8 @@ class HomeApiTests(TestCase):
             {"status": "pending"},
             {"sort": "oldest"},
             {"deadline_from": "2026/09/02"},
+            {"round_scope": "previous"},
+            {"project_scope": "shared"},
         ):
             with self.subTest(params=params):
                 self.assertEqual(self.get_home(**params).status_code, 400)
@@ -495,6 +523,219 @@ class HomeApiTests(TestCase):
         self.assertEqual(self.get_home(team_id=31).status_code, 403)
         self.client.logout()
         self.assertEqual(self.get_home().status_code, 401)
+
+
+@override_settings(HOME_PAGE_SIZE=12, HOME_MAX_PAGE_SIZE=20)
+class TutorHomeApiTests(TestCase):
+    def setUp(self):
+        self.repository = FixtureIntegrationRepository(
+            users=[
+                user_row(2, role="tutor"),
+                user_row(21),
+                user_row(22),
+                user_row(23),
+                user_row(24),
+            ],
+            memberships=[
+                membership_row(2, display_name="김튜터"),
+                membership_row(21, display_name="김민준"),
+                membership_row(22, display_name="이서연"),
+                membership_row(23, display_name="박지훈"),
+                membership_row(24, display_name="최유진"),
+            ],
+            active_statuses={"fixture-running"},
+        )
+        self.context = IntegrationContext(2, 3, 20, 30, "tutor", True, False)
+        resolver = Mock()
+        resolver.resolve.return_value = self.context
+        patches = (
+            patch("apps.prds.views.get_context_resolver", return_value=resolver),
+            patch(
+                "apps.prds.home_views.get_integration_repository",
+                return_value=self.repository,
+            ),
+            patch("apps.prds.home.timezone.now", return_value=NOW),
+            patch("apps.prds.home.timezone.localdate", return_value=TODAY),
+        )
+        for active_patch in patches:
+            active_patch.start()
+            self.addCleanup(active_patch.stop)
+
+        self.client.force_login(LocalUserMapping.objects.create_user(2, "tutor@example.test"))
+        self.first = self.make_prd(
+            "튜터 담당 프로젝트 A",
+            PrdStatus.IN_PROGRESS,
+            (
+                (21, PrdParticipantRole.OWNER),
+                (22, PrdParticipantRole.EDITOR),
+                (2, PrdParticipantRole.TUTOR),
+            ),
+        )
+        self.second = self.make_prd(
+            "튜터 담당 프로젝트 B",
+            PrdStatus.HELD,
+            (
+                (23, PrdParticipantRole.OWNER),
+                (22, PrdParticipantRole.EDITOR),
+                (2, PrdParticipantRole.TUTOR),
+            ),
+        )
+        self.viewer_student = self.make_prd(
+            "학생은 뷰어인 프로젝트",
+            PrdStatus.COMPLETED,
+            (
+                (21, PrdParticipantRole.OWNER),
+                (24, PrdParticipantRole.VIEWER),
+                (2, PrdParticipantRole.TUTOR),
+            ),
+        )
+        self.not_assigned = self.make_prd(
+            "다른 튜터 프로젝트",
+            PrdStatus.IN_PROGRESS,
+            (
+                (21, PrdParticipantRole.OWNER),
+                (22, PrdParticipantRole.EDITOR),
+            ),
+        )
+
+    @staticmethod
+    def make_prd(title, status, participants, *, round_id=3, team_id=30):
+        prd = Prd.objects.create(
+            title=title,
+            description=f"{title} 설명",
+            prd_type=PrdType.NEW_PRODUCT,
+            status=status,
+            round_id=round_id,
+            team_id=team_id if round_id is not None else None,
+            creator_user_id=participants[0][0],
+            creation_idempotency_key=f"tutor-home-{title}",
+        )
+        for user_id, role in participants:
+            PrdParticipant.objects.create(
+                prd=prd,
+                user_id=user_id,
+                participant_id=user_id * 10,
+                role=role,
+            )
+        return prd
+
+    def test_tutor_home_contains_only_explicit_tutor_projects(self):
+        response = self.client.get(reverse("home_api:home"))
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(data["dashboard_mode"], "tutor")
+        self.assertEqual(
+            {item["id"] for item in data["items"]},
+            {self.first.id, self.second.id, self.viewer_student.id},
+        )
+        self.assertEqual(data["kpis"]["total_prds"], 3)
+        self.assertEqual(data["kpis"]["held_prds"], 1)
+        self.assertNotIn(self.not_assigned.id, {item["id"] for item in data["items"]})
+        self.assertTrue(all(item["my_role"] == "tutor" for item in data["items"]))
+        self.assertTrue(all(not item["can_delete"] for item in data["items"]))
+
+    def test_tutor_can_switch_to_prds_where_they_are_owner_or_editor(self):
+        owned = self.make_prd(
+            "튜터가 직접 만든 PRD",
+            PrdStatus.IN_PROGRESS,
+            (
+                (2, PrdParticipantRole.OWNER),
+                (22, PrdParticipantRole.EDITOR),
+            ),
+        )
+
+        tutoring = self.client.get(reverse("home_api:home")).json()["data"]
+        editing = self.client.get(
+            reverse("home_api:home"),
+            {"dashboard_view": "editing"},
+        ).json()["data"]
+
+        self.assertNotIn(owned.id, {item["id"] for item in tutoring["items"]})
+        self.assertEqual(editing["dashboard_view"], "editing")
+        self.assertEqual({item["id"] for item in editing["items"]}, {owned.id})
+        self.assertTrue(editing["items"][0]["can_edit"])
+        self.assertTrue(editing["items"][0]["can_delete"])
+
+    def test_tutor_can_filter_an_explicit_historical_assignment_by_round(self):
+        historical = self.make_prd(
+            "이전 회차 튜터 프로젝트",
+            PrdStatus.IN_PROGRESS,
+            (
+                (21, PrdParticipantRole.OWNER),
+                (22, PrdParticipantRole.EDITOR),
+                (2, PrdParticipantRole.TUTOR),
+            ),
+            round_id=2,
+            team_id=20,
+        )
+
+        all_rounds = self.client.get(reverse("home_api:home")).json()["data"]
+        round_two = self.client.get(
+            reverse("home_api:home"),
+            {"round_scope": "2"},
+        ).json()["data"]
+
+        self.assertIn(historical.id, {item["id"] for item in all_rounds["items"]})
+        self.assertEqual({item["id"] for item in round_two["items"]}, {historical.id})
+        self.assertEqual(round_two["items"][0]["project_scope"], "round_team")
+
+    def test_tutor_student_search_only_returns_shared_editors(self):
+        response = self.client.get(
+            reverse("home_api:tutor-students"),
+            {"q": "서연"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(
+            data["items"],
+            [
+                {
+                    "user_id": 22,
+                    "display_name": "이서연",
+                    "project_count": 2,
+                    "has_duplicate_name": False,
+                    "email": None,
+                }
+            ],
+        )
+        self.assertEqual(data["pagination"]["total_items"], 1)
+
+    def test_selected_student_filters_editor_projects_on_server(self):
+        editor = self.client.get(
+            reverse("home_api:home"),
+            {"participant_user_id": 22},
+        ).json()["data"]
+        viewer = self.client.get(
+            reverse("home_api:home"),
+            {"participant_user_id": 24},
+        ).json()["data"]
+
+        self.assertEqual({item["id"] for item in editor["items"]}, {self.first.id, self.second.id})
+        self.assertEqual(viewer["items"], [])
+
+    def test_student_cannot_use_tutor_student_search(self):
+        self.context = IntegrationContext(2, 3, 20, 30, "student", False, False)
+        resolver = Mock()
+        resolver.resolve.return_value = self.context
+        with patch("apps.prds.views.get_context_resolver", return_value=resolver):
+            response = self.client.get(reverse("home_api:tutor-students"), {"q": "서연"})
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_tutor_search_validates_query_and_pagination(self):
+        self.assertEqual(
+            self.client.get(reverse("home_api:tutor-students"), {"q": "이"}).status_code,
+            400,
+        )
+        self.assertEqual(
+            self.client.get(
+                reverse("home_api:tutor-students"),
+                {"q": "서연", "page": 0},
+            ).status_code,
+            400,
+        )
 
 
 class RoundlessHomeApiTests(TestCase):
@@ -542,7 +783,7 @@ class RoundlessHomeApiTests(TestCase):
         )
         return prd
 
-    def test_no_round_context_returns_only_explicit_roundless_prds(self):
+    def test_no_round_context_still_returns_explicit_historical_prds(self):
         self.resolver.resolve.return_value = IntegrationContext(
             7, None, None, None, "student", False, False
         )
@@ -552,11 +793,11 @@ class RoundlessHomeApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             {item["id"] for item in response.json()["data"]["items"]},
-            {self.personal.id},
+            {self.personal.id, self.current_round.id, self.other_round.id},
         )
         data = response.json()["data"]
         self.assertEqual(data["user"]["display_name"], "사용자 7")
-        self.assertEqual(data["items"][0]["participants"][0]["display_name"], "사용자 7")
+        self.assertIn(self.personal.id, {item["id"] for item in data["items"]})
 
     def test_stale_selected_round_falls_back_to_roundless_home(self):
         roundless_context = IntegrationContext(7, None, None, None, "student", False, False)
@@ -570,7 +811,7 @@ class RoundlessHomeApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             {item["id"] for item in response.json()["data"]["items"]},
-            {self.personal.id},
+            {self.personal.id, self.current_round.id, self.other_round.id},
         )
         self.assertNotIn("selected_round_id", self.client.session)
         self.assertEqual(
@@ -581,7 +822,7 @@ class RoundlessHomeApiTests(TestCase):
             ],
         )
 
-    def test_round_context_includes_own_roundless_and_current_round_only(self):
+    def test_round_context_includes_explicit_prds_from_every_round(self):
         self.resolver.resolve.return_value = IntegrationContext(
             7, 3, 70, 30, "student", False, False
         )
@@ -591,7 +832,41 @@ class RoundlessHomeApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             {item["id"] for item in response.json()["data"]["items"]},
-            {self.personal.id, self.current_round.id},
+            {self.personal.id, self.current_round.id, self.other_round.id},
+        )
+
+    def test_round_and_project_scope_filters_are_independent(self):
+        roundless_team = self.make_prd(creator=7, round_id=None, key="roundless-team")
+        PrdParticipant.objects.create(
+            prd=roundless_team,
+            user_id=8,
+            participant_id=None,
+            role=PrdParticipantRole.EDITOR,
+        )
+        self.resolver.resolve.return_value = IntegrationContext(
+            7, 3, 70, 30, "student", False, False
+        )
+
+        round_two = self.client.get(reverse("home_api:home"), {"round_scope": "2"}).json()["data"]
+        roundless_team_result = self.client.get(
+            reverse("home_api:home"),
+            {"round_scope": "none", "project_scope": "team"},
+        ).json()["data"]
+        personal = self.client.get(
+            reverse("home_api:home"),
+            {"project_scope": "personal"},
+        ).json()["data"]
+
+        self.assertEqual({item["id"] for item in round_two["items"]}, {self.other_round.id})
+        self.assertEqual(
+            {item["id"] for item in roundless_team_result["items"]},
+            {roundless_team.id},
+        )
+        self.assertEqual({item["id"] for item in personal["items"]}, {self.personal.id})
+        self.assertTrue(round_two["filter_options"]["has_roundless"])
+        self.assertEqual(
+            [round_item["id"] for round_item in round_two["filter_options"]["rounds"]],
+            [3, 2],
         )
 
 

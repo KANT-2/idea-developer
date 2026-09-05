@@ -10,12 +10,14 @@ from django.views.decorators.http import require_GET
 def home_page(request):
     try:
         home_api_url = reverse("home_api:home")
+        tutor_students_api_url = reverse("home_api:tutor-students")
         recent_activity_api_url = reverse("home_api:recent-activity")
         trash_api_url = reverse("prd_api:trash")
         delete_api_url_template = reverse("prd_api:delete", args=[0])
     except NoReverseMatch:
         # Minimal test/development URLConfs may mount only the product pages.
         home_api_url = "/api/v1/home/"
+        tutor_students_api_url = "/api/v1/home/tutor-students/"
         recent_activity_api_url = "/api/v1/home/recent-activity/"
         trash_api_url = "/api/v1/prds/trash/"
         delete_api_url_template = "/api/v1/prds/0/delete/"
@@ -24,6 +26,7 @@ def home_page(request):
         "prds/home.html",
         {
             "home_api_url": home_api_url,
+            "tutor_students_api_url": tutor_students_api_url,
             "recent_activity_api_url": recent_activity_api_url,
             "new_prd_url": reverse("ideas:new-prd"),
             "trash_api_url": trash_api_url,

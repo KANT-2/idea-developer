@@ -21,24 +21,8 @@
   const submit = document.getElementById("coach-submit");
   const cancel = document.getElementById("coach-cancel");
   const alertBox = document.getElementById("prd-alert");
-  const participantAlert = document.getElementById("participant-alert");
-  const participantList = document.getElementById("participant-list");
-  const participantResults = document.getElementById("participant-search-results");
-  const participantPicker = document.getElementById("participant-picker");
-  const participantPickerToggle = document.getElementById("manage-participants");
-  const participantSearchInput = document.getElementById("participant-search");
-  const participantSearchHelp = document.getElementById("participant-search-help");
-  const participantSearchSpinner = document.getElementById("participant-search-spinner");
-  const participantAddTeam = document.getElementById("participant-add-team");
-  const commentList = document.getElementById("comment-list");
   const commentForm = document.getElementById("comment-form");
-  const commentInput = document.getElementById("comment-input");
   const commentTarget = document.getElementById("comment-target");
-  const commentSubmit = document.getElementById("comment-submit");
-  const commentPanelAlert = document.getElementById("comment-panel-alert");
-  const commentPagination = document.getElementById("comment-pagination");
-  const contributionList = document.getElementById("contribution-list");
-  const contributionAlert = document.getElementById("contribution-alert");
   const saveAllButton = document.getElementById("save-all-answers");
   const statusPicker = document.getElementById("prd-status-picker");
   const statusControl = document.getElementById("prd-status-control");
@@ -69,20 +53,18 @@
   const deleteConfirmModal = bootstrap.Modal.getOrCreateInstance(deleteConfirmElement);
   const confirmDeletePrdButton = document.getElementById("confirm-delete-prd");
   const deleteError = document.getElementById("write-delete-error");
+  const answerConflictElement = document.getElementById("answer-conflict-modal");
+  const answerConflictModal = bootstrap.Modal.getOrCreateInstance(answerConflictElement);
+  const answerConflictLatest = document.getElementById("answer-conflict-latest");
+  const answerConflictLocal = document.getElementById("answer-conflict-local");
+  let answerConflictQuestionId = null;
   let detail = null;
   let activeJobId = null;
   // undefined means the initial render; null means the user collapsed every section.
   let activeSectionId = undefined;
   let questionListMode = false;
-  let currentParticipants = [];
   let canManageParticipants = false;
-  let participantTeamUsers = [];
-  let participantTeamLoaded = false;
-  let participantSearchTimer = null;
-  let participantSearchSequence = 0;
   let canCreateComments = false;
-  let commentPage = 1;
-  const commentPageSize = 10;
   const pendingAnswers = new Map();
   let savingAllAnswers = false;
   const statusLabels = {in_progress: "진행 중", completed: "완료", held: "보류", dropped: "드랍"};
@@ -514,14 +496,44 @@
 
   async function handleAnswerSaveError(error) {
     if (error.code === "version_conflict") {
-      pendingAnswers.clear();
+      const latestQuestion = error.details?.latest;
+      const questionId = latestQuestion ? String(latestQuestion.id) : null;
+      const localContent = questionId ? pendingAnswers.get(questionId) : null;
       const latest = await api(detailApi);
       renderDetail(latest);
-      showAlert("다른 사용자가 먼저 답변을 수정했습니다. 최신 내용을 다시 불러왔습니다.", "warning");
+      if (questionId && localContent !== undefined) {
+        answerConflictQuestionId = questionId;
+        answerConflictLatest.value = latestQuestion.answer?.content || "";
+        answerConflictLocal.value = localContent;
+        answerConflictModal.show();
+      }
+      showAlert("다른 사용자가 먼저 답변을 수정했습니다. 작성 중인 내용은 보존했습니다.", "warning");
     } else {
       showAlert(error.message);
     }
   }
+
+  document.getElementById("answer-conflict-use-latest").addEventListener("click", function () {
+    if (answerConflictQuestionId) pendingAnswers.delete(answerConflictQuestionId);
+    answerConflictModal.hide();
+    answerConflictQuestionId = null;
+    renderDetail(detail);
+    updateSaveAllButton();
+  });
+
+  document.getElementById("answer-conflict-keep-local").addEventListener("click", function () {
+    answerConflictModal.hide();
+    const editor = answerConflictQuestionId
+      ? sectionsRoot.querySelector('.question-editor[data-question-id="' + answerConflictQuestionId + '"]')
+      : null;
+    if (editor) {
+      editor.value = answerConflictLocal.value;
+      pendingAnswers.set(answerConflictQuestionId, answerConflictLocal.value);
+      editor.focus();
+    }
+    answerConflictQuestionId = null;
+    updateSaveAllButton();
+  });
 
   async function saveOneAnswer(questionId, button) {
     if (!pendingAnswers.has(questionId)) return;
@@ -677,7 +689,7 @@
         const bubble = element(
           "div",
           "coach-message coach-message-" + message.role,
-          decodeSafeText(message.content)
+          message.content
         );
         wrap.append(bubble);
         if (message.role === "assistant" && message.proposal && message.job?.id) {
@@ -1012,7 +1024,13 @@
       settingsModal.hide();
       showAlert("PRD 제목과 한 줄 소개를 수정했습니다.", "success");
     } catch (error) {
-      summaryError.textContent = error.message;
+      if (error.code === "version_conflict") {
+        const latest = await api(detailApi);
+        renderDetail(latest);
+        summaryTitleInput.value = latest.prd.title;
+        summaryDescriptionInput.value = latest.prd.description || "";
+        summaryError.textContent = "다른 사용자가 먼저 수정했습니다. 최신 제목과 소개를 불러왔습니다.";
+      } else summaryError.textContent = error.message;
       summaryError.classList.remove("d-none");
     } finally {
       summarySaveButton.disabled = false;
@@ -1083,7 +1101,10 @@
         showAlert("PRD 상태를 변경했습니다.", "success");
       }
     } catch (error) {
-      showAlert(error.message);
+      if (error.code === "version_conflict") {
+        renderDetail(await api(detailApi));
+        showAlert("다른 사용자가 먼저 PRD를 변경했습니다. 최신 상태를 불러왔습니다.", "warning");
+      } else showAlert(error.message);
     } finally {
       statusControl.disabled = false;
       if (detail) {
@@ -1110,8 +1131,13 @@
       await updateMetadata({deadline: deadlineInput.value || null});
       showAlert(deadlineInput.value ? "목표 마감일을 변경했습니다." : "목표 마감일을 삭제했습니다.", "success");
     } catch (error) {
-      deadlineInput.value = previous;
-      showAlert(error.message);
+      if (error.code === "version_conflict") {
+        renderDetail(await api(detailApi));
+        showAlert("다른 사용자가 먼저 PRD를 변경했습니다. 최신 마감일을 불러왔습니다.", "warning");
+      } else {
+        deadlineInput.value = previous;
+        showAlert(error.message);
+      }
     } finally {
       deadlineInput.disabled = !detail.permissions.can_edit_deadline;
     }
@@ -1158,498 +1184,29 @@
     }
   });
 
-  function avatarColor(user) {
-    const rawId = Number(user.user_id);
-    if (Number.isSafeInteger(rawId)) return (Math.imul(rawId, -1640531527) >>> 0) % 8;
-    const name = user.display_name || "?";
-    let hash = 0;
-    for (let index = 0; index < name.length; index += 1) hash = ((hash * 31) + name.charCodeAt(index)) >>> 0;
-    return hash % 8;
-  }
-
-  function participantAvatar(participant, className) {
-    const name = participant.display_name || "?";
-    const avatar = element("span", className + " avatar-color-" + avatarColor(participant), name.slice(0, 2));
-    avatar.title = name + " · " + participant.role;
-    return avatar;
-  }
-
-  function showParticipantAlert(message, kind) {
-    participantAlert.className = "write-participant-alert " + (kind || "danger");
-    participantAlert.textContent = message;
-  }
-
-  function clearParticipantAlert() {
-    participantAlert.className = "write-participant-alert d-none";
-    participantAlert.textContent = "";
-  }
-
-  function renderMemberAvatars(totalItems) {
-    const members = document.getElementById("write-members");
-    members.replaceChildren();
-    currentParticipants.slice(0, 6).forEach(function (participant) {
-      members.append(participantAvatar(participant, "write-member"));
-    });
-    if (totalItems > 6) {
-      const more = element("span", "write-member avatar-color-7", "+" + (totalItems - 6));
-      more.title = "추가 참여자 " + (totalItems - 6) + "명";
-      members.append(more);
-    }
-  }
-
-  function roleSelect(participant) {
-    const select = element("select", "form-select form-select-sm");
-    const roles = {editor: "편집자", tutor: "튜터", viewer: "뷰어"};
-    Object.entries(roles).forEach(function (entry) { select.add(new Option(entry[1], entry[0])); });
-    select.value = participant.role;
-    select.setAttribute("aria-label", participant.display_name + " 역할");
-    select.addEventListener("change", async function () {
-      const previousRole = participant.role;
-      select.disabled = true;
-      try {
-        await api(participantsApi + encodeURIComponent(participant.user_id) + "/", {
-          method: "PATCH",
-          body: JSON.stringify({role: select.value})
-        });
-        showParticipantAlert(participant.display_name + "님의 역할을 변경했습니다.", "success");
-        await loadParticipants();
-      } catch (error) {
-        select.value = previousRole;
-        showParticipantAlert(error.message);
-      } finally {
-        select.disabled = false;
-      }
-    });
-    return select;
-  }
-
-  function renderParticipantManager() {
-    document.getElementById("participant-count").textContent = currentParticipants.length + "명";
-    participantList.replaceChildren();
-    if (!currentParticipants.length) {
-      participantList.append(element("div", "participant-empty", "등록된 참여자가 없습니다."));
-      return;
-    }
-    const roleLabels = {owner: "소유자", editor: "편집자", tutor: "튜터", viewer: "뷰어"};
-    currentParticipants.forEach(function (participant) {
-      const row = element("div", "participant-person");
-      const copy = element("div", "participant-person-copy");
-      copy.append(element("strong", "", participant.display_name), element("small", "", roleLabels[participant.role] || participant.role));
-      const actions = element("div", "participant-person-actions");
-      if (participant.role === "owner") {
-        actions.append(element("span", "badge rounded-pill text-bg-primary", "owner"));
-      } else if (canManageParticipants) {
-        const select = roleSelect(participant);
-        const remove = element("button", "btn btn-sm btn-outline-danger", "제거");
-        remove.type = "button";
-        remove.addEventListener("click", async function () {
-          if (!window.confirm(participant.display_name + "님을 이 PRD에서 제거하시겠습니까?")) return;
-          remove.disabled = true;
-          try {
-            await api(participantsApi + encodeURIComponent(participant.user_id) + "/", {method: "DELETE"});
-            showParticipantAlert(participant.display_name + "님을 참여자에서 제거했습니다.", "success");
-            await loadParticipants();
-          } catch (error) {
-            showParticipantAlert(error.message);
-            remove.disabled = false;
-          }
-        });
-        actions.append(select, remove);
-      } else {
-        actions.append(element("span", "badge rounded-pill text-bg-light border", roleLabels[participant.role] || participant.role));
-      }
-      row.append(participantAvatar(participant, "participant-person-avatar"), copy, actions);
-      participantList.append(row);
-    });
-  }
-
-  async function loadParticipants() {
-    if (!participantsApi) return;
-    try {
-      const data = await api(participantsApi + "?page_size=100");
-      currentParticipants = data.items;
-      renderMemberAvatars(data.pagination.total_items);
-      renderParticipantManager();
-      participantTeamState();
-    } catch (error) {
-      document.getElementById("write-members").title = error.message;
-      showParticipantAlert(error.message);
-    }
-  }
-
-  function participantTeamState() {
-    if (!participantTeamLoaded) return;
-    const currentIds = new Set(currentParticipants.map(function (participant) { return Number(participant.user_id); }));
-    const available = participantTeamUsers.filter(function (user) { return !currentIds.has(Number(user.user_id)); });
-    participantAddTeam.disabled = available.length === 0;
-    document.getElementById("participant-team-state").textContent = available.length ? available.length + "명 추가" : "전원 추가됨";
-  }
-
-  async function loadParticipantTeam() {
-    if (!participantTeamApi || participantTeamLoaded) { participantTeamState(); return; }
-    try {
-      const params = new URLSearchParams({
-        selected_user_ids: currentParticipants.map(function (participant) { return participant.user_id; }).join(",")
-      });
-      const data = await api(participantTeamApi + "?" + params.toString());
-      participantTeamUsers = data.users || [];
-      participantTeamLoaded = true;
-      document.getElementById("participant-team-name").textContent = data.team?.team_name || "현재 팀";
-      document.getElementById("participant-team-description").textContent = data.team ? "현재 회차의 팀원을 한 번에 추가합니다." : (data.message || "연결된 회차 팀이 없습니다.");
-      participantTeamState();
-    } catch (error) {
-      participantTeamUsers = [];
-      participantTeamLoaded = true;
-      participantAddTeam.disabled = true;
-      document.getElementById("participant-team-description").textContent = "팀 정보를 불러오지 못했습니다. 이름으로 검색해 주세요.";
-      document.getElementById("participant-team-state").textContent = "사용 불가";
-    }
-  }
-
-  function searchResultRow(user) {
-    const row = element("div", "participant-result");
-    const copy = element("div", "participant-person-copy");
-    copy.append(element("strong", "", user.display_name || "이름 없음"), element("small", "", user.email || user.team?.team_name || "활성 사용자"));
-    const select = element("select", "form-select form-select-sm");
-    [["editor", "편집자"], ["tutor", "튜터"], ["viewer", "뷰어"]].forEach(function (role) { select.add(new Option(role[1], role[0])); });
-    select.setAttribute("aria-label", (user.display_name || "사용자") + " 역할");
-    const add = element("button", "btn btn-sm " + (user.selected ? "btn-light" : "btn-primary"), user.selected ? "추가됨" : "추가");
-    add.type = "button";
-    add.disabled = Boolean(user.selected);
-    add.addEventListener("click", async function () {
-      add.disabled = true;
-      try {
-        const result = await api(participantsApi, {
-          method: "POST",
-          body: JSON.stringify({user_id: user.user_id, role: select.value})
-        });
-        showParticipantAlert(result.created ? user.display_name + "님을 추가했습니다." : "이미 참여 중인 사용자입니다.", result.created ? "success" : "info");
-        await loadParticipants();
-        add.textContent = "추가됨";
-      } catch (error) {
-        showParticipantAlert(error.message);
-        add.disabled = false;
-      }
-    });
-    const actions = element("div", "participant-person-actions");
-    actions.append(select, add);
-    row.append(participantAvatar({...user, role: select.value}, "participant-person-avatar"), copy, actions);
-    return row;
-  }
-
-  async function searchParticipants() {
-    clearParticipantAlert();
-    const query = participantSearchInput.value.trim();
-    const sequence = ++participantSearchSequence;
-    participantResults.replaceChildren();
-    if (query.length < 2) {
-      participantSearchHelp.classList.remove("d-none");
-      participantSearchHelp.textContent = "이름을 2자 이상 입력해 주세요.";
-      participantSearchSpinner.classList.add("d-none");
-      return;
-    }
-    participantSearchHelp.classList.add("d-none");
-    participantSearchSpinner.classList.remove("d-none");
-    try {
-      const params = new URLSearchParams({
-        q: query,
-        page_size: "12",
-        selected_user_ids: currentParticipants.map(function (participant) { return participant.user_id; }).join(",")
-      });
-      const data = await api(participantSearchApi + "?" + params.toString());
-      if (sequence !== participantSearchSequence) return;
-      participantResults.replaceChildren();
-      data.results.forEach(function (user) { participantResults.append(searchResultRow(user)); });
-      if (!data.results.length) {
-        participantSearchHelp.classList.remove("d-none");
-        participantSearchHelp.textContent = "검색 결과가 없습니다.";
-      }
-    } catch (error) {
-      if (sequence !== participantSearchSequence) return;
-      participantResults.replaceChildren();
-      participantSearchHelp.classList.remove("d-none");
-      participantSearchHelp.textContent = error.message;
-    } finally {
-      if (sequence === participantSearchSequence) participantSearchSpinner.classList.add("d-none");
-    }
-  }
-
-  function scheduleParticipantSearch(delay) {
-    window.clearTimeout(participantSearchTimer);
-    participantSearchTimer = window.setTimeout(searchParticipants, delay === undefined ? 280 : delay);
-  }
-
-  function setParticipantPicker(open) {
-    participantPicker.classList.toggle("d-none", !open);
-    participantPickerToggle.setAttribute("aria-expanded", String(open));
-    if (open) {
-      positionParticipantPicker();
-      Promise.all([loadParticipants(), loadParticipantTeam()]).then(participantTeamState);
-      window.setTimeout(function () { participantSearchInput.focus(); }, 0);
-    }
-  }
-
-  function positionParticipantPicker() {
-    if (participantPicker.classList.contains("d-none")) return;
-    const buttonRect = participantPickerToggle.getBoundingClientRect();
-    const right = Math.max(12, window.innerWidth - buttonRect.right);
-    participantPicker.style.top = Math.round(buttonRect.bottom + 8) + "px";
-    participantPicker.style.right = Math.round(right) + "px";
-  }
-
-  participantPickerToggle.addEventListener("click", function () {
-    setParticipantPicker(participantPicker.classList.contains("d-none"));
-  });
-  document.addEventListener("mousedown", function (event) {
-    if (!participantPicker.classList.contains("d-none") && !event.target.closest("#write-members-wrap")) setParticipantPicker(false);
-  });
-  window.addEventListener("resize", positionParticipantPicker);
-  participantSearchInput.addEventListener("input", function () { scheduleParticipantSearch(); });
-  participantSearchInput.addEventListener("keydown", function (event) {
-    if (event.key === "Enter") { event.preventDefault(); scheduleParticipantSearch(0); }
-    if (event.key === "Escape") setParticipantPicker(false);
-  });
-  participantAddTeam.addEventListener("click", async function () {
-    const currentIds = new Set(currentParticipants.map(function (participant) { return Number(participant.user_id); }));
-    const available = participantTeamUsers.filter(function (user) { return !currentIds.has(Number(user.user_id)); });
-    if (!available.length) return;
-    participantAddTeam.disabled = true;
-    document.getElementById("participant-team-state").textContent = "추가 중…";
-    let added = 0;
-    try {
-      for (const user of available) {
-        const result = await api(participantsApi, {method: "POST", body: JSON.stringify({user_id: user.user_id, role: "editor"})});
-        if (result.created) added += 1;
-      }
-      await loadParticipants();
-      participantTeamState();
-      showParticipantAlert(added + "명의 팀원을 추가했습니다.", "success");
-    } catch (error) {
-      await loadParticipants();
-      participantTeamState();
-      showParticipantAlert(error.message);
-    }
+  const participantController = window.PrdWriteParticipants.create({
+    api: api,
+    element: element,
+    participantsApi: participantsApi,
+    participantSearchApi: participantSearchApi,
+    participantTeamApi: participantTeamApi,
+    canManageParticipants: function () { return canManageParticipants; }
   });
 
-  function showCommentAlert(message, kind) {
-    commentPanelAlert.className = "alert alert-" + (kind || "danger") + " comment-panel-alert";
-    commentPanelAlert.textContent = message;
-  }
-
-  function clearCommentAlert() {
-    commentPanelAlert.className = "alert d-none comment-panel-alert";
-    commentPanelAlert.textContent = "";
-  }
-
-  function commentDate(value) {
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return "";
-    return new Intl.DateTimeFormat("ko-KR", {month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit"}).format(parsed);
-  }
-
-  function questionLabel(questionId) {
-    if (!detail || !questionId) return "PRD 전체";
-    for (const section of detail.sections) {
-      const question = section.questions.find(function (item) { return item.id === questionId; });
-      if (question) return section.title + " · " + question.prompt;
-    }
-    return "질문 코멘트";
-  }
-
-  function renderCommentPagination(pagination) {
-    commentPagination.replaceChildren();
-    commentPagination.classList.toggle("d-none", pagination.total_pages <= 1);
-    if (pagination.total_pages <= 1) return;
-    const previous = element("button", "btn btn-sm btn-outline-secondary", "이전");
-    const next = element("button", "btn btn-sm btn-outline-secondary", "다음");
-    previous.type = next.type = "button";
-    previous.disabled = pagination.page <= 1;
-    next.disabled = pagination.page >= pagination.total_pages;
-    previous.addEventListener("click", function () { loadComments(pagination.page - 1); });
-    next.addEventListener("click", function () { loadComments(pagination.page + 1); });
-    commentPagination.append(previous, element("span", "", pagination.page + " / " + pagination.total_pages), next);
-  }
-
-  function editComment(card, comment) {
-    const content = card.querySelector(".comment-content");
-    const actions = card.querySelector(".comment-actions");
-    const editor = element("textarea", "form-control comment-edit-input");
-    editor.maxLength = 4000;
-    editor.value = comment.content;
-    const editActions = element("div", "comment-edit-actions");
-    const cancelEdit = element("button", "btn btn-sm btn-light", "취소");
-    const saveEdit = element("button", "btn btn-sm btn-primary", "저장");
-    cancelEdit.type = saveEdit.type = "button";
-    cancelEdit.addEventListener("click", function () { editor.remove(); editActions.remove(); content.classList.remove("d-none"); actions.classList.remove("d-none"); });
-    saveEdit.addEventListener("click", async function () {
-      if (!editor.value.trim()) return showCommentAlert("코멘트 내용을 입력해 주세요.", "warning");
-      saveEdit.disabled = true;
-      try {
-        await api(commentsApi + comment.id + "/", {method: "PATCH", body: JSON.stringify({content: editor.value.trim()})});
-        showCommentAlert("코멘트를 수정했습니다.", "success");
-        await loadComments(commentPage);
-      } catch (error) { showCommentAlert(error.message); saveEdit.disabled = false; }
-    });
-    editActions.append(cancelEdit, saveEdit);
-    content.classList.add("d-none"); actions.classList.add("d-none");
-    content.after(editor, editActions);
-    editor.focus();
-  }
-
-  async function deleteComment(comment) {
-    if (!window.confirm("이 코멘트를 삭제하시겠습니까?")) return;
-    try {
-      await api(commentsApi + comment.id + "/", {method: "DELETE"});
-      showCommentAlert("코멘트를 삭제했습니다.", "success");
-      await loadComments(commentPage);
-    } catch (error) { showCommentAlert(error.message); }
-  }
-
-  function renderComments(data) {
-    const count = document.getElementById("comment-count");
-    count.textContent = data.pagination.total_items;
-    count.classList.toggle("d-none", data.pagination.total_items === 0);
-    commentList.replaceChildren();
-    if (!data.items.length) {
-      commentList.append(element("div", "comment-empty", "아직 등록된 코멘트가 없습니다.\n첫 의견을 남겨보세요."));
-      renderCommentPagination(data.pagination);
-      return;
-    }
-    const typeLabels = {general: "일반", guidance: "지도", review: "리뷰", post_completion_review: "완료 후 리뷰"};
-    const roleLabels = {owner: "소유자", editor: "편집자", tutor: "튜터", viewer: "뷰어"};
-    data.items.forEach(function (comment) {
-      const card = element("article", "comment-card");
-      const head = element("div", "comment-card-head");
-      const author = element("div", "comment-author");
-      author.append(
-        element("strong", "", comment.author.display_name),
-        element("small", "", (roleLabels[comment.author.role_at_created] || comment.author.role_at_created) + " · " + commentDate(comment.created_at))
-      );
-      head.append(
-        participantAvatar({user_id: comment.author.user_id, display_name: comment.author.display_name, role: comment.author.role_at_created}, "participant-person-avatar"),
-        author,
-        element("span", "comment-kind", typeLabels[comment.comment_type] || comment.comment_type)
-      );
-      card.append(head, element("p", "comment-content", comment.content));
-      card.append(element("span", "comment-question", questionLabel(comment.section_question_id)));
-      if (comment.can_modify) {
-        const actions = element("div", "comment-actions");
-        const edit = element("button", "btn btn-sm btn-light", "수정");
-        const remove = element("button", "btn btn-sm btn-link text-danger", "삭제");
-        edit.type = remove.type = "button";
-        edit.addEventListener("click", function () { editComment(card, comment); });
-        remove.addEventListener("click", function () { deleteComment(comment); });
-        actions.append(edit, remove);
-        card.append(actions);
-      }
-      commentList.append(card);
-    });
-    renderCommentPagination(data.pagination);
-  }
-
-  async function loadComments(page) {
-    if (!commentsApi) return;
-    commentPage = Math.max(1, Number(page || commentPage || 1));
-    try {
-      let data = await api(commentsApi + "?page=" + commentPage + "&page_size=" + commentPageSize);
-      if (!data.items.length && commentPage > 1) {
-        commentPage -= 1;
-        data = await api(commentsApi + "?page=" + commentPage + "&page_size=" + commentPageSize);
-      }
-      renderComments(data);
-    } catch (error) {
-      commentList.replaceChildren(element("div", "comment-empty", "코멘트를 불러오지 못했습니다."));
-      showCommentAlert(error.message);
-    }
-  }
-
-  commentForm.addEventListener("submit", async function (event) {
-    event.preventDefault();
-    clearCommentAlert();
-    const content = commentInput.value.trim();
-    if (!content) {
-      showCommentAlert("코멘트 내용을 입력해 주세요.", "warning");
-      return;
-    }
-    commentSubmit.disabled = true;
-    try {
-      const selectedQuestionId = commentTarget.value ? Number(commentTarget.value) : null;
-      const body = {content: content, section_question_id: selectedQuestionId};
-      if (detail.prd.status === "completed" && detail.permissions.can_review_comment) body.comment_type = "post_completion_review";
-      await api(commentsApi, {method: "POST", body: JSON.stringify(body)});
-      commentInput.value = "";
-      commentPage = 1;
-      showCommentAlert("코멘트를 등록했습니다.", "success");
-      await loadComments(1);
-    } catch (error) {
-      showCommentAlert(error.message);
-    } finally {
-      commentSubmit.disabled = false;
-    }
+  const commentController = window.PrdWriteComments.create({
+    api: api,
+    element: element,
+    participantAvatar: participantController.avatar,
+    commentsApi: commentsApi,
+    getDetail: function () { return detail; }
   });
 
-  document.getElementById("write-comments-panel").addEventListener("show.bs.offcanvas", function () {
-    loadComments(commentPage);
+  const contributionController = window.PrdWriteContributions.create({
+    api: api,
+    element: element,
+    contributionsApi: contributionsApi,
+    getDetail: function () { return detail; }
   });
-
-  function showContributionAlert(message, kind) {
-    contributionAlert.className = "alert alert-" + (kind || "danger") + " contribution-alert";
-    contributionAlert.textContent = message;
-  }
-
-  function contributionStatus(value) {
-    return {pending: "계산 중", succeeded: "완료", failed: "실패"}[value] || value;
-  }
-
-  function renderContributions(data) {
-    contributionList.replaceChildren();
-    if (!data.items.length) {
-      contributionList.append(element("div", "contribution-empty", "아직 생성된 기여도 평가가 없습니다."));
-      return;
-    }
-    data.items.forEach(function (evaluation) {
-      const card = element("article", "contribution-card");
-      const head = element("div", "contribution-card-head");
-      const title = element("div");
-      title.append(element("strong", "", "평가 버전 " + evaluation.calculation_version), element("small", "", evaluation.calculated_at ? commentDate(evaluation.calculated_at) : "처리 대기 중"));
-      head.append(title, element("span", "contribution-status " + evaluation.status, contributionStatus(evaluation.status)));
-      card.append(head);
-      if (evaluation.scores.length) {
-        const scores = element("div", "contribution-scores");
-        evaluation.scores.forEach(function (score) {
-          const row = element("div", "contribution-score-row");
-          const copy = element("div");
-          copy.append(element("strong", "", score.display_name), element("small", "", "메모 " + Math.round(score.memo_contribution) + "% · 코멘트 " + Math.round(score.comment_contribution) + "%"));
-          row.append(copy, element("b", "", Math.round(score.total_score) + "%"));
-          scores.append(row);
-        });
-        card.append(scores);
-      } else if (evaluation.status === "pending") card.append(element("p", "contribution-note", "백그라운드 작업이 평가를 처리하고 있습니다."));
-      else card.append(element("p", "contribution-note", evaluation.failure_code ? "계산 실패: " + evaluation.failure_code : "표시할 점수가 없습니다."));
-      if (evaluation.status === "failed") {
-        const retry = element("button", "btn btn-sm btn-outline-primary contribution-retry", "동일 입력 재평가");
-        retry.type = "button";
-        retry.addEventListener("click", async function () {
-          retry.disabled = true;
-          try {
-            await api(contributionsApi + evaluation.calculation_version + "/retry/", {method: "POST", body: "{}"});
-            showContributionAlert("재평가를 요청했습니다.", "success");
-            await loadContributions();
-          } catch (error) { showContributionAlert(error.message); retry.disabled = false; }
-        });
-        card.append(retry);
-      }
-      contributionList.append(card);
-    });
-  }
-
-  async function loadContributions() {
-    if (!contributionsApi || !detail?.permissions.can_view_contributions) return;
-    try { renderContributions(await api(contributionsApi)); }
-    catch (error) { contributionList.replaceChildren(element("div", "contribution-empty", "기여도 결과를 불러오지 못했습니다.")); showContributionAlert(error.message); }
-  }
-
-  document.getElementById("write-contribution-panel").addEventListener("show.bs.offcanvas", loadContributions);
   saveAllButton.addEventListener("click", saveAllAnswers);
 
   exportModalElement.addEventListener("show.bs.modal", function () {
@@ -1696,6 +1253,12 @@
   });
 
   api(detailApi)
-    .then(function (data) { renderDetail(data); loadParticipants(); loadComments(); loadEvaluation(); return loadConversation(); })
+    .then(function (data) {
+      renderDetail(data);
+      participantController.load();
+      commentController.load();
+      loadEvaluation();
+      return loadConversation();
+    })
     .catch(function (error) { showAlert(error.message); });
 }());

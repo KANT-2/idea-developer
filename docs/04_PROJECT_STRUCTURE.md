@@ -8,11 +8,10 @@ idea-developer/
 ├── apps/
 │   ├── accounts/           # 이메일 OTP, 로컬 사용자 매핑, 세션
 │   ├── integration/        # 읽기 전용 VIEW와 IntegrationContext
-│   ├── prds/               # PRD, 섹션, 질문, 답변, 권한
-│   ├── dashboard/          # 홈 KPI, 목록, 필터
-│   ├── brainstorm/         # 메모, 연결선, 코멘트, polling
-│   ├── ai/                 # AI 프롬프트, 작업, 사용 로그
-│   └── audit/              # 감사 로그와 변경 기록
+│   ├── prds/               # PRD, 홈 KPI, 질문, 답변, 코멘트, 권한
+│   ├── brainstorm/         # 메모, 연결선, 버전 보드, polling, 감사 기록
+│   ├── ai/                 # AI 프롬프트, 작업, 사용 로그, 기여도
+│   └── jobs/               # PostgreSQL 작업 worker와 정리 작업
 ├── templates/              # Django·Bootstrap 화면
 ├── static/
 │   ├── css/                # 공통 및 앱별 CSS

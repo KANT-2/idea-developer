@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from django.core.exceptions import PermissionDenied
 
 from apps.accounts.permissions import ParticipantAction, role_permission_policy
-from apps.integration.context import IntegrationContext
+from apps.integration.context import IntegrationContext, is_admin_context
 
 from .models import Prd, PrdParticipant, PrdParticipantRole, PrdStatus
 
@@ -34,9 +34,6 @@ class PrdAccessService:
             prd = Prd.objects.with_completion_rate().get(pk=prd_id, is_deleted=False)
         except Prd.DoesNotExist as exc:
             raise PrdNotFound from exc
-        if prd.round_id is not None and prd.round_id != context.round_id:
-            raise PermissionDenied("The PRD belongs to another round.")
-
         participant = PrdParticipant.objects.filter(
             prd=prd,
             user_id=context.user_id,
@@ -45,13 +42,16 @@ class PrdAccessService:
         if role is None and prd.creator_user_id == context.user_id:
             role = PrdParticipantRole.OWNER
 
+        if prd.round_id is not None and prd.round_id != context.round_id and role is None:
+            raise PermissionDenied("The PRD belongs to another round.")
+
         if prd.round_id is None and role is None:
             raise PermissionDenied("Only an explicit participant can access this personal PRD.")
 
         has_team_access = (
             prd.round_id is not None and prd.is_team_shared and prd.team_id == context.team_id
         )
-        is_admin = context.is_staff or context.is_superuser
+        is_admin = is_admin_context(context)
         if role is None and not has_team_access and not is_admin:
             raise PermissionDenied("The user cannot access this PRD.")
         return PrdAccess(prd=prd, role=role, is_admin=is_admin)

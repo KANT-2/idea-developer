@@ -21,6 +21,8 @@ from apps.ai.services import AiPromptService
 from apps.ai.worker import AiJobRunner
 from apps.brainstorm.models import (
     BrainstormCanvas,
+    BrainstormChangeLog,
+    BrainstormChangeTarget,
     BrainstormNode,
     BrainstormNodeStatus,
     BrainstormNodeType,
@@ -319,6 +321,15 @@ class ContributionEvaluationTests(TestCase):
             assignee_id=8,
             status=BrainstormNodeStatus.ACCEPTED,
         )
+        BrainstormChangeLog.objects.create(
+            canvas=second_canvas,
+            actor_user_id=8,
+            action="node_content_updated",
+            target_type=BrainstormChangeTarget.NODE,
+            target_id=str(newer.pk),
+            before_data={"content": self.owner_node.content, "version": 1},
+            after_data={"content": newer.content, "version": 2},
+        )
 
         snapshot = ContributionEvaluationService()._build_snapshot(
             prd_id=self.prd.pk,
@@ -334,6 +345,60 @@ class ContributionEvaluationTests(TestCase):
         self.assertEqual(lineage_rows[0]["node_id"], str(newer.pk))
         self.assertEqual(lineage_rows[0]["assignee_id"], 8)
         self.assertEqual(lineage_rows[0]["canvas_version"], 2)
+        self.assertEqual(lineage_rows[0]["contributor_user_ids"], [7, 8])
+
+    def test_each_meaningful_lineage_contributor_receives_one_full_memo_credit(self):
+        second_canvas = BrainstormCanvas.objects.create(
+            prd=self.prd,
+            version_number=2,
+            source_canvas=self.canvas,
+        )
+        evolved = BrainstormNode.objects.create(
+            canvas=second_canvas,
+            lineage_id=self.owner_node.lineage_id,
+            node_type=BrainstormNodeType.NOTE,
+            content="소유자 메모를 편집자가 발전시킴",
+            color="blue",
+            position_x=50,
+            position_y=70,
+            section=self.section,
+            author_id=7,
+            assignee_id=8,
+            status=BrainstormNodeStatus.ACCEPTED,
+        )
+        BrainstormChangeLog.objects.create(
+            canvas=second_canvas,
+            actor_user_id=8,
+            action="node_content_updated",
+            target_type=BrainstormChangeTarget.NODE,
+            target_id=str(evolved.pk),
+            before_data={"content": self.owner_node.content, "version": 1},
+            after_data={"content": evolved.content, "version": 2},
+        )
+        # Cosmetic whitespace and metadata-only changes must not add credit.
+        BrainstormChangeLog.objects.create(
+            canvas=second_canvas,
+            actor_user_id=9,
+            action="node_content_updated",
+            target_type=BrainstormChangeTarget.NODE,
+            target_id=str(evolved.pk),
+            before_data={"content": evolved.content, "version": 2},
+            after_data={"content": f"  {evolved.content}\n", "version": 3},
+        )
+
+        evaluation = self.schedule()
+        self.assertTrue(AiJobRunner(provider=ContributionProvider()).run_once())
+        scores = {row.user_id: row for row in evaluation.user_scores.all()}
+
+        self.assertEqual(scores[7].memo_raw, 2)
+        self.assertEqual(scores[8].memo_raw, 2)
+        self.assertEqual(scores[9].memo_raw, 0)
+        shared = next(
+            row
+            for row in evaluation.input_snapshot["accepted_memos"]
+            if row["lineage_id"] == str(self.owner_node.lineage_id)
+        )
+        self.assertEqual(shared["contributor_user_ids"], [7, 8])
 
     @override_settings(AI_CONTRIBUTION_MAX_COMMENTS=1)
     def test_oversized_contribution_input_fails_without_reverting_completion(self):

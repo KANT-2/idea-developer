@@ -1,8 +1,9 @@
 from unittest.mock import MagicMock, patch
 
 from django.db import DatabaseError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 
+from apps.accounts.models import LocalUserMapping
 from apps.integration.exceptions import IntegrationUnavailableError
 from apps.integration.models import AxUserTeamLoginView, UserRoundTeamView
 from apps.integration.repository import (
@@ -79,15 +80,48 @@ class FailoverIntegrationRepositoryTests(SimpleTestCase):
     def test_unavailable_primary_uses_development_fixture(self):
         self.primary.search_login_users.side_effect = IntegrationUnavailableError("offline")
 
-        result = self.repository.search_login_users(
-            query="리오넬 메시", page=1, page_size=20
-        )
+        result = self.repository.search_login_users(query="리오넬 메시", page=1, page_size=20)
 
         self.assertEqual(result.results[0].user_id, 24)
         self.assertEqual(result.results[0].display_name, "리오넬 메시")
+
+        user = self.repository.get_user(24)
+
+        self.assertEqual(user.user_id, 24)
+        self.primary.get_user.assert_not_called()
 
     def test_successful_primary_is_preferred(self):
         expected = object()
         self.primary.get_user.return_value = expected
 
         self.assertIs(self.repository.get_user(24), expected)
+
+
+class FailoverTransactionIsolationTests(TestCase):
+    def test_missing_parent_view_does_not_poison_outer_transaction(self):
+        primary = DjangoViewIntegrationRepository(database_alias="default")
+        fallback = FixtureIntegrationRepository(
+            users=[
+                {
+                    "user_id": 24,
+                    "user_email": "lionel.messi@example.com",
+                    "primary_email": "lionel.messi@example.com",
+                    "first_name": "리오넬",
+                    "last_name": "메시",
+                    "role": "student",
+                    "approval_status": "fixture-approved",
+                    "is_active": True,
+                    "is_staff": False,
+                    "is_superuser": False,
+                }
+            ],
+            active_statuses={"fixture-running"},
+        )
+        repository = FailoverIntegrationRepository(primary, fallback)
+
+        user = repository.get_user(24)
+
+        self.assertEqual(user.user_id, 24)
+        # This query fails with InFailedSqlTransaction on PostgreSQL unless the
+        # failed VIEW read was rolled back to an inner savepoint.
+        self.assertEqual(LocalUserMapping.objects.count(), 0)

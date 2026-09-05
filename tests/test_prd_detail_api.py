@@ -11,7 +11,9 @@ from django.utils import timezone
 from apps.accounts.models import LocalUserMapping
 from apps.ai.models import (
     AiActionType,
-    AiCoachChatLog,
+    AiCoachConversation,
+    AiCoachMessage,
+    AiConversationMessageRole,
     AiFeatureType,
     AiUsageLog,
     AiUsageStatus,
@@ -187,6 +189,7 @@ class PrdDetailApiTests(TestCase):
         role=None,
         round_id=3,
         team_id=30,
+        parent_role="student",
         is_staff=False,
         is_superuser=False,
     ):
@@ -196,7 +199,7 @@ class PrdDetailApiTests(TestCase):
             round_id=round_id,
             participant_id=user_id * 10,
             team_id=team_id,
-            parent_role="student",
+            parent_role=parent_role,
             is_staff=is_staff,
             is_superuser=is_superuser,
         )
@@ -206,6 +209,9 @@ class PrdDetailApiTests(TestCase):
 
     def patch_json(self, url, payload):
         return self.client.patch(url, json.dumps(payload), content_type="application/json")
+
+    def delete_json(self, url, payload):
+        return self.client.delete(url, json.dumps(payload), content_type="application/json")
 
     def test_initial_detail_contains_basic_sections_questions_answers_and_permissions(self):
         response = self.client.get(reverse("prd_api:detail", args=[self.prd.id]))
@@ -393,6 +399,37 @@ class PrdDetailApiTests(TestCase):
         detail = self.client.get(reverse("prd_api:detail", args=[self.prd.id]))
         self.assertTrue(detail.json()["data"]["permissions"]["can_view_contributions"])
 
+    def test_parent_tutor_is_not_promoted_to_admin_by_staff_flag(self):
+        self.login_as(
+            9,
+            role=PrdParticipantRole.TUTOR,
+            parent_role="tutor",
+            is_staff=True,
+        )
+
+        response = self.client.get(reverse("prd_api:detail", args=[self.prd.id]))
+
+        self.assertEqual(response.status_code, 200)
+        permissions = response.json()["data"]["permissions"]
+        self.assertEqual(permissions["role"], PrdParticipantRole.TUTOR)
+        self.assertFalse(permissions["can_edit"])
+        self.assertFalse(permissions["can_delete"])
+        self.assertFalse(permissions["can_view_contributions"])
+
+    def test_explicit_editor_can_open_a_prd_from_another_round(self):
+        PrdParticipant.objects.create(
+            prd=self.other_round,
+            user_id=7,
+            participant_id=70,
+            role=PrdParticipantRole.EDITOR,
+        )
+        self.login_as(7, role=PrdParticipantRole.EDITOR, round_id=3, team_id=30)
+
+        response = self.client.get(reverse("prd_api:detail", args=[self.other_round.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["permissions"]["role"], "editor")
+
     def test_owner_saves_answer_with_version_and_change_history(self):
         response = self.patch_json(
             reverse("prd_api:question-answer", args=[self.prd.id, self.question.id]),
@@ -515,7 +552,10 @@ class PrdDetailApiTests(TestCase):
             {"user_id": 11, "role": PrdParticipantRole.VIEWER},
         )
         item_url = reverse("prd_api:participant-item", args=[self.prd.id, 11])
-        changed = self.patch_json(item_url, {"role": PrdParticipantRole.TUTOR})
+        changed = self.patch_json(
+            item_url,
+            {"role": PrdParticipantRole.TUTOR, "version": 1},
+        )
 
         canvas = BrainstormCanvas.objects.create(prd=self.prd)
         node = BrainstormNode.objects.create(
@@ -530,7 +570,7 @@ class PrdDetailApiTests(TestCase):
             assignee_id=11,
             status=BrainstormNodeStatus.ACCEPTED,
         )
-        removed = self.client.delete(item_url)
+        removed = self.delete_json(item_url, {"version": 2})
 
         self.assertEqual((created.status_code, duplicate.status_code), (201, 200))
         self.assertTrue(created.json()["data"]["created"])
@@ -551,6 +591,32 @@ class PrdDetailApiTests(TestCase):
             ),
             ["participant_added", "participant_role_changed", "participant_removed"],
         )
+
+    def test_participant_update_and_delete_reject_stale_version(self):
+        participant = PrdParticipant.objects.create(
+            prd=self.prd,
+            user_id=11,
+            participant_id=110,
+            role=PrdParticipantRole.EDITOR,
+        )
+        url = reverse("prd_api:participant-item", args=[self.prd.id, participant.user_id])
+
+        changed = self.patch_json(
+            url,
+            {"role": PrdParticipantRole.TUTOR, "version": 1},
+        )
+        stale_update = self.patch_json(
+            url,
+            {"role": PrdParticipantRole.VIEWER, "version": 1},
+        )
+        stale_delete = self.delete_json(url, {"version": 1})
+
+        self.assertEqual(changed.status_code, 200)
+        self.assertEqual(changed.json()["data"]["version"], 2)
+        self.assertEqual(stale_update.status_code, 409)
+        self.assertEqual(stale_update.json()["error"]["details"]["latest"]["role"], "tutor")
+        self.assertEqual(stale_delete.status_code, 409)
+        self.assertTrue(PrdParticipant.objects.filter(pk=participant.pk).exists())
 
     def test_participant_management_rechecks_membership_permissions_and_completion_lock(self):
         participants_url = reverse("prd_api:participants", args=[self.prd.id])
@@ -587,9 +653,11 @@ class PrdDetailApiTests(TestCase):
         )
 
         self.assertEqual(completed.status_code, 200)
+        self.assertEqual(completed.json()["data"]["version"], 2)
         self.prd.refresh_from_db()
         completed_at = self.prd.completed_at
         self.assertEqual(self.prd.status, PrdStatus.COMPLETED)
+        self.assertEqual(self.prd.version, 2)
         self.assertIsNotNone(completed_at)
         permissions = self.client.get(reverse("prd_api:detail", args=[self.prd.id])).json()["data"][
             "permissions"
@@ -610,8 +678,10 @@ class PrdDetailApiTests(TestCase):
 
         self.assertEqual(missing_reason.status_code, 400)
         self.assertEqual(reopened.status_code, 200)
+        self.assertEqual(reopened.json()["data"]["version"], 3)
         self.prd.refresh_from_db()
         self.assertEqual(self.prd.status, PrdStatus.IN_PROGRESS)
+        self.assertEqual(self.prd.version, 3)
         self.assertIsNone(self.prd.completed_at)
         audit = PrdStatusAuditLog.objects.get(action=PrdStatusAuditAction.REOPENED)
         self.assertEqual(audit.actor_user_id, 7)
@@ -635,7 +705,7 @@ class PrdDetailApiTests(TestCase):
             )
             changed_deadline = self.patch_json(
                 reverse("prd_api:metadata", args=[self.prd.id]),
-                {"deadline": (today + timedelta(days=7)).isoformat(), "version": 1},
+                {"deadline": (today + timedelta(days=7)).isoformat(), "version": 2},
             )
             reopened = self.post_json(
                 reverse("prd_api:reopen", args=[self.prd.id]),
@@ -651,6 +721,7 @@ class PrdDetailApiTests(TestCase):
         self.assertEqual(reopened.status_code, 200)
         self.prd.refresh_from_db()
         self.assertEqual(self.prd.status, PrdStatus.IN_PROGRESS)
+        self.assertEqual(self.prd.version, 4)
         completion = self.prd.status_audit_logs.get(action=PrdStatusAuditAction.COMPLETED)
         self.assertEqual(completion.reason, "deadline_elapsed")
 
@@ -720,7 +791,7 @@ class PrdDetailApiTests(TestCase):
 
         updated = self.patch_json(
             reverse("prd_api:comment-item", args=[self.prd.id, comment.id]),
-            {"content": "리뷰 보완"},
+            {"content": "리뷰 보완", "version": 1},
         )
         self.assertEqual(updated.status_code, 200)
 
@@ -738,8 +809,11 @@ class PrdDetailApiTests(TestCase):
         self.prd.save(update_fields=["status", "completed_at", "updated_at"])
         url = reverse("prd_api:comment-item", args=[self.prd.id, comment.id])
 
-        self.assertEqual(self.patch_json(url, {"content": "수정"}).status_code, 403)
-        self.assertEqual(self.client.delete(url).status_code, 403)
+        self.assertEqual(
+            self.patch_json(url, {"content": "수정", "version": 1}).status_code,
+            403,
+        )
+        self.assertEqual(self.delete_json(url, {"version": 1}).status_code, 403)
 
     def test_team_shared_viewer_has_read_only_permissions(self):
         self.login_as(11)
@@ -795,7 +869,7 @@ class PrdDetailApiTests(TestCase):
 
         role_response = self.patch_json(
             reverse("prd_api:participant-item", args=[personal.id, 8]),
-            {"role": PrdParticipantRole.VIEWER},
+            {"role": PrdParticipantRole.VIEWER, "version": 1},
         )
         self.assertEqual(role_response.status_code, 200)
         editor.refresh_from_db()
@@ -804,8 +878,9 @@ class PrdDetailApiTests(TestCase):
         owner_delete = self.client.delete(
             reverse("prd_api:participant-item", args=[personal.id, owner.user_id])
         )
-        editor_delete = self.client.delete(
-            reverse("prd_api:participant-item", args=[personal.id, editor.user_id])
+        editor_delete = self.delete_json(
+            reverse("prd_api:participant-item", args=[personal.id, editor.user_id]),
+            {"version": 2},
         )
         self.assertEqual(owner_delete.status_code, 400)
         self.assertEqual(editor_delete.status_code, 200)
@@ -844,6 +919,33 @@ class PrdDetailApiTests(TestCase):
         self.assertEqual(comments[1].author_role_at_created, "editor")
         self.assertIsNone(comments[0].section_question_id)
         self.assertEqual(comments[1].section_question_id, self.question.id)
+
+    @patch("apps.prds.comment_services.send_prd_comment_created")
+    def test_comment_notifies_other_participants_and_records_activity(self, send_notification):
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.post_json(
+                reverse("prd_api:comments", args=[self.prd.id]),
+                {
+                    "content": "검증 기준을 구체적으로 작성해 주세요.",
+                    "section_question_id": self.question.id,
+                },
+            )
+
+        self.assertEqual(response.status_code, 201)
+        send_notification.assert_called_once_with(
+            prd_id=self.prd.pk,
+            prd_title=self.prd.title,
+            user_ids=(8, 9, 10),
+            comment_preview="검증 기준을 구체적으로 작성해 주세요.",
+            question_prompt=self.question.prompt,
+        )
+        self.assertTrue(
+            PrdChangeHistory.objects.filter(
+                prd=self.prd,
+                actor_user_id=7,
+                event_type="comment_created",
+            ).exists()
+        )
 
     def test_tutor_guidance_and_review_are_not_contribution_eligible(self):
         self.login_as(9, role=PrdParticipantRole.TUTOR)
@@ -913,8 +1015,8 @@ class PrdDetailApiTests(TestCase):
         self.assertEqual(self.patch_json(url, {"content": "탈취"}).status_code, 403)
 
         self.login_as(7, role=PrdParticipantRole.OWNER)
-        updated = self.patch_json(url, {"content": "수정"})
-        deleted = self.client.delete(url)
+        updated = self.patch_json(url, {"content": "수정", "version": 1})
+        deleted = self.delete_json(url, {"version": 2})
 
         self.assertEqual(updated.status_code, 200)
         self.assertEqual(deleted.status_code, 200)
@@ -924,6 +1026,31 @@ class PrdDetailApiTests(TestCase):
         self.assertIsNotNone(comment.deleted_at)
         listing = self.client.get(reverse("prd_api:comments", args=[self.prd.id]))
         self.assertEqual(listing.json()["data"]["items"], [])
+
+    def test_comment_update_and_delete_reject_stale_version(self):
+        comment = PrdComment.objects.create(
+            prd=self.prd,
+            author_user_id=7,
+            author_role_at_created=PrdParticipantRole.OWNER,
+            comment_type=PrdCommentType.GENERAL,
+            content="첫 내용",
+            is_contribution_eligible=True,
+        )
+        url = reverse("prd_api:comment-item", args=[self.prd.id, comment.id])
+
+        changed = self.patch_json(url, {"content": "최신 내용", "version": 1})
+        stale_update = self.patch_json(url, {"content": "오래된 수정", "version": 1})
+        stale_delete = self.delete_json(url, {"version": 1})
+
+        self.assertEqual(changed.status_code, 200)
+        self.assertEqual(changed.json()["data"]["version"], 2)
+        self.assertEqual(stale_update.status_code, 409)
+        latest = stale_update.json()["error"]["details"]["latest"]
+        self.assertEqual((latest["content"], latest["version"]), ("최신 내용", 2))
+        self.assertEqual(stale_delete.status_code, 409)
+        comment.refresh_from_db()
+        self.assertEqual(comment.content, "최신 내용")
+        self.assertFalse(comment.is_deleted)
 
     def test_comment_list_is_paginated_and_returns_author_snapshot(self):
         for index in range(3):
@@ -950,6 +1077,11 @@ class PrdDetailApiTests(TestCase):
         self.assertTrue(data["items"][0]["can_modify"])
 
     def test_ai_usage_chat_and_change_history_are_separate_paginated_apis(self):
+        conversation = AiCoachConversation.objects.create(
+            prd=self.prd,
+            user_id=7,
+            expires_at=timezone.now() + timedelta(days=30),
+        )
         for index in range(3):
             AiUsageLog.objects.create(
                 prd=self.prd,
@@ -959,11 +1091,17 @@ class PrdDetailApiTests(TestCase):
                 status=AiUsageStatus.SUCCESS,
                 total_tokens=index,
             )
-            AiCoachChatLog.objects.create(
-                prd=self.prd,
-                user_id=7,
-                prompt=f"질문 {index}",
-                response=f"응답 {index}",
+            AiCoachMessage.objects.create(
+                conversation=conversation,
+                sequence=index * 2 + 1,
+                role=AiConversationMessageRole.USER,
+                content=f"질문 {index}",
+            )
+            AiCoachMessage.objects.create(
+                conversation=conversation,
+                sequence=index * 2 + 2,
+                role=AiConversationMessageRole.ASSISTANT,
+                content=f"응답 {index}",
             )
             PrdChangeHistory.objects.create(
                 prd=self.prd,
@@ -982,6 +1120,9 @@ class PrdDetailApiTests(TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.json()["data"]["pagination"]["total_items"], 3)
                 self.assertEqual(len(response.json()["data"]["items"]), 2)
+                if route_name == "ai-chats":
+                    self.assertEqual(response.json()["data"]["items"][0]["prompt"], "질문 2")
+                    self.assertEqual(response.json()["data"]["items"][0]["response"], "응답 2")
 
     def test_every_detail_endpoint_rechecks_prd_access(self):
         endpoints = (
