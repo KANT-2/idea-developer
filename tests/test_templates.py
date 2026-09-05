@@ -113,12 +113,18 @@ class TemplateContractTests(SimpleTestCase):
         source = (Path(settings.BASE_DIR) / "static" / "brainstorm" / "js" / "app.js").read_text(
             encoding="utf-8"
         )
+        api_client = (
+            Path(settings.BASE_DIR) / "static" / "brainstorm" / "js" / "api-client.js"
+        ).read_text(encoding="utf-8")
+        layout = (Path(settings.BASE_DIR) / "static" / "brainstorm" / "js" / "layout.js").read_text(
+            encoding="utf-8"
+        )
 
         self.assertIn('"events/?cursor="', source)
         self.assertIn('apiBase + "canvas/"', source)
-        self.assertIn("response.text()", source)
-        self.assertNotIn("response.json()", source)
-        self.assertIn('invalidResponse.code = "invalid_response"', source)
+        self.assertIn("response.text()", api_client)
+        self.assertNotIn("response.json()", api_client)
+        self.assertIn('invalidResponse.code = "invalid_response"', api_client)
         self.assertIn("fullSyncGenerationRef", source)
         self.assertIn("heldNodes.push(updated)", source)
         self.assertIn("function createConnection(nodeA, nodeB)", source)
@@ -143,9 +149,9 @@ class TemplateContractTests(SimpleTestCase):
         self.assertIn('className: "brain-assignee-menu"', source)
         self.assertIn('"담당자 지정"', source)
         self.assertNotIn('h("select", {value: String(node.assignee_id', source)
-        selected_actions = source.split(
-            'h("div", {className: "brain-note-actions"', 1
-        )[1].split("})() : null);", 1)[0]
+        selected_actions = source.split('h("div", {className: "brain-note-actions"', 1)[1].split(
+            "})() : null);", 1
+        )[0]
         self.assertNotIn("editNode(node)", selected_actions)
         self.assertIn('"보류"', selected_actions)
         self.assertIn("assigneeButton(node)", selected_actions)
@@ -164,10 +170,10 @@ class TemplateContractTests(SimpleTestCase):
         self.assertIn('heldExpanded ? "접기" : "펼치기"', source)
         self.assertNotIn("export/markdown/", source)
         self.assertIn('useState("canvas")', source)
-        self.assertIn("var CANVAS_W = 4200", source)
-        self.assertIn("function resizeBoard(total, busiestRegion)", source)
-        self.assertIn("function fitBoardView()", source)
-        self.assertIn("Math.max(.3, Math.min(2", source)
+        self.assertIn("var CANVAS_W = 4200", layout)
+        self.assertIn("function resizeBoard(total, busiestRegion)", layout)
+        self.assertIn("function fitBoardView()", layout)
+        self.assertIn("Math.max(.2, Math.min(1.4", layout)
         self.assertIn("onWheel: wheelCanvas", source)
         self.assertNotIn("WebSocket", source)
         self.assertIn("onDragStart", source)
@@ -178,6 +184,9 @@ class TemplateContractTests(SimpleTestCase):
         base_dir = Path(settings.BASE_DIR)
         template = (base_dir / "templates" / "prds" / "write.html").read_text(encoding="utf-8")
         script = (base_dir / "static" / "prds" / "js" / "write.js").read_text(encoding="utf-8")
+        participants_script = (
+            base_dir / "static" / "prds" / "js" / "write-participants.js"
+        ).read_text(encoding="utf-8")
         stylesheet = (base_dir / "static" / "prds" / "css" / "write.css").read_text(
             encoding="utf-8"
         )
@@ -189,7 +198,12 @@ class TemplateContractTests(SimpleTestCase):
         self.assertIn('id="participant-add-team"', template)
         self.assertNotIn('id="participant-modal"', template)
         self.assertIn("can_manage_participants", script)
-        self.assertIn('method: "DELETE"', script)
+        self.assertIn('method: "DELETE"', participants_script)
+        self.assertIn("write-participants.js", template)
+        self.assertIn("write-comments.js", template)
+        self.assertIn("write-contributions.js", template)
+        self.assertIn('"coach-message coach-message-" + message.role', script)
+        self.assertNotIn("decodeSafeText(message.content)", script)
         self.assertIn("data-comments-api=", template)
         self.assertIn('id="comment-toggle"', template)
         self.assertIn('id="write-comments-panel"', template)

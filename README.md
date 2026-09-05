@@ -27,6 +27,8 @@
 9. [부모 팀 이관 메모](docs/08_PARENT_HANDOFF.md)
 10. [코드 전달 양식](docs/09_CODE_DISTRIBUTION_TEMPLATE.md)
 11. [저장소 관리자 설정](docs/10_REPOSITORY_OWNER_SETUP.md)
+12. [현재 구현 기준](docs/requirements/CURRENT_REQUIREMENTS.md)
+13. [4조 소스 전달 양식](docs/integration/SOURCE_DELIVERY_TEMPLATE.md)
 
 ## 가장 중요한 규칙
 
@@ -90,6 +92,9 @@ ruff check .
 
 자동 포매팅은 `ruff format .`으로 실행합니다.
 
+Pull Request와 `develop`·`main` push에서는 GitHub Actions가 PostgreSQL 16을 사용해 같은
+검사와 전체 테스트를 자동 실행합니다. 애플리케이션 코드 커버리지는 85% 미만이면 실패합니다.
+
 ## 백그라운드 worker
 
 AI 요청은 웹 프로세스가 PostgreSQL `ai_jobs` 테이블에 등록하고, 별도 management command
@@ -129,6 +134,23 @@ Gemini 요청은 API 키를 URL이 아닌 `x-goog-api-key` 헤더로 전송하�
 요청한 뒤 자식 시스템의 전체 Schema와 DB 식별자 검증을 다시 통과해야 성공합니다. 무료 등급의
 모델·요청 한도는 계정과 시점에 따라 달라질 수 있으므로 수치를 코드에 고정하지 않으며,
 `429 RESOURCE_EXHAUSTED`는 제한된 횟수 안에서 재시도합니다.
+
+## 운영 실행 체크리스트
+
+운영 설정은 `config.settings.production`을 사용합니다. 배포 환경에는 `DJANGO_DEBUG=false`,
+충분히 긴 `DJANGO_SECRET_KEY`, 실제 PostgreSQL·메일·Gemini 비밀값을 주입합니다.
+
+```bash
+python manage.py check --deploy --settings=config.settings.production
+python manage.py migrate --settings=config.settings.production
+python manage.py collectstatic --noinput --settings=config.settings.production
+gunicorn config.wsgi:application --env DJANGO_SETTINGS_MODULE=config.settings.production
+```
+
+웹 프로세스와 별도로 `run_job_worker`를 상시 실행하고 `run_midnight_maintenance`를 매일 자정에
+실행해야 합니다. 정적 파일은 수집된 `staticfiles` 디렉터리를 Nginx 등 앞단 웹 서버에서
+제공합니다. 새 migration 배포 전에는 DB를 백업하고, 코드 롤백 시 해당 migration의 역방향 적용
+가능 여부를 먼저 확인합니다.
 
 Google의 현재 안내상 Gemini 무료 등급에 전송한 콘텐츠는 제품 개선에 사용될 수 있습니다.
 민감정보나 비공개 고객 데이터를 보내기 전에는 팀의 데이터 처리 정책을 먼저 확정해야 합니다.
@@ -186,17 +208,10 @@ PRD Context만 전달합니다.
 트랜잭션으로 반영합니다. 하나라도 충돌하면 전체 반영을 취소하고 `409 Conflict`와 최신 노드를
 반환합니다. 요청과 반영 API는 각각 `Idempotency-Key` 헤더를 사용합니다.
 
-## 브레인스토밍 Markdown 내보내기와 정리
+## 백그라운드 정리
 
-읽기 권한이 있는 사용자는 다음 API에서 UTF-8 Markdown 파일을 내려받을 수 있습니다.
-
-`GET /api/v1/prds/<prd_id>/brainstorm/export/markdown/`
-
-query parameter는 `scope=all|accepted`, `organization=section|flat`,
-`include_unclassified=true|false`를 지원합니다. 기본값은 전체 활성 메모, 섹션별 정리, 미분류
-포함입니다. 보류·삭제 메모와 제목 카드는 항상 제외하고, 내보낸 메모끼리의 활성 연결선만
-`연결된 아이디어` 목록으로 표현합니다. 다운로드 파일명은 PRD ID와 안전하게 정규화한 제목,
-날짜로 구성합니다.
+브레인스토밍 Markdown 내보내기는 현재 제품 정책에서 제거됐습니다. PRD 작성 화면의 Markdown
+내보내기는 별도 기능으로 유지합니다.
 
 다음 명령은 자동 정리를 기다리지 않고 한 번에 설정된 batch 크기만큼 만료 데이터를 직접
 점검하거나 정리할 때 사용합니다.

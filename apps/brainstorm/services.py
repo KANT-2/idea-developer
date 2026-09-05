@@ -298,7 +298,22 @@ class BrainstormMutationService:
         )
 
     @staticmethod
-    def _lock_canvas(canvas: BrainstormCanvas) -> BrainstormCanvas:
+    def _lock_canvas(
+        canvas: BrainstormCanvas,
+        *,
+        access: PrdAccess | None = None,
+        create_note: bool = False,
+    ) -> BrainstormCanvas:
+        if access is not None:
+            try:
+                prd = Prd.objects.select_for_update().get(pk=canvas.prd_id, is_deleted=False)
+            except Prd.DoesNotExist as exc:
+                raise PermissionDenied("The PRD is no longer available.") from exc
+            current_access = PrdAccess(prd=prd, role=access.role, is_admin=access.is_admin)
+            if create_note:
+                BrainstormAccessService.enforce_create_note(current_access)
+            else:
+                BrainstormAccessService.enforce_write(current_access)
         return BrainstormCanvas.objects.select_for_update().select_related("prd").get(pk=canvas.pk)
 
     def _lock_node(
@@ -335,7 +350,7 @@ class BrainstormMutationService:
     def auto_layout(self, *, canvas, access, actor_user_id, payload):
         """Apply one complete layout operation or roll the whole batch back."""
         BrainstormAccessService.enforce_write(access)
-        canvas = self._lock_canvas(canvas)
+        canvas = self._lock_canvas(canvas, access=access)
         items = payload.get("nodes")
         if not isinstance(items, list) or not items:
             raise ValidationError({"nodes": "자동 정렬할 메모 배열이 필요합니다."})
@@ -417,7 +432,7 @@ class BrainstormMutationService:
     @transaction.atomic
     def create_note(self, *, canvas, access, context, payload, idempotency_key):
         BrainstormAccessService.enforce_create_note(access)
-        canvas = self._lock_canvas(canvas)
+        canvas = self._lock_canvas(canvas, access=access, create_note=True)
         key = self._validate_idempotency_key(idempotency_key)
         content = self._validate_content(payload.get("content"))
         color = self._validate_color(payload.get("color"))
@@ -467,7 +482,7 @@ class BrainstormMutationService:
     @transaction.atomic
     def update_content(self, *, canvas, access, actor_user_id, node_id, payload):
         BrainstormAccessService.enforce_write(access)
-        canvas = self._lock_canvas(canvas)
+        canvas = self._lock_canvas(canvas, access=access)
         node = self._lock_node(canvas=canvas, node_id=node_id, version=payload.get("version"))
         before = {"content": node.content, "version": node.version}
         node.content = self._validate_content(payload.get("content"))
@@ -487,7 +502,7 @@ class BrainstormMutationService:
     @transaction.atomic
     def assign(self, *, canvas, access, actor_user_id, node_id, payload):
         BrainstormAccessService.enforce_write(access)
-        canvas = self._lock_canvas(canvas)
+        canvas = self._lock_canvas(canvas, access=access)
         node = self._lock_node(canvas=canvas, node_id=node_id, version=payload.get("version"))
         assignee_id = payload.get("assignee_id")
         if assignee_id is not None and (
@@ -521,7 +536,7 @@ class BrainstormMutationService:
     @transaction.atomic
     def move(self, *, canvas, access, actor_user_id, node_id, payload):
         BrainstormAccessService.enforce_write(access)
-        canvas = self._lock_canvas(canvas)
+        canvas = self._lock_canvas(canvas, access=access)
         node = self._lock_node(canvas=canvas, node_id=node_id, version=payload.get("version"))
         if node.status == BrainstormNodeStatus.HELD:
             raise ValidationError({"status": "보류 메모는 이동할 수 없습니다."})
@@ -595,7 +610,7 @@ class BrainstormMutationService:
     @transaction.atomic
     def change_status(self, *, canvas, access, actor_user_id, node_id, payload):
         BrainstormAccessService.enforce_write(access)
-        canvas = self._lock_canvas(canvas)
+        canvas = self._lock_canvas(canvas, access=access)
         node = self._lock_node(canvas=canvas, node_id=node_id, version=payload.get("version"))
         status = payload.get("status")
         if status not in BrainstormNodeStatus.values:
@@ -655,7 +670,7 @@ class BrainstormMutationService:
     @transaction.atomic
     def delete_node(self, *, canvas, access, actor_user_id, node_id, version):
         BrainstormAccessService.enforce_write(access)
-        canvas = self._lock_canvas(canvas)
+        canvas = self._lock_canvas(canvas, access=access)
         node = self._lock_node(canvas=canvas, node_id=node_id, version=version)
         before = {"is_deleted": False, "version": node.version}
         node.soft_delete()
@@ -673,7 +688,7 @@ class BrainstormMutationService:
     @transaction.atomic
     def restore_node(self, *, canvas, access, actor_user_id, node_id, version):
         BrainstormAccessService.enforce_write(access)
-        canvas = self._lock_canvas(canvas)
+        canvas = self._lock_canvas(canvas, access=access)
         node = self._lock_node(
             canvas=canvas,
             node_id=node_id,
@@ -699,7 +714,7 @@ class BrainstormMutationService:
     def create_connection(self, *, canvas, access, actor_user_id, payload, idempotency_key):
         BrainstormAccessService.enforce_write(access)
         key = self._validate_idempotency_key(idempotency_key)
-        canvas = self._lock_canvas(canvas)
+        canvas = self._lock_canvas(canvas, access=access)
         existing_request = BrainstormConnection.objects.filter(
             canvas=canvas,
             creation_idempotency_key=key,
@@ -759,7 +774,7 @@ class BrainstormMutationService:
     def delete_connection(self, *, canvas, access, actor_user_id, connection_id, version):
         BrainstormAccessService.enforce_write(access)
         expected = self._validate_version(version)
-        canvas = self._lock_canvas(canvas)
+        canvas = self._lock_canvas(canvas, access=access)
         try:
             connection = BrainstormConnection.objects.select_for_update().get(
                 pk=connection_id,

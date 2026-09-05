@@ -45,7 +45,16 @@ class PrdStatusService:
             prd.status = PrdStatus.COMPLETED
             prd.completed_at = completed_at
             prd.contribution_status = PrdContributionStatus.PENDING
-            prd.save(update_fields=["status", "completed_at", "contribution_status", "updated_at"])
+            prd.version += 1
+            prd.save(
+                update_fields=[
+                    "status",
+                    "completed_at",
+                    "contribution_status",
+                    "version",
+                    "updated_at",
+                ]
+            )
             audit = self._record(
                 prd=prd,
                 actor_user_id=prd.creator_user_id,
@@ -101,7 +110,16 @@ class PrdStatusService:
         prd.status = PrdStatus.COMPLETED
         prd.completed_at = completed_at
         prd.contribution_status = PrdContributionStatus.PENDING
-        prd.save(update_fields=["status", "completed_at", "contribution_status", "updated_at"])
+        prd.version += 1
+        prd.save(
+            update_fields=[
+                "status",
+                "completed_at",
+                "contribution_status",
+                "version",
+                "updated_at",
+            ]
+        )
         audit = self._record(
             prd=prd,
             actor_user_id=actor_user_id,
@@ -148,7 +166,16 @@ class PrdStatusService:
         prd.status = PrdStatus.IN_PROGRESS
         prd.completed_at = None
         prd.contribution_status = PrdContributionStatus.NOT_STARTED
-        prd.save(update_fields=["status", "completed_at", "contribution_status", "updated_at"])
+        prd.version += 1
+        prd.save(
+            update_fields=[
+                "status",
+                "completed_at",
+                "contribution_status",
+                "version",
+                "updated_at",
+            ]
+        )
         self._record(
             prd=prd,
             actor_user_id=actor_user_id,

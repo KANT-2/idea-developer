@@ -1,5 +1,6 @@
 from datetime import date
 from importlib import import_module
+from unittest.mock import patch
 
 from django.apps import apps as django_apps
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -163,6 +164,24 @@ class PrdModelPolicyTests(TestCase):
             role=PrdParticipantRole.OWNER,
         )
         self.assertIsNone(participant.participant_id)
+
+    def test_roundless_prd_idempotency_is_enforced_by_database(self):
+        Prd.objects.create(
+            title="첫 요청",
+            prd_type=PrdType.NEW_PRODUCT,
+            round_id=None,
+            creator_user_id=7,
+            creation_idempotency_key="same-roundless-request",
+        )
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Prd.objects.create(
+                title="동시에 들어온 중복 요청",
+                prd_type=PrdType.NEW_PRODUCT,
+                round_id=None,
+                creator_user_id=7,
+                creation_idempotency_key="same-roundless-request",
+            )
 
     def test_unknown_status_and_participant_role_are_blocked_by_database(self):
         prd = self.make_prd()
@@ -355,6 +374,43 @@ class PrdCreationServiceTests(TestCase):
             ],
         )
 
+    @patch("apps.prds.services.send_prd_participant_added")
+    def test_creation_notifies_only_new_teammates_after_commit(self, send_notification):
+        repository = FixtureIntegrationRepository(
+            users=[
+                {
+                    "user_id": user_id,
+                    "role": "student",
+                    "approval_status": "fixture-approved",
+                    "is_active": True,
+                    "is_staff": False,
+                    "is_superuser": False,
+                    "user_email": f"user{user_id}@example.test",
+                    "primary_email": f"user{user_id}@example.test",
+                }
+                for user_id in (7, 8, 9)
+            ],
+            memberships=[],
+            active_statuses={"fixture-running"},
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            prd, _ = PrdCreationService(repository).create(
+                make_command(
+                    round_id=None,
+                    team_id=None,
+                    participant_user_ids=(7, 8, 9, 8),
+                    idempotency_key="notify-team",
+                )
+            )
+
+        send_notification.assert_called_once_with(
+            prd_id=prd.pk,
+            prd_title=prd.title,
+            user_ids=(8, 9),
+        )
+        self.assertTrue(PrdChangeHistory.objects.filter(prd=prd, event_type="prd_created").exists())
+
     def test_rejects_team_not_matching_current_round_membership(self):
         with self.assertRaises(PermissionDenied):
             self.service.create(make_command(team_id=999))
@@ -415,9 +471,7 @@ class ConfirmedPrdTemplateSeedTests(TestCase):
             )
         )
         self.assertEqual(
-            list(
-                templates[PrdType.NEW_PRODUCT].sections.values_list("title", flat=True)
-            ),
+            list(templates[PrdType.NEW_PRODUCT].sections.values_list("title", flat=True)),
             [
                 "프로젝트 요약",
                 "서비스 목표 및 핵심 가치",
@@ -490,9 +544,7 @@ class ConfirmedPrdTemplateSeedTests(TestCase):
             status=BrainstormNodeStatus.ACCEPTED,
         )
 
-        migration = import_module(
-            "apps.prds.migrations.0009_backfill_existing_prds_from_templates"
-        )
+        migration = import_module("apps.prds.migrations.0009_backfill_existing_prds_from_templates")
         migration.backfill_existing_prds(django_apps, None)
 
         prd.refresh_from_db()

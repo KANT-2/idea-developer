@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import detail_views, views
+from . import detail_views, history_views, views
 
 app_name = "prd_api"
 
@@ -43,12 +43,12 @@ urlpatterns = [
     path("<int:prd_id>/reopen/", detail_views.reopen_prd, name="reopen"),
     path(
         "<int:prd_id>/contributions/",
-        detail_views.contribution_results,
+        history_views.contribution_results,
         name="contributions",
     ),
     path(
         "<int:prd_id>/contributions/<int:calculation_version>/retry/",
-        detail_views.retry_contribution,
+        history_views.retry_contribution,
         name="contribution-retry",
     ),
     path("<int:prd_id>/comments/", detail_views.comments, name="comments"),
@@ -57,11 +57,11 @@ urlpatterns = [
         detail_views.comment_item,
         name="comment-item",
     ),
-    path("<int:prd_id>/ai-usage/", detail_views.ai_usage_history, name="ai-usage"),
-    path("<int:prd_id>/ai-chats/", detail_views.ai_chat_history, name="ai-chats"),
+    path("<int:prd_id>/ai-usage/", history_views.ai_usage_history, name="ai-usage"),
+    path("<int:prd_id>/ai-chats/", history_views.ai_chat_history, name="ai-chats"),
     path(
         "<int:prd_id>/change-history/",
-        detail_views.change_history,
+        history_views.change_history,
         name="change-history",
     ),
 ]

@@ -6,9 +6,12 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+from apps.common.slack_notifications import send_prd_comment_created
+
 from .detail import PrdAccess
 from .models import (
     Prd,
+    PrdChangeHistory,
     PrdComment,
     PrdCommentType,
     PrdParticipantRole,
@@ -112,6 +115,36 @@ class PrdCommentService:
                 comment_type=comment_type,
             ),
         )
+        PrdChangeHistory.objects.create(
+            prd=access.prd,
+            actor_user_id=author_user_id,
+            event_type="comment_created",
+            before_data={},
+            after_data={
+                "comment_id": comment.pk,
+                "section_question_id": question.pk if question else None,
+                "comment_type": comment_type,
+            },
+        )
+        recipient_roles = (
+            {PrdParticipantRole.OWNER, PrdParticipantRole.EDITOR}
+            if comment_type == PrdCommentType.POST_COMPLETION_REVIEW
+            else set(PrdParticipantRole.values)
+        )
+        recipient_user_ids = tuple(
+            access.prd.participants.filter(role__in=recipient_roles)
+            .exclude(user_id=author_user_id)
+            .values_list("user_id", flat=True)
+        )
+        transaction.on_commit(
+            lambda: send_prd_comment_created(
+                prd_id=access.prd.pk,
+                prd_title=access.prd.title,
+                user_ids=recipient_user_ids,
+                comment_preview=normalized_content,
+                question_prompt=question.prompt if question else None,
+            )
+        )
         self._touch_prd(access.prd)
         return comment
 
@@ -123,21 +156,35 @@ class PrdCommentService:
         comment: PrdComment,
         actor_user_id: int,
         content: str,
+        expected_version,
     ) -> PrdComment:
+        comment = PrdComment.objects.select_for_update().get(pk=comment.pk, is_deleted=False)
         self._enforce_author(comment=comment, actor_user_id=actor_user_id)
         self.state_policy.enforce_modify(access=access, comment=comment)
+        self._enforce_version(comment=comment, expected_version=expected_version)
         comment.content = self._validate_content(content)
-        comment.save(update_fields=["content", "updated_at"])
+        comment.version += 1
+        comment.save(update_fields=["content", "version", "updated_at"])
         self._touch_prd(access.prd)
         return comment
 
     @transaction.atomic
-    def delete(self, *, access: PrdAccess, comment: PrdComment, actor_user_id: int):
+    def delete(
+        self,
+        *,
+        access: PrdAccess,
+        comment: PrdComment,
+        actor_user_id: int,
+        expected_version,
+    ):
+        comment = PrdComment.objects.select_for_update().get(pk=comment.pk, is_deleted=False)
         self._enforce_author(comment=comment, actor_user_id=actor_user_id)
         self.state_policy.enforce_modify(access=access, comment=comment)
+        self._enforce_version(comment=comment, expected_version=expected_version)
         comment.is_deleted = True
         comment.deleted_at = timezone.now()
-        comment.save(update_fields=["is_deleted", "deleted_at", "updated_at"])
+        comment.version += 1
+        comment.save(update_fields=["is_deleted", "deleted_at", "version", "updated_at"])
         self._touch_prd(access.prd)
 
     @staticmethod
@@ -168,7 +215,23 @@ class PrdCommentService:
             raise PermissionDenied("Only the comment author can modify it.")
 
     @staticmethod
+    def _enforce_version(*, comment, expected_version):
+        if (
+            isinstance(expected_version, bool)
+            or not isinstance(expected_version, int)
+            or expected_version < 1
+        ):
+            raise ValidationError({"version": "1 이상의 현재 version이 필요합니다."})
+        if comment.version != expected_version:
+            raise PrdCommentVersionConflict(comment)
+
+    @staticmethod
     def _touch_prd(prd):
         now = timezone.now()
         Prd.objects.filter(pk=prd.pk).update(updated_at=now)
         prd.updated_at = now
+
+
+class PrdCommentVersionConflict(Exception):
+    def __init__(self, comment):
+        self.comment = comment

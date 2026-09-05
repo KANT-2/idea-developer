@@ -28,6 +28,8 @@ from apps.ai.services import AiPromptService
 from apps.ai.worker import AiJobRunner
 from apps.brainstorm.models import (
     BrainstormCanvas,
+    BrainstormChangeLog,
+    BrainstormChangeTarget,
     BrainstormNode,
     BrainstormNodeStatus,
     BrainstormNodeType,
@@ -331,6 +333,15 @@ class ContributionEvaluationTests(TestCase):
             assignee_id=8,
             status=BrainstormNodeStatus.ACCEPTED,
         )
+        BrainstormChangeLog.objects.create(
+            canvas=second_canvas,
+            actor_user_id=8,
+            action="node_content_updated",
+            target_type=BrainstormChangeTarget.NODE,
+            target_id=str(newer.pk),
+            before_data={"content": self.owner_node.content, "version": 1},
+            after_data={"content": newer.content, "version": 2},
+        )
 
         snapshot = ContributionEvaluationService()._build_snapshot(
             prd_id=self.prd.pk,
@@ -346,15 +357,110 @@ class ContributionEvaluationTests(TestCase):
         self.assertEqual(lineage_rows[0]["node_id"], str(newer.pk))
         self.assertEqual(lineage_rows[0]["assignee_id"], 8)
         self.assertEqual(lineage_rows[0]["canvas_version"], 2)
+        self.assertEqual(lineage_rows[0]["contributor_user_ids"], [7, 8])
 
-        # A lineage accepted only in the superseded version (never carried into
-        # the latest board) earns no contribution at all, not reduced credit.
-        editor_lineage_rows = [
+    def test_each_meaningful_lineage_contributor_receives_one_full_memo_credit(self):
+        second_canvas = BrainstormCanvas.objects.create(
+            prd=self.prd,
+            version_number=2,
+            source_canvas=self.canvas,
+        )
+        evolved = BrainstormNode.objects.create(
+            canvas=second_canvas,
+            lineage_id=self.owner_node.lineage_id,
+            node_type=BrainstormNodeType.NOTE,
+            content="소유자 메모를 편집자가 발전시킴",
+            color="blue",
+            position_x=50,
+            position_y=70,
+            section=self.section,
+            author_id=7,
+            assignee_id=8,
+            status=BrainstormNodeStatus.ACCEPTED,
+        )
+        BrainstormChangeLog.objects.create(
+            canvas=second_canvas,
+            actor_user_id=8,
+            action="node_content_updated",
+            target_type=BrainstormChangeTarget.NODE,
+            target_id=str(evolved.pk),
+            before_data={"content": self.owner_node.content, "version": 1},
+            after_data={"content": evolved.content, "version": 2},
+        )
+        # Cosmetic whitespace and metadata-only changes must not add credit.
+        BrainstormChangeLog.objects.create(
+            canvas=second_canvas,
+            actor_user_id=9,
+            action="node_content_updated",
+            target_type=BrainstormChangeTarget.NODE,
+            target_id=str(evolved.pk),
+            before_data={"content": evolved.content, "version": 2},
+            after_data={"content": f"  {evolved.content}\n", "version": 3},
+        )
+        prd_apply_prompt = AiPromptService().create_version(
+            feature_type=AiFeatureType.BRAINSTORM_PRD_APPLY,
+            system_instructions="apply brainstorm notes to the PRD",
+            output_schema={"type": "object", "additionalProperties": False},
+            model="prd-apply-test-model",
+            activate=True,
+        )
+        job = AiJob.objects.create(
+            prd=self.prd,
+            prompt=prd_apply_prompt,
+            user_id=7,
+            feature_type=AiFeatureType.BRAINSTORM_PRD_APPLY,
+            action_type=AiActionType.PRD_APPLY,
+            idempotency_key="lineage-credit-prd-apply-job",
+            request_fingerprint="e" * 32,
+            input_data={},
+            max_attempts=1,
+            timeout_seconds=60,
+            status=AiJobStatus.SUCCEEDED,
+        )
+        record = AiPrdApplyRecord.objects.create(
+            prd=self.prd,
+            canvas=second_canvas,
+            preview_job=job,
+            section=self.section,
+            scope=AiPrdApplyScope.SECTION,
+            actor_user_id=7,
+            idempotency_key="lineage-credit-prd-apply-record",
+            model="prd-apply-test-model",
+            prompt_version=prd_apply_prompt.version,
+        )
+        AiPrdApplyItem.objects.create(
+            record=record,
+            question=self.question,
+            question_version_before=1,
+            question_prompt=self.question.prompt,
+            existing_answer="",
+            integrated_answer="최종 답변",
+            source_nodes=[
+                {"node_id": str(self.owner_node.pk), "version": self.owner_node.version},
+                {"node_id": str(self.editor_node.pk), "version": self.editor_node.version},
+                {
+                    "node_id": str(self.removed_assignee_node.pk),
+                    "version": self.removed_assignee_node.version,
+                },
+            ],
+            preserved_existing_points=[],
+            added_points=["세 메모 반영"],
+            confidence=Decimal("1.0000"),
+        )
+
+        evaluation = self.schedule()
+        self.assertTrue(AiJobRunner(provider=ContributionProvider()).run_once())
+        scores = {row.user_id: row for row in evaluation.user_scores.all()}
+
+        self.assertEqual(scores[7].memo_raw, 2)
+        self.assertEqual(scores[8].memo_raw, 2)
+        self.assertEqual(scores[9].memo_raw, 0)
+        shared = next(
             row
-            for row in snapshot["accepted_memos"]
-            if row["lineage_id"] == str(self.editor_node.lineage_id)
-        ]
-        self.assertEqual(editor_lineage_rows, [])
+            for row in evaluation.input_snapshot["accepted_memos"]
+            if row["lineage_id"] == str(self.owner_node.lineage_id)
+        )
+        self.assertEqual(shared["contributor_user_ids"], [7, 8])
 
     def test_memo_credit_requires_actual_prd_apply_reflection(self):
         prd_apply_prompt = AiPromptService().create_version(
@@ -397,9 +503,7 @@ class ContributionEvaluationTests(TestCase):
             question_prompt=self.question.prompt,
             existing_answer="",
             integrated_answer="최종 답변",
-            source_nodes=[
-                {"node_id": str(self.owner_node.pk), "version": self.owner_node.version}
-            ],
+            source_nodes=[{"node_id": str(self.owner_node.pk), "version": self.owner_node.version}],
             preserved_existing_points=[],
             added_points=["소유자 메모 내용"],
             confidence=Decimal("0.7500"),
@@ -409,8 +513,7 @@ class ContributionEvaluationTests(TestCase):
         self.assertTrue(AiJobRunner(provider=ContributionProvider()).run_once())
         evaluation.refresh_from_db()
         scores = {
-            row.user_id: row
-            for row in ContributionUserScore.objects.filter(evaluation=evaluation)
+            row.user_id: row for row in ContributionUserScore.objects.filter(evaluation=evaluation)
         }
 
         self.assertEqual(scores[7].memo_raw, Decimal("0.7500"))

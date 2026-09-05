@@ -23,7 +23,6 @@ from apps.prds.models import (
 from .exceptions import AiOutputValidationError
 from .models import (
     AiActionType,
-    AiCoachChatLog,
     AiCoachConversation,
     AiCoachMessage,
     AiConversationMessageRole,
@@ -40,7 +39,7 @@ class AiDraftVersionConflict(Exception):
         self.question = question
 
 
-def escape_user_message(value: Any) -> str:
+def validate_user_message(value: Any) -> str:
     if not isinstance(value, str):
         raise ValidationError({"message": "메시지는 문자열이어야 합니다."})
     normalized = value.strip()
@@ -50,15 +49,11 @@ def escape_user_message(value: Any) -> str:
         raise ValidationError(
             {"message": f"메시지는 {settings.AI_CHAT_MESSAGE_MAX_LENGTH}자 이하여야 합니다."}
         )
-    return html.escape(normalized, quote=False)
+    return normalized
 
 
-def model_text(value: str) -> str:
-    """저장·표시용 이스케이프를 풀어 모델에 보낼 원문으로 되돌린다.
-
-    저장할 때는 화면 안전을 위해 &lt; 같은 형태로 두지만, 그대로 모델에 보내면
-    프롬프트에 실체 없는 기호가 섞여 답변 품질이 떨어진다.
-    """
+def decode_sanitized_ai_text(value: str) -> str:
+    """HTML-safe 형태로 보관된 AI 결과 필드를 모델 입력용 원문으로 되돌린다."""
     return html.unescape(value or "")
 
 
@@ -80,6 +75,11 @@ def sanitize_ai_markdown(value: Any) -> str:
         flags=re.IGNORECASE,
     )
     return html.escape(normalized, quote=False)
+
+
+def sanitize_coach_message(value: Any) -> str:
+    """코치 말풍선에 저장할 원문을 검증하고 위험한 Markdown URL만 제거한다."""
+    return decode_sanitized_ai_text(sanitize_ai_markdown(value))
 
 
 class PrdAiContextBuilder:
@@ -113,9 +113,7 @@ class PrdAiContextBuilder:
             for question in current_section.questions.filter(
                 is_deleted=False,
                 is_held=False,
-            ).order_by(
-                "position", "id"
-            ):
+            ).order_by("position", "id"):
                 try:
                     answer = question.answer.content
                 except ObjectDoesNotExist:
@@ -220,14 +218,14 @@ class AiCoachConversationService:
         if existing:
             return existing, False
 
-        safe_message = escape_user_message(message)
+        user_message_content = validate_user_message(message)
         history = self._recent_complete_turns(conversation)
         sequence = self._next_sequence(conversation)
         user_message = AiCoachMessage.objects.create(
             conversation=conversation,
             sequence=sequence,
             role=AiConversationMessageRole.USER,
-            content=safe_message,
+            content=user_message_content,
         )
         context = PrdAiContextBuilder().build(prd=prd, section=section)
         job, created = AiJobService().enqueue(
@@ -239,8 +237,7 @@ class AiCoachConversationService:
                 "kind": "coach_chat",
                 "conversation_id": conversation.pk,
                 "user_message_id": user_message.pk,
-                # 저장은 이스케이프된 형태로, 모델에는 원문으로 보낸다.
-                "current_message": model_text(safe_message),
+                "current_message": user_message_content,
                 "recent_turns": history,
                 # 사용자가 물린 제안을 다시 내지 않도록 근거를 함께 넘긴다.
                 "declined_proposals": self._declined_proposals(conversation),
@@ -283,8 +280,8 @@ class AiCoachConversationService:
             declined.append(
                 {
                     "question_id": proposal.get("question_id"),
-                    "content": model_text(proposal.get("content", "")),
-                    "reason": model_text(proposal.get("reason", "")),
+                    "content": decode_sanitized_ai_text(proposal.get("content", "")),
+                    "reason": decode_sanitized_ai_text(proposal.get("reason", "")),
                 }
             )
         return declined
@@ -306,11 +303,10 @@ class AiCoachConversationService:
                 role=AiConversationMessageRole.USER,
             ).first()
             if user_message:
-                # 지난 턴도 모델에는 원문으로 전달한다.
                 turns.append(
                     {
-                        "user": model_text(user_message.content),
-                        "assistant": model_text(assistant.content),
+                        "user": user_message.content,
+                        "assistant": assistant.content,
                     }
                 )
         return turns
@@ -402,9 +398,7 @@ def _apply_answer(
     except PrdQuestion.DoesNotExist as exc:
         raise ValidationError({"question_id": "질문을 찾을 수 없습니다."}) from exc
     if question.is_held:
-        raise ValidationError(
-            {"question_id": "보류한 질문입니다. 보류를 풀고 다시 시도해 주세요."}
-        )
+        raise ValidationError({"question_id": "보류한 질문입니다. 보류를 풀고 다시 시도해 주세요."})
     if question.version != generated_version or question.version != question_version:
         raise AiDraftVersionConflict(question)
     if not isinstance(content, str) or not content.strip():
@@ -513,7 +507,7 @@ class AiResultProcessor:
         return output
 
     def _process_chat(self, *, job, output):
-        safe_message = sanitize_ai_markdown(output.get("message"))
+        message_content = sanitize_coach_message(output.get("message"))
         proposal = self._build_proposal(job=job, output=output)
         conversation_id = job.input_data.get("conversation_id")
         try:
@@ -533,21 +527,11 @@ class AiResultProcessor:
                 job=job,
                 sequence=AiCoachConversationService._next_sequence(conversation),
                 role=AiConversationMessageRole.ASSISTANT,
-                content=safe_message,
-            )
-            user_message = conversation.messages.filter(
-                job=job,
-                role=AiConversationMessageRole.USER,
-            ).first()
-            AiCoachChatLog.objects.create(
-                prd=job.prd,
-                user_id=job.user_id,
-                prompt=user_message.content if user_message else "",
-                response=safe_message,
+                content=message_content,
             )
         conversation.expires_at = timezone.now() + AiCoachConversationService.TTL
         conversation.save(update_fields=["expires_at", "updated_at"])
-        result = {"message": safe_message}
+        result = {"message": message_content}
         if proposal is not None:
             result["proposal"] = proposal
         return result
@@ -609,22 +593,4 @@ def delete_expired_conversations() -> int:
     if not expired_ids:
         return 0
     deleted, _ = AiCoachConversation.objects.filter(pk__in=expired_ids).delete()
-    return deleted
-
-
-def delete_expired_chat_history() -> int:
-    """대화 열람 이력도 대화와 같은 30일 뒤에 지운다.
-
-    이 표는 화면이 아니라 PRD 상세의 ai-chats 조회에 쓰이는데,
-    같이 지우지 않으면 대화창에서 사라진 뒤에도 계속 조회된다.
-    """
-    cutoff = timezone.now() - AiCoachConversationService.TTL
-    expired_ids = list(
-        AiCoachChatLog.objects.filter(created_at__lte=cutoff)
-        .order_by("created_at", "id")
-        .values_list("pk", flat=True)[: settings.AI_TTL_DELETE_BATCH_SIZE]
-    )
-    if not expired_ids:
-        return 0
-    deleted, _ = AiCoachChatLog.objects.filter(pk__in=expired_ids).delete()
     return deleted

@@ -6,6 +6,12 @@ extend-exclude = ["migrations"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
+[tool.ruff.lint.per-file-ignores]
+# Demo copy is intentionally kept as readable Korean paragraphs. Splitting a
+# sentence solely at the byte-oriented line limit makes the fixture harder to
+# review without improving executable code quality.
+"apps/prds/management/commands/seed_demo_workspace.py" = ["E501"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"

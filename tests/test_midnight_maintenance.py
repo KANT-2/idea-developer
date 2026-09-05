@@ -45,6 +45,7 @@ class MidnightMaintenanceCommandTests(TestCase):
         due_today.refresh_from_db()
         dropped.refresh_from_db()
         self.assertEqual(overdue.status, PrdStatus.COMPLETED)
+        self.assertEqual(overdue.version, 2)
         self.assertEqual(due_today.status, PrdStatus.IN_PROGRESS)
         self.assertEqual(dropped.status, PrdStatus.DROPPED)
         self.assertFalse(Prd.objects.filter(pk=deleted.pk).exists())

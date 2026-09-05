@@ -35,7 +35,7 @@ git config --global --list
 
 ```bash
 cd <프로젝트를-둘-폴더>
-git clone https://github.com/kixxuya/idea-developer.git
+git clone https://github.com/KANT-2/idea-developer.git
 cd idea-developer
 ```
 
@@ -69,7 +69,7 @@ cp .env.example .env
 
 ```bash
 python -m pip install --upgrade pip
-pip install -r requirements/dev.txt
+pip install -r requirements/development.txt
 python manage.py migrate
 python manage.py check
 python manage.py runserver

@@ -164,6 +164,11 @@ class BrainstormApiTests(TestCase):
             values["status"] = BrainstormNodeStatus.ACCEPTED
         return BrainstormNode.objects.create(**values)
 
+    def test_markdown_export_legacy_api_is_removed(self):
+        response = self.client.get(f"/api/v1/prds/{self.prd.pk}/brainstorm/export/markdown/")
+
+        self.assertEqual(response.status_code, 404)
+
     def test_canvas_is_created_once_and_returns_counts_filter_and_viewport(self):
         canvas = self.initialize_canvas()
         self.create_note(canvas=canvas)

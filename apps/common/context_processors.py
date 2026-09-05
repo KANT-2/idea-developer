@@ -1,5 +1,7 @@
 from django.conf import settings
+from django.db import transaction
 
+from apps.integration.context import is_admin_parent_identity, is_tutor_parent_identity
 from apps.integration.repository import get_default_integration_repository
 
 
@@ -28,11 +30,21 @@ def session_identity(request):
         return {"session_identity": identity}
 
     try:
+        # Optional identity decoration must not leave a PostgreSQL request/test
+        # transaction unusable when the parent-owned VIEW is unavailable.
         repository = get_default_integration_repository()
-        parent_user = repository.get_user(external_user_id)
-        summary = repository.get_user_summaries(user_ids=(external_user_id,)).get(
-            external_user_id
-        )
+        database_alias = getattr(repository, "database_alias", None)
+        if isinstance(database_alias, str) and database_alias:
+            with transaction.atomic(using=database_alias):
+                parent_user = repository.get_user(external_user_id)
+                summary = repository.get_user_summaries(user_ids=(external_user_id,)).get(
+                    external_user_id
+                )
+        else:
+            parent_user = repository.get_user(external_user_id)
+            summary = repository.get_user_summaries(user_ids=(external_user_id,)).get(
+                external_user_id
+            )
     except Exception:
         parent_user = None
         summary = None
@@ -40,12 +52,14 @@ def session_identity(request):
     if parent_user:
         if summary:
             identity["display_name"] = summary.display_name
-        identity["email"] = (
-            parent_user.primary_email or parent_user.user_email or identity["email"]
-        )
-        parent_role = (parent_user.parent_role or "").strip().lower()
-        tutor_roles = {"tutor", "teacher", "mentor", "instructor"}
-        if parent_user.is_staff or parent_user.is_superuser or parent_role in tutor_roles:
+        identity["email"] = parent_user.primary_email or parent_user.user_email or identity["email"]
+        if is_tutor_parent_identity(parent_user.parent_role):
             identity["role_label"] = "튜터"
+        elif is_admin_parent_identity(
+            parent_role=parent_user.parent_role,
+            is_staff=parent_user.is_staff,
+            is_superuser=parent_user.is_superuser,
+        ):
+            identity["role_label"] = "관리자"
 
     return {"session_identity": identity}

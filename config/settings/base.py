@@ -137,7 +137,7 @@ if os.getenv("INTEGRATION_DB_NAME"):
             "options": os.getenv(
                 "INTEGRATION_DB_OPTIONS",
                 "-c default_transaction_read_only=on -c search_path=public",
-            )
+            ),
         },
     }
 
@@ -166,6 +166,7 @@ LANGUAGE_CODE = "ko-kr"
 TIME_ZONE = os.getenv("DJANGO_TIME_ZONE", "Asia/Seoul")
 USE_I18N = True
 USE_TZ = True
+SITE_URL = os.getenv("DJANGO_SITE_URL", "http://127.0.0.1:8000").strip().rstrip("/")
 
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
@@ -194,6 +195,8 @@ JOB_RUNNER_CLASS = os.getenv(
     "JOB_RUNNER_CLASS",
     "apps.ai.worker.AiJobRunner",
 )
+SLACK_DELIVERY_MAX_ATTEMPTS = int(os.getenv("SLACK_DELIVERY_MAX_ATTEMPTS", "3"))
+SLACK_DELIVERY_RETRY_BASE_SECONDS = float(os.getenv("SLACK_DELIVERY_RETRY_BASE_SECONDS", "0.5"))
 
 # AI providers must read their secret from the environment. The common layer keeps the
 # provider pluggable and deliberately defaults to a provider that performs no network call.
@@ -238,14 +241,10 @@ BRAINSTORM_ALLOWED_COLORS = tuple(
     ).split(",")
     if value.strip()
 )
-BRAINSTORM_DELETE_RETENTION_DAYS = int(
-    os.getenv("BRAINSTORM_DELETE_RETENTION_DAYS", "30")
-)
+BRAINSTORM_DELETE_RETENTION_DAYS = int(os.getenv("BRAINSTORM_DELETE_RETENTION_DAYS", "30"))
 PRD_TRASH_RETENTION_DAYS = int(os.getenv("PRD_TRASH_RETENTION_DAYS", "30"))
 BACKGROUND_CLEANUP_BATCH_SIZE = int(os.getenv("BACKGROUND_CLEANUP_BATCH_SIZE", "500"))
-BACKGROUND_CLEANUP_INTERVAL_SECONDS = int(
-    os.getenv("BACKGROUND_CLEANUP_INTERVAL_SECONDS", "86400")
-)
+BACKGROUND_CLEANUP_INTERVAL_SECONDS = int(os.getenv("BACKGROUND_CLEANUP_INTERVAL_SECONDS", "86400"))
 
 REACT_VERSION = "18.3.1"
 REACT_CDN_URL = f"https://cdn.jsdelivr.net/npm/react@{REACT_VERSION}/umd/react.production.min.js"

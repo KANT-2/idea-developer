@@ -48,7 +48,7 @@ class PrdMarkdownExporter:
             content=markdown.encode("utf-8"),
             filename=filename,
             content_disposition=(
-                f'attachment; filename="{filename}"; filename*=UTF-8\'\'{encoded}'
+                f"attachment; filename=\"{filename}\"; filename*=UTF-8''{encoded}"
             ),
         )
 

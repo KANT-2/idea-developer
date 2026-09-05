@@ -571,35 +571,6 @@ class AiPrdApplyItem(models.Model):
         ]
 
 
-class AiCoachChatLog(models.Model):
-    """PRD 상세의 대화 조회(ai-chats)용 평면 기록. 한 행이 질문-답변 한 쌍이다.
-
-    화면 말풍선의 원본은 이 표가 아니라 AiCoachMessage다.
-    대화와 같은 30일이 지나면 delete_expired_chat_history가 지운다.
-    """
-
-    prd = models.ForeignKey(
-        "prds.Prd",
-        on_delete=models.CASCADE,
-        related_name="ai_chat_history",
-    )
-    user_id = models.PositiveBigIntegerField()
-    prompt = models.TextField()
-    response = models.TextField()
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "ai_chat_histories"
-        ordering = ["-created_at", "-id"]
-        indexes = [models.Index(fields=["prd", "-created_at"], name="ai_chat_prd_created_idx")]
-        constraints = [
-            models.CheckConstraint(
-                condition=Q(user_id__gt=0),
-                name="ai_chat_user_id_positive",
-            )
-        ]
-
-
 class AiCoachConversation(models.Model):
     prd = models.ForeignKey(
         "prds.Prd",

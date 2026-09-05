@@ -10,6 +10,9 @@ from django.http import HttpRequest
 from .exceptions import RoundSelectionRequired
 from .repository import IntegrationRepository, get_default_integration_repository
 
+PARENT_TUTOR_ROLE = "tutor"
+PARENT_ADMIN_ROLE = "admin"
+
 
 @dataclass(frozen=True, slots=True)
 class IntegrationContext:
@@ -20,6 +23,31 @@ class IntegrationContext:
     parent_role: str | None
     is_staff: bool
     is_superuser: bool
+
+
+def is_tutor_parent_identity(parent_role: str | None) -> bool:
+    return (parent_role or "").strip().lower() == PARENT_TUTOR_ROLE
+
+
+def is_admin_parent_identity(
+    *, parent_role: str | None, is_staff: bool, is_superuser: bool
+) -> bool:
+    normalized_role = (parent_role or "").strip().lower()
+    if normalized_role == PARENT_TUTOR_ROLE:
+        return False
+    return bool(normalized_role == PARENT_ADMIN_ROLE or is_staff or is_superuser)
+
+
+def is_tutor_context(context: IntegrationContext) -> bool:
+    return is_tutor_parent_identity(context.parent_role)
+
+
+def is_admin_context(context: IntegrationContext) -> bool:
+    return is_admin_parent_identity(
+        parent_role=context.parent_role,
+        is_staff=context.is_staff,
+        is_superuser=context.is_superuser,
+    )
 
 
 class IntegrationContextResolver(Protocol):

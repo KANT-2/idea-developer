@@ -26,7 +26,7 @@ Settings → Collaborators → Add people
 
 ```text
 1. GitHub 저장소 초대를 수락해 주세요.
-2. https://github.com/kixxuya/idea-developer 를 clone해 주세요.
+2. https://github.com/KANT-2/idea-developer 를 clone해 주세요.
 3. README와 docs/00_START_HERE.md부터 읽어 주세요.
 4. 코드는 제가 보내는 파일 경로와 전체 내용을 그대로 추가합니다.
 5. 항상 develop에서 개인 branch를 만든 뒤 develop 대상 PR을 열어 주세요.

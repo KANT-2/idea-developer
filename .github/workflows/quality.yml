@@ -1,0 +1,60 @@
+name: Quality
+
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: idea_developer_test
+          POSTGRES_USER: idea_developer
+          POSTGRES_PASSWORD: idea_developer
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U idea_developer -d idea_developer_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      POSTGRES_DB: idea_developer_test
+      POSTGRES_USER: idea_developer
+      POSTGRES_PASSWORD: idea_developer
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: "5432"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements/development.txt
+      - name: Install dependencies
+        run: python -m pip install -r requirements/development.txt
+      - name: Check formatting and lint
+        run: |
+          ruff format --check .
+          ruff check .
+      - name: Check migrations
+        run: python manage.py makemigrations --check --dry-run --settings=config.settings.test_postgres
+      - name: Run PostgreSQL tests with coverage
+        run: |
+          coverage run manage.py test --settings=config.settings.test_postgres
+          coverage report --omit="tests/*,*/migrations/*,manage.py,config/asgi.py,config/wsgi.py" --fail-under=85
+      - name: Check production deployment settings
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.production
+          DJANGO_DEBUG: "false"
+          DJANGO_SECRET_KEY: "ci-only-9vL7xN4pS8zC5mH1kW6yB3fJ0eD2qR7tU4iO9aP6sG8"
+          EMAIL_BACKEND: django.core.mail.backends.smtp.EmailBackend
+          GEMINI_API_KEY: ci-placeholder
+          DJANGO_SECURE_HSTS_SECONDS: "31536000"
+        run: python manage.py check --deploy

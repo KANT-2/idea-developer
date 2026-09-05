@@ -217,8 +217,7 @@ class PrdEvaluationService:
                 action_type=AiActionType.EVALUATION,
             )
             .filter(
-                Q(user_id=user_id, status__in=active_statuses)
-                | Q(status=AiJobStatus.SUCCEEDED)
+                Q(user_id=user_id, status__in=active_statuses) | Q(status=AiJobStatus.SUCCEEDED)
             )
             .select_related("prompt")
             .order_by("-created_at", "-id")
@@ -260,9 +259,7 @@ class PrdEvaluationResultProcessor:
             or job.action_type != AiActionType.EVALUATION
         ):
             return output
-        expected_section_ids = {
-            section["id"] for section in job.input_data["context"]["sections"]
-        }
+        expected_section_ids = {section["id"] for section in job.input_data["context"]["sections"]}
         section_rows = output.get("sections")
         if not isinstance(section_rows, list):
             raise AiOutputValidationError("PRD evaluation sections must be an array.")
@@ -277,9 +274,7 @@ class PrdEvaluationResultProcessor:
             "overall_score": output["overall_score"],
             "summary": sanitize_ai_markdown(output["summary"]),
             "strengths": [sanitize_ai_markdown(value) for value in output["strengths"]],
-            "improvements": [
-                sanitize_ai_markdown(value) for value in output["improvements"]
-            ],
+            "improvements": [sanitize_ai_markdown(value) for value in output["improvements"]],
             "sections": [
                 {
                     "section_id": row["section_id"],
@@ -324,7 +319,9 @@ def _build_demo_evaluation(input_data: dict[str, Any]) -> dict[str, Any]:
         score = round(15 + coverage * 65 + detail * 20)
         if score >= 80:
             status = "good"
-            feedback = "핵심 내용이 구체적으로 작성되어 있습니다. 검증 기준을 마지막으로 점검해 보세요."
+            feedback = (
+                "핵심 내용이 구체적으로 작성되어 있습니다. 검증 기준을 마지막으로 점검해 보세요."
+            )
             missing_points = []
         elif score >= 45:
             status = "needs_improvement"

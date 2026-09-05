@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from django.conf import settings
-from django.db import DatabaseError, connections
+from django.db import DatabaseError, connections, transaction
 from django.db.models import Q
 
 from .exceptions import (
@@ -112,9 +112,7 @@ class IntegrationRepository(Protocol):
         self, *, user_ids: tuple[int, ...], round_id: int
     ) -> dict[int, RoundUserSummary]: ...
 
-    def get_user_summaries(
-        self, *, user_ids: tuple[int, ...]
-    ) -> dict[int, UserDisplaySummary]: ...
+    def get_user_summaries(self, *, user_ids: tuple[int, ...]) -> dict[int, UserDisplaySummary]: ...
 
 
 class DjangoViewIntegrationRepository:
@@ -161,9 +159,7 @@ class DjangoViewIntegrationRepository:
             primary_email=row["primary_email"],
         )
 
-    def get_user_summaries(
-        self, *, user_ids: tuple[int, ...]
-    ) -> dict[int, UserDisplaySummary]:
+    def get_user_summaries(self, *, user_ids: tuple[int, ...]) -> dict[int, UserDisplaySummary]:
         requested_user_ids = tuple(dict.fromkeys(user_ids))
         if not requested_user_ids:
             return {}
@@ -644,9 +640,7 @@ class FixtureIntegrationRepository:
     def get_user(self, user_id: int) -> ParentUser | None:
         return self.users.get(user_id)
 
-    def get_user_summaries(
-        self, *, user_ids: tuple[int, ...]
-    ) -> dict[int, UserDisplaySummary]:
+    def get_user_summaries(self, *, user_ids: tuple[int, ...]) -> dict[int, UserDisplaySummary]:
         requested_user_ids = set(user_ids)
         return {
             row["user_id"]: UserDisplaySummary(
@@ -957,6 +951,7 @@ class FixtureIntegrationRepository:
                 display_name=display_name,
             )
         return summaries
+
     @staticmethod
     def _to_parent_user(row) -> ParentUser:
         if isinstance(row, ParentUser):
@@ -1000,15 +995,26 @@ class FailoverIntegrationRepository:
     def __init__(self, primary: IntegrationRepository, fallback: IntegrationRepository):
         self.primary = primary
         self.fallback = fallback
+        self._primary_unavailable = False
 
     def __getattr__(self, name):
         primary_method = getattr(self.primary, name)
         fallback_method = getattr(self.fallback, name)
 
         def call(*args, **kwargs):
+            if self._primary_unavailable:
+                return fallback_method(*args, **kwargs)
             try:
+                database_alias = getattr(self.primary, "database_alias", None)
+                if isinstance(database_alias, str) and database_alias:
+                    # PostgreSQL marks the surrounding transaction as failed after
+                    # a missing/unavailable VIEW query.  Isolate the primary read
+                    # behind a savepoint so DEBUG fallback can safely continue.
+                    with transaction.atomic(using=database_alias):
+                        return primary_method(*args, **kwargs)
                 return primary_method(*args, **kwargs)
             except IntegrationUnavailableError:
+                self._primary_unavailable = True
                 logger.warning(
                     "Parent integration unavailable; using DEBUG fixture",
                     extra={"integration_method": name},

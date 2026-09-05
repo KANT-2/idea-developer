@@ -9,6 +9,7 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
+from apps.common.slack_notifications import send_prd_participant_added
 from apps.integration.repository import IntegrationRepository, get_default_integration_repository
 
 from .models import (
@@ -82,19 +83,19 @@ class PrdParticipantService:
         existing_user_ids = set(
             prd.participants.filter(user_id__in=user_ids).values_list("user_id", flat=True)
         )
-        PrdParticipant.objects.bulk_create(
-            [
-                PrdParticipant(
-                    prd=prd,
-                    user_id=membership.user_id,
-                    participant_id=getattr(membership, "participant_id", None),
-                    role=PrdParticipantRole.EDITOR,
-                )
-                for membership in memberships
-                if membership.user_id != prd.creator_user_id
-                and membership.user_id not in existing_user_ids
-            ]
-        )
+        participants = [
+            PrdParticipant(
+                prd=prd,
+                user_id=membership.user_id,
+                participant_id=getattr(membership, "participant_id", None),
+                role=PrdParticipantRole.EDITOR,
+            )
+            for membership in memberships
+            if membership.user_id != prd.creator_user_id
+            and membership.user_id not in existing_user_ids
+        ]
+        PrdParticipant.objects.bulk_create(participants)
+        return tuple(participants)
 
     @staticmethod
     def _validate_role(role: str) -> str:
@@ -103,9 +104,7 @@ class PrdParticipantService:
             PrdParticipantRole.TUTOR,
             PrdParticipantRole.VIEWER,
         }:
-            raise ValidationError(
-                {"role": "추가 가능한 역할은 editor, tutor, viewer입니다."}
-            )
+            raise ValidationError({"role": "추가 가능한 역할은 editor, tutor, viewer입니다."})
         return role
 
     @transaction.atomic
@@ -133,15 +132,29 @@ class PrdParticipantService:
                     "role": role,
                 },
             )
+            transaction.on_commit(
+                lambda: send_prd_participant_added(
+                    prd_id=prd.pk,
+                    prd_title=prd.title,
+                    user_ids=(user_id,),
+                )
+            )
         return participant, created
 
     @transaction.atomic
-    def update_role(self, *, participant: PrdParticipant, role: str, actor_user_id: int):
+    def update_role(
+        self,
+        *,
+        participant: PrdParticipant,
+        role: str,
+        actor_user_id: int,
+        expected_version: int,
+    ):
         participant = (
-            PrdParticipant.objects.select_for_update()
-            .select_related("prd")
-            .get(pk=participant.pk)
+            PrdParticipant.objects.select_for_update().select_related("prd").get(pk=participant.pk)
         )
+        if participant.version != expected_version:
+            raise PrdParticipantVersionConflict(participant)
         self.validate_memberships(
             user_ids=(participant.user_id,),
             round_id=participant.prd.round_id,
@@ -152,7 +165,8 @@ class PrdParticipantService:
         before_role = participant.role
         if before_role != role:
             participant.role = role
-            participant.save(update_fields=["role"])
+            participant.version += 1
+            participant.save(update_fields=["role", "version"])
             self._record_change(
                 prd=participant.prd,
                 actor_user_id=actor_user_id,
@@ -163,9 +177,9 @@ class PrdParticipantService:
         return participant
 
     @transaction.atomic
-    def remove_participant(self, *, participant: PrdParticipant, actor_user_id: int):
-        if participant.role == PrdParticipantRole.OWNER:
-            raise ValidationError({"participant": "owner는 PRD 참여자에서 제거할 수 없습니다."})
+    def remove_participant(
+        self, *, participant: PrdParticipant, actor_user_id: int, expected_version: int
+    ):
         from apps.brainstorm.models import (
             AuditLog,
             BrainstormChangeTarget,
@@ -174,6 +188,10 @@ class PrdParticipantService:
         )
 
         participant = PrdParticipant.objects.select_for_update().get(pk=participant.pk)
+        if participant.version != expected_version:
+            raise PrdParticipantVersionConflict(participant)
+        if participant.role == PrdParticipantRole.OWNER:
+            raise ValidationError({"participant": "owner는 PRD 참여자에서 제거할 수 없습니다."})
         nodes = list(
             BrainstormNode.objects.select_for_update().filter(
                 canvas__prd=participant.prd,
@@ -225,6 +243,11 @@ class PrdParticipantService:
             before_data=before,
             after_data=after,
         )
+
+
+class PrdParticipantVersionConflict(Exception):
+    def __init__(self, participant):
+        self.participant = participant
 
 
 class PrdCreationService:
@@ -302,8 +325,29 @@ class PrdCreationService:
             participant_id=membership.participant_id if membership else None,
             role=PrdParticipantRole.OWNER,
         )
-        participant_service.add_editors(prd=prd, user_ids=participant_user_ids)
+        added_participants = participant_service.add_editors(
+            prd=prd,
+            user_ids=participant_user_ids,
+        )
         self._copy_template(prd=prd, template=template)
+        PrdChangeHistory.objects.create(
+            prd=prd,
+            actor_user_id=command.creator_user_id,
+            event_type="prd_created",
+            before_data={},
+            after_data={
+                "participant_user_ids": [row.user_id for row in added_participants],
+            },
+        )
+        added_user_ids = tuple(row.user_id for row in added_participants)
+        if added_user_ids:
+            transaction.on_commit(
+                lambda: send_prd_participant_added(
+                    prd_id=prd.pk,
+                    prd_title=prd.title,
+                    user_ids=added_user_ids,
+                )
+            )
         return prd, True
 
     @staticmethod

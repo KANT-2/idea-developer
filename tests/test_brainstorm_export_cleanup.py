@@ -3,15 +3,22 @@ from __future__ import annotations
 from datetime import timedelta
 from decimal import Decimal
 from io import StringIO
-from unittest.mock import Mock, patch
 
 from django.core.management import call_command
 from django.test import TestCase, override_settings
-from django.urls import reverse
 from django.utils import timezone
 
-from apps.accounts.models import LocalUserMapping
-from apps.ai.models import AiActionType, AiFeatureType, AiJob, AiJobStatus, AiPrompt
+from apps.ai.models import (
+    AiActionType,
+    AiFeatureType,
+    AiJob,
+    AiJobStatus,
+    AiPrdApplyRecord,
+    AiPrdApplyScope,
+    AiPrompt,
+    ContributionEvaluation,
+    ContributionEvaluationStatus,
+)
 from apps.brainstorm.models import (
     BrainstormCanvas,
     BrainstormConnection,
@@ -19,7 +26,6 @@ from apps.brainstorm.models import (
     BrainstormNodeStatus,
     BrainstormNodeType,
 )
-from apps.integration.context import IntegrationContext
 from apps.jobs.cleanup import BackgroundDataCleanupService
 from apps.prds.models import (
     Prd,
@@ -28,6 +34,9 @@ from apps.prds.models import (
     PrdParticipant,
     PrdParticipantRole,
     PrdSection,
+    PrdStatus,
+    PrdStatusAuditAction,
+    PrdStatusAuditLog,
     PrdType,
 )
 
@@ -70,105 +79,6 @@ class BrainstormExportCleanupBase(TestCase):
         )
 
 
-class BrainstormMarkdownExportTests(BrainstormExportCleanupBase):
-    def setUp(self):
-        super().setUp()
-        context = IntegrationContext(
-            user_id=7,
-            round_id=3,
-            participant_id=70,
-            team_id=30,
-            parent_role="student",
-            is_staff=False,
-            is_superuser=False,
-        )
-        resolver = Mock()
-        resolver.resolve.return_value = context
-        self.resolver_patch = patch(
-            "apps.prds.views.get_context_resolver",
-            return_value=resolver,
-        )
-        self.resolver_patch.start()
-        self.addCleanup(self.resolver_patch.stop)
-        self.client.force_login(LocalUserMapping.objects.create_user(7, "owner@example.test"))
-        session = self.client.session
-        session["selected_round_id"] = 3
-        session.save()
-
-    def url(self):
-        return reverse("brainstorm_api:export-markdown", kwargs={"prd_id": self.prd.pk})
-
-    def test_exports_utf8_section_markdown_and_connected_ideas(self):
-        accepted = self.note(
-            "고객 인터뷰를 진행한다.",
-            status=BrainstormNodeStatus.ACCEPTED,
-            section=self.section,
-        )
-        default = self.note("가설을 먼저 세운다.")
-        held = self.note("보류 내용", status=BrainstormNodeStatus.HELD)
-        deleted = self.note("삭제 내용", deleted=True)
-        title = BrainstormNode.objects.create(
-            canvas=self.canvas,
-            node_type=BrainstormNodeType.TITLE,
-            content="제목 카드",
-            color="blue",
-            position_x=0,
-            position_y=0,
-        )
-        BrainstormConnection.objects.create(
-            canvas=self.canvas,
-            node_a=accepted,
-            node_b=default,
-        )
-
-        response = self.client.get(self.url())
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response["Content-Type"], "text/markdown; charset=utf-8")
-        self.assertIn("filename*=UTF-8''brainstorm-", response["Content-Disposition"])
-        content = response.content.decode("utf-8")
-        self.assertIn("## 문제 \\#1", content)
-        self.assertIn("## 미분류", content)
-        self.assertIn("고객 인터뷰를 진행한다.", content)
-        self.assertIn("가설을 먼저 세운다.", content)
-        self.assertIn("연결된 아이디어:\n- IDEA-002", content)
-        for excluded in (held.content, deleted.content, title.content):
-            self.assertNotIn(excluded, content)
-
-    def test_accepted_flat_export_can_exclude_unclassified(self):
-        self.note(
-            "채택·분류됨",
-            status=BrainstormNodeStatus.ACCEPTED,
-            section=self.section,
-        )
-        self.note("섹션 배치로 자동 채택", section=self.section)
-        self.note("미분류 기본 메모")
-
-        response = self.client.get(
-            self.url(),
-            {
-                "scope": "accepted",
-                "organization": "flat",
-                "include_unclassified": "false",
-            },
-        )
-
-        content = response.content.decode("utf-8")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("## 아이디어 목록", content)
-        self.assertIn("채택·분류됨", content)
-        self.assertIn("섹션 배치로 자동 채택", content)
-        self.assertNotIn("미분류 기본 메모", content)
-        self.assertNotIn("채택·미분류", content)
-        filename = response["Content-Disposition"].split('filename="', 1)[1].split('"', 1)[0]
-        self.assertNotRegex(filename, r"[/\\:*?<>|]")
-
-    def test_rejects_unknown_export_option(self):
-        response = self.client.get(self.url(), {"scope": "held"})
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["error"]["code"], "validation_error")
-
-
 @override_settings(
     BRAINSTORM_DELETE_RETENTION_DAYS=30,
     AI_PREVIEW_RETENTION_DAYS=7,
@@ -199,6 +109,68 @@ class BackgroundCleanupTests(BrainstormExportCleanupBase):
         self.assertEqual(result.prds, 1)
         self.assertTrue(Prd.objects.filter(pk=fresh.pk).exists())
         self.assertFalse(Prd.objects.filter(pk=expired.pk).exists())
+        self.assertTrue(
+            PrdDeletionAuditLog.objects.filter(
+                prd_id=expired.pk,
+                action=PrdDeletionAction.PURGED,
+            ).exists()
+        )
+
+    @override_settings(PRD_TRASH_RETENTION_DAYS=30)
+    def test_cleanup_purges_protected_ai_and_contribution_details_before_prd(self):
+        expired = Prd.objects.create(
+            title="AI 기록이 있는 만료 PRD",
+            prd_type=PrdType.NEW_PRODUCT,
+            creator_user_id=7,
+            creation_idempotency_key="expired-protected-prd",
+            is_deleted=True,
+            deleted_at=self.now - timedelta(days=31),
+        )
+        section = PrdSection.objects.create(prd=expired, title="문제", position=1)
+        canvas = BrainstormCanvas.objects.create(prd=expired)
+        completion_audit = PrdStatusAuditLog.objects.create(
+            prd=expired,
+            actor_user_id=7,
+            action=PrdStatusAuditAction.COMPLETED,
+            previous_status=PrdStatus.IN_PROGRESS,
+            new_status=PrdStatus.COMPLETED,
+        )
+        contribution = ContributionEvaluation.objects.create(
+            prd=expired,
+            completion_audit=completion_audit,
+            calculation_version=1,
+            prd_version=1,
+            status=ContributionEvaluationStatus.SUCCEEDED,
+            input_fingerprint="protected-cleanup-input",
+        )
+        prompt = self.prompt(AiFeatureType.BRAINSTORM_PRD_APPLY)
+        preview_job = AiJob.objects.create(
+            prd=expired,
+            prompt=prompt,
+            user_id=7,
+            feature_type=AiFeatureType.BRAINSTORM_PRD_APPLY,
+            action_type=AiActionType.PRD_APPLY,
+            status=AiJobStatus.SUCCEEDED,
+            idempotency_key="protected-cleanup-preview",
+        )
+        apply_record = AiPrdApplyRecord.objects.create(
+            prd=expired,
+            canvas=canvas,
+            preview_job=preview_job,
+            section=section,
+            scope=AiPrdApplyScope.SECTION,
+            actor_user_id=7,
+            idempotency_key="protected-cleanup-apply",
+            model="gemini-test",
+            prompt_version=1,
+        )
+
+        result = BackgroundDataCleanupService().run(now=self.now)
+
+        self.assertEqual(result.prds, 1)
+        self.assertFalse(Prd.objects.filter(pk=expired.pk).exists())
+        self.assertFalse(ContributionEvaluation.objects.filter(pk=contribution.pk).exists())
+        self.assertFalse(AiPrdApplyRecord.objects.filter(pk=apply_record.pk).exists())
         self.assertTrue(
             PrdDeletionAuditLog.objects.filter(
                 prd_id=expired.pk,
@@ -271,9 +243,7 @@ class BackgroundCleanupTests(BrainstormExportCleanupBase):
 
     def test_dry_run_reports_without_deleting_and_command_is_repeatable(self):
         old = self.note("삭제 예정", deleted=True)
-        BrainstormNode.objects.filter(pk=old.pk).update(
-            deleted_at=self.now - timedelta(days=31)
-        )
+        BrainstormNode.objects.filter(pk=old.pk).update(deleted_at=self.now - timedelta(days=31))
         stdout = StringIO()
 
         call_command("cleanup_background_data", "--dry-run", stdout=stdout)
