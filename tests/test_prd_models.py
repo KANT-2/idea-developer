@@ -225,7 +225,6 @@ class PrdCompletionTests(TestCase):
         )
 
     def test_no_questions_returns_zero(self):
-        self.assertEqual(self.prd.calculate_completion_rate(), 0)
         self.assertEqual(
             Prd.objects.with_completion_rate().get(pk=self.prd.pk).completion_rate,
             0,
@@ -262,7 +261,6 @@ class PrdCompletionTests(TestCase):
         self.assertEqual(annotated.active_question_count, 3)
         self.assertEqual(annotated.completed_question_count, 2)
         self.assertEqual(annotated.completion_rate, 67)
-        self.assertEqual(self.prd.calculate_completion_rate(), annotated.completion_rate)
 
     def test_completion_excludes_held_questions_from_both_counts(self):
         section = PrdSection.objects.create(prd=self.prd, title="보류 포함", position=1)
@@ -283,7 +281,6 @@ class PrdCompletionTests(TestCase):
         self.assertEqual(annotated.active_question_count, 1)
         self.assertEqual(annotated.completed_question_count, 1)
         self.assertEqual(annotated.completion_rate, 100)
-        self.assertEqual(self.prd.calculate_completion_rate(), 100)
 
 
 class PrdCreationServiceTests(TestCase):

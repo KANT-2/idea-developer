@@ -11,7 +11,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.accounts.models import LocalUserMapping
-from apps.ai.exceptions import AiProviderError
+from apps.ai.coaching import sanitize_ai_markdown
+from apps.ai.exceptions import AiOutputValidationError, AiProviderError
 from apps.ai.models import (
     AiActionType,
     AiCoachConversation,
@@ -562,3 +563,76 @@ class AiCoachingApiTests(TestCase):
         self.assertEqual(draft.status_code, 403)
         self.assertEqual(apply_response.status_code, 403)
         self.assertFalse(PrdAnswer.objects.filter(question=self.question).exists())
+
+    def test_ai_endpoints_reject_malformed_json_and_invalid_identifiers(self):
+        malformed = self.client.post(
+            self.url("request-chat"),
+            data="{",
+            content_type="application/json",
+            HTTP_IDEMPOTENCY_KEY="malformed-chat",
+        )
+        non_string_message = self.request_chat(message={"text": "잘못된 형식"}, key="object-chat")
+        invalid_section = self.request_chat(section_id="not-a-number", key="bad-section")
+        foreign_section = PrdSection.objects.create(
+            prd=Prd.objects.create(
+                title="다른 PRD",
+                prd_type=PrdType.NEW_PRODUCT,
+                creator_user_id=8,
+                creation_idempotency_key="other-ai-prd",
+            ),
+            title="다른 섹션",
+            position=1,
+        )
+        wrong_section = self.request_chat(section_id=foreign_section.pk, key="foreign-section")
+        invalid_question = self.post(
+            "request-draft",
+            {"question_id": True},
+            key="boolean-question",
+        )
+
+        for response in (
+            malformed,
+            non_string_message,
+            invalid_section,
+            wrong_section,
+            invalid_question,
+        ):
+            self.assertEqual(response.status_code, 400)
+
+    def test_chat_request_replaces_expired_conversation_and_reuses_idempotent_job(self):
+        expired = AiCoachConversation.objects.create(
+            prd=self.prd,
+            section=self.section_a,
+            user_id=7,
+            expires_at=timezone.now() - timedelta(seconds=1),
+        )
+
+        first = self.request_chat(section_id=self.section_a.pk, key="same-chat")
+        second = self.request_chat(section_id=self.section_a.pk, key="same-chat")
+
+        self.assertEqual(first.status_code, 202)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.json()["data"]["id"], second.json()["data"]["id"])
+        self.assertFalse(AiCoachConversation.objects.filter(pk=expired.pk).exists())
+        self.assertEqual(
+            AiCoachConversation.objects.filter(
+                prd=self.prd,
+                section=self.section_a,
+                user_id=7,
+            ).count(),
+            1,
+        )
+
+    def test_ai_markdown_sanitizer_rejects_non_string_provider_output(self):
+        with self.assertRaises(AiOutputValidationError):
+            sanitize_ai_markdown({"message": "문자열이 아님"})
+
+    def test_ai_read_and_write_endpoints_reject_anonymous_requests(self):
+        self.client.logout()
+        responses = (
+            self.client.get(self.url("conversation")),
+            self.client.post(self.url("request-draft")),
+            self.client.post(self.url("request-perspective-draft")),
+        )
+
+        self.assertTrue(all(response.status_code == 401 for response in responses))

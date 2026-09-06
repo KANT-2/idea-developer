@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}일시적인 오류 | Idea Developer{% endblock %}
+
+{% block content %}
+  <section class="mx-auto py-5 text-center" style="max-width: 620px" aria-labelledby="server-error-title">
+    <div class="display-5 text-primary mb-3" aria-hidden="true"><i class="bi bi-cloud-slash"></i></div>
+    <p class="text-primary fw-semibold mb-2">잠시만 기다려 주세요</p>
+    <h1 id="server-error-title" class="h3 fw-bold mb-3">화면을 불러오지 못했습니다.</h1>
+    <p class="text-secondary mb-4">입력하신 내용은 그대로 두고 잠시 후 다시 시도해 주세요. 문제가 계속되면 홈으로 이동해 주세요.</p>
+    <div class="d-flex justify-content-center gap-2 flex-wrap">
+      <button class="btn btn-primary" type="button" onclick="location.reload()"><i class="bi bi-arrow-clockwise me-1"></i> 다시 시도</button>
+      <a class="btn btn-outline-secondary" href="{% url 'ideas:home' %}">홈으로</a>
+    </div>
+  </section>
+{% endblock %}

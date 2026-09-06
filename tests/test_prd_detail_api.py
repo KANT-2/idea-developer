@@ -1136,3 +1136,71 @@ class PrdDetailApiTests(TestCase):
         for endpoint in endpoints:
             with self.subTest(endpoint=endpoint):
                 self.assertEqual(self.client.get(endpoint).status_code, 403)
+
+    def test_detail_mutations_reject_malformed_json_and_non_string_metadata(self):
+        metadata_url = reverse("prd_api:metadata", args=[self.prd.id])
+
+        malformed = self.client.patch(
+            metadata_url,
+            data="{",
+            content_type="application/json",
+        )
+        non_string_title = self.patch_json(
+            metadata_url,
+            {"title": ["잘못된 제목"], "version": self.prd.version},
+        )
+        invalid_deadline = self.patch_json(
+            metadata_url,
+            {"deadline": True, "version": self.prd.version},
+        )
+
+        self.assertEqual(malformed.status_code, 400)
+        self.assertEqual(malformed.json()["error"]["code"], "validation_error")
+        self.assertEqual(non_string_title.status_code, 400)
+        self.assertEqual(invalid_deadline.status_code, 400)
+
+    def test_paginated_detail_endpoints_reject_invalid_page_values(self):
+        for route_name in ("participants", "comments"):
+            with self.subTest(route=route_name):
+                response = self.client.get(
+                    reverse(f"prd_api:{route_name}", args=[self.prd.id]),
+                    {"page": "not-an-integer", "page_size": "also-invalid"},
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()["error"]["code"], "validation_error")
+
+    def test_comment_creation_rejects_non_numeric_question_identifier(self):
+        response = self.post_json(
+            reverse("prd_api:comments", args=[self.prd.id]),
+            {
+                "content": "질문을 잘못 지정한 의견",
+                "section_question_id": "not-a-number",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(PrdComment.objects.filter(content="질문을 잘못 지정한 의견").exists())
+
+    def test_detail_write_endpoints_reject_anonymous_requests(self):
+        self.client.logout()
+        requests = (
+            self.client.get(reverse("prd_api:detail", args=[self.prd.id])),
+            self.client.post(reverse("prd_api:complete", args=[self.prd.id])),
+            self.client.patch(
+                reverse("prd_api:question-answer", args=[self.prd.id, self.question.id]),
+                data=json.dumps({"content": "변경", "version": self.question.version}),
+                content_type="application/json",
+            ),
+            self.client.patch(
+                reverse("prd_api:question-hold", args=[self.prd.id, self.question.id]),
+                data=json.dumps({"version": self.question.version}),
+                content_type="application/json",
+            ),
+            self.client.post(
+                reverse("prd_api:comments", args=[self.prd.id]),
+                data=json.dumps({"content": "익명 의견"}),
+                content_type="application/json",
+            ),
+        )
+
+        self.assertTrue(all(response.status_code == 401 for response in requests))

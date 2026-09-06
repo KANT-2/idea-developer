@@ -5,8 +5,6 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Protocol
 
-from .exceptions import AiProviderError
-
 
 @dataclass(frozen=True, slots=True)
 class AiProviderRequest:
@@ -33,14 +31,3 @@ class AiProvider(Protocol):
         timeout_seconds: int,
         cancellation_check: Callable[[], bool],
     ) -> AiProviderResult: ...
-
-
-class UnconfiguredAiProvider:
-    """Default provider: common infrastructure never calls an external model by accident."""
-
-    def generate(self, request, *, timeout_seconds, cancellation_check):
-        raise AiProviderError(
-            "AI provider is not configured.",
-            code="provider_not_configured",
-            retryable=False,
-        )

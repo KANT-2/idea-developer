@@ -243,8 +243,10 @@ python manage.py cleanup_background_data
 안의 데이터와 활성 데이터는 건드리지 않습니다. 완료된 임시 AI 분석·분류·PRD 반영·질문 초안 결과는
 기본 7일 후 `output_data`만 비우고 AI 작업, 사용량 및 적용 기록은 보존합니다. 보존기간과 batch
 크기는 `BRAINSTORM_DELETE_RETENTION_DAYS`, `AI_PREVIEW_RETENTION_DAYS`,
-`PRD_TRASH_RETENTION_DAYS`, `BACKGROUND_CLEANUP_BATCH_SIZE`로 조정합니다. 실행 중인 worker가
-`BACKGROUND_CLEANUP_INTERVAL_SECONDS` 주기로 이 정리를 호출합니다.
+`PRD_TRASH_RETENTION_DAYS`, `BACKGROUND_CLEANUP_BATCH_SIZE`로 조정합니다. 운영 환경에서는
+Windows 작업 스케줄러 또는 cron이 매일 자정에 `python manage.py run_midnight_maintenance`를
+실행하도록 등록합니다. 이 명령은 기한이 지난 PRD 완료 처리와 만료 데이터 정리를 한 번에 수행하며,
+반복 실행해도 안전합니다.
 
 ## AI PRD 반영
 

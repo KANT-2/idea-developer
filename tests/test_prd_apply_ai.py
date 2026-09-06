@@ -9,6 +9,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.accounts.models import LocalUserMapping
+from apps.ai.exceptions import AiOutputValidationError
 from apps.ai.models import (
     AiFeatureType,
     AiJob,
@@ -16,6 +17,7 @@ from apps.ai.models import (
     AiPrdApplyRecord,
     AiPrompt,
 )
+from apps.ai.prd_apply import PrdApplyResultProcessor
 from apps.ai.providers import AiProviderResult
 from apps.ai.services import AiPromptService
 from apps.ai.worker import AiJobRunner
@@ -419,3 +421,93 @@ class PrdApplyAiTests(TestCase):
             PrdAnswer.objects.get(question=self.question_a1).content,
             "기존 핵심 답변",
         )
+
+    def test_preview_rejects_invalid_section_and_default_node_payloads(self):
+        payloads = (
+            {"section_id": True},
+            {"section_id": 999999},
+            {"section_id": self.section_a.pk, "selected_default_nodes": {}},
+            {
+                "section_id": self.section_a.pk,
+                "selected_default_nodes": [{"node_id": "not-a-uuid", "version": 1}],
+            },
+        )
+
+        for index, payload in enumerate(payloads):
+            with self.subTest(payload=payload):
+                response = self.post("ai-prd-apply-preview", payload, f"bad-preview-{index}")
+                self.assertEqual(response.status_code, 400)
+
+    def test_preview_rejects_empty_memo_and_empty_question_inputs(self):
+        BrainstormNode.objects.filter(canvas=self.canvas).update(
+            is_deleted=True,
+            deleted_at=timezone.now(),
+        )
+        no_nodes = self.post(
+            "ai-prd-apply-preview",
+            {"section_id": self.section_a.pk},
+            "no-nodes",
+        )
+        self.assertEqual(no_nodes.status_code, 200)
+        self.assertIsNone(no_nodes.json()["data"]["job"])
+
+        BrainstormNode.objects.filter(pk=self.accepted_a.pk).update(
+            is_deleted=False,
+            deleted_at=None,
+        )
+        PrdQuestion.objects.filter(section=self.section_a).update(
+            is_deleted=True,
+            deleted_at=timezone.now(),
+        )
+        no_questions = self.post(
+            "ai-prd-apply-preview",
+            {"section_id": self.section_a.pk},
+            "no-questions",
+        )
+        self.assertEqual(no_questions.status_code, 400)
+
+    def test_apply_rejects_empty_approvals_and_invalid_node_versions(self):
+        _, job = self.preview(section_id=self.section_a.pk)
+        self.run_job()
+        job.refresh_from_db()
+        base = self.apply_payload(job, [self.question_a1])
+
+        no_approvals = self.post(
+            "ai-prd-apply-apply",
+            {**base, "approved_questions": []},
+            "no-approvals",
+        )
+        invalid_versions = self.post(
+            "ai-prd-apply-apply",
+            {**base, "node_versions": []},
+            "invalid-node-versions",
+        )
+
+        self.assertEqual(no_approvals.status_code, 400)
+        self.assertEqual(invalid_versions.status_code, 400)
+
+    def test_result_processor_rejects_malformed_and_incomplete_ai_answers(self):
+        _, job = self.preview(section_id=self.section_a.pk)
+        processor = PrdApplyResultProcessor()
+        invalid_outputs = (
+            {"answers": "not-an-array", "unused_node_ids": [], "warnings": []},
+            {"answers": [], "unused_node_ids": [], "warnings": []},
+            {
+                "answers": [
+                    {
+                        "question_id": self.question_a1.pk,
+                        "draft": "초안",
+                        "source_node_ids": [],
+                        "preserved_existing_points": "not-an-array",
+                        "added_points": [],
+                        "confidence": "not-a-number",
+                    }
+                ],
+                "unused_node_ids": [],
+                "warnings": [],
+            },
+        )
+
+        for output in invalid_outputs:
+            with self.subTest(output=output), self.assertRaises(AiOutputValidationError):
+                processor.process(job=job, output=output)

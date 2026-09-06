@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from decimal import ROUND_HALF_UP, Decimal
-
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import (
     Case,
     CharField,
     Count,
-    Exists,
     F,
     IntegerField,
     OuterRef,
@@ -86,22 +83,6 @@ class PrdQuerySet(models.QuerySet):
                 output_field=IntegerField(),
             )
         )
-
-    def accessible_home(self, *, user_id: int, round_id: int | None, team_id: int | None):
-        participant_access = PrdParticipant.objects.filter(
-            prd_id=OuterRef("pk"),
-            user_id=user_id,
-        )
-        queryset = self.active().annotate(_is_participant=Exists(participant_access))
-        personal_access = Q(round_id__isnull=True, _is_participant=True)
-        if round_id is None:
-            return queryset.filter(personal_access)
-        round_access = Q(round_id=round_id) & (
-            Q(creator_user_id=user_id)
-            | Q(_is_participant=True)
-            | Q(is_team_shared=True, team_id=team_id)
-        )
-        return queryset.filter(round_access | personal_access)
 
     def with_home_metrics(self, *, user_id: int):
         my_role = PrdParticipant.objects.filter(
@@ -297,30 +278,6 @@ class Prd(models.Model):
                 name="prd_purge_request_consistent",
             ),
         ]
-
-    @staticmethod
-    def completion_rate_from_counts(*, completed: int, total: int) -> int:
-        if total <= 0:
-            return 0
-        value = (Decimal(completed) * Decimal(100) / Decimal(total)).quantize(
-            Decimal("1"), rounding=ROUND_HALF_UP
-        )
-        return max(0, min(100, int(value)))
-
-    def calculate_completion_rate(self) -> int:
-        questions = PrdQuestion.objects.filter(
-            section__prd=self,
-            section__is_deleted=False,
-            is_deleted=False,
-            is_held=False,
-        )
-        counts = questions.aggregate(
-            total=Count("id"),
-            completed=Count("id", filter=Q(is_completed=True)),
-        )
-        return self.completion_rate_from_counts(
-            completed=counts["completed"], total=counts["total"]
-        )
 
     def clean(self):
         super().clean()

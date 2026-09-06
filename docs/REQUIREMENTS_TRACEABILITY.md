@@ -22,10 +22,12 @@
 | AI 작업 lock·lease·취소·재시도 | `apps/ai/services.py`, `worker.py` | `test_ai_infrastructure.py`, `test_worker.py` |
 | Gemini schema·ID·prompt injection 방어 | `apps/ai/gemini.py`, `providers.py`, 기능별 processor | `test_gemini_provider.py`, `test_brainstorm_ai.py` |
 | AI 코치 대화 append·30일 TTL | `apps/ai/coaching.py`, `apps/jobs/cleanup.py` | `test_ai_coaching.py`, `test_brainstorm_export_cleanup.py` |
+| 관점별 PRD 전체 초안·선택 승인·version 검증 | `apps/ai/perspective_draft.py`, `apps/ai/views.py`, PRD 작성 JS | `test_ai_perspective_draft.py` |
 | AI PRD 미리보기·승인·version·멱등성 | `apps/ai/prd_apply.py`, brainstorm AI views | `test_prd_apply_ai.py` |
 | 기여도 lineage·반영 confidence·50:50 | `apps/ai/contribution.py` | `test_contribution_evaluation.py` |
 | Slack 참여자·코멘트 알림과 실패 격리 | `apps/common/slack_notifications.py`, PRD services | `test_slack_notifications.py` |
 | 자정 자동 완료·영구 삭제 | `run_midnight_maintenance`, cleanup service | `test_midnight_maintenance.py` |
+| 구조화 로그의 request ID·extra·예외 보존 | `apps/common/logging.py`, `apps/ai/worker.py` | `test_logging.py`, `test_ai_infrastructure.py` |
 
 요구사항을 변경할 때는 이 표의 구현 파일과 대표 회귀 테스트를 함께 검토한다. 새로운 핵심 규칙에
 테스트 근거가 없다면 완료로 표시하지 않는다.
