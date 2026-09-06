@@ -35,7 +35,6 @@
   const evaluationAlert = document.getElementById("evaluation-alert");
   const perspectiveDraftButton = document.getElementById("run-perspective-draft");
   const perspectiveDraftAlert = document.getElementById("perspective-draft-alert");
-  const perspectiveDraftPersonaLabel = document.getElementById("perspective-draft-persona-label");
   const perspectiveDraftModalElement = document.getElementById("perspective-draft-modal");
   const perspectiveDraftModal = bootstrap.Modal.getOrCreateInstance(perspectiveDraftModalElement);
   const perspectiveDraftModalPersona = document.getElementById("perspective-draft-modal-persona");
@@ -903,7 +902,6 @@
         item.classList.toggle("active", item === button);
       });
       renderSelectedEvaluation();
-      perspectiveDraftPersonaLabel.textContent = evaluationPersonaLabels[evaluationPersona] || evaluationPersona;
     });
   });
 
@@ -972,6 +970,21 @@
     return "질문 " + questionId;
   }
 
+  function findQuestionSectionId(questionId) {
+    if (!detail) return "";
+    for (const section of detail.sections) {
+      if (section.questions.some(function (item) { return item.id === questionId; })) return String(section.id);
+    }
+    return "";
+  }
+
+  function goToCoachChat(questionId) {
+    scope.value = findQuestionSectionId(questionId);
+    perspectiveDraftModal.hide();
+    bootstrap.Offcanvas.getOrCreateInstance(document.getElementById("write-support-panel")).show();
+    window.setTimeout(function () { input.focus(); }, 350);
+  }
+
   function updatePerspectiveDraftSelectedCount() {
     const boxes = Array.from(perspectiveDraftList.querySelectorAll('input[type="checkbox"]'));
     const checked = boxes.filter(function (box) { return box.checked; });
@@ -1003,6 +1016,15 @@
         reasoning.append(element("i", "bi bi-info-circle"), element("span", "", decodeSafeText(row.reasoning)));
         body.append(reasoning);
       }
+      const chatLink = element("button", "perspective-draft-item-chat-link");
+      chatLink.type = "button";
+      chatLink.append(element("i", "bi bi-chat-dots"), element("span", "", "AI 채팅으로 가기"));
+      chatLink.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        goToCoachChat(row.question_id);
+      });
+      body.append(chatLink);
       item.append(checkbox, body);
       perspectiveDraftList.append(item);
     });
