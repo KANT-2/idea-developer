@@ -832,8 +832,48 @@
         renderDetail(detail);
         document.querySelector('[data-section-id="' + section.id + '"]')?.scrollIntoView({behavior: "smooth", block: "start"});
       });
-      root.append(button);
+
+      const coach = element("button", "diagnosis-coach-button", "보완 상담");
+      coach.type = "button";
+      if (!canRequestAi) {
+        coach.disabled = true;
+        coach.title = "현재 권한 또는 PRD 상태에서는 AI를 요청할 수 없습니다.";
+      } else if (!isCurrent) {
+        // 낡은 진단으로 상담을 시작하면 이미 채워 넣은 내용을 또 채우라고 하게 된다.
+        coach.disabled = true;
+        coach.title = "진단 후 답변이 바뀌었습니다. 다시 진단한 뒤 상담해 주세요.";
+      }
+      coach.addEventListener("click", function () { startSectionCoaching(section, row); });
+
+      const item = element("div", "diagnosis-row");
+      item.append(button, coach);
+      root.append(item);
     });
+  }
+
+  // 진단이 지적한 내용을 그대로 들고 코치 대화로 넘어간다.
+  // 문구만 채워 두고 전송은 사용자에게 맡긴다. 버튼만 눌러도 AI가 호출되면
+  // 실수로 사용량을 쓰게 되고, 사용자가 질문을 다듬을 기회도 사라진다.
+  async function startSectionCoaching(section, row) {
+    clearAlert();
+    scope.value = String(section.id);
+    await loadConversation();
+    input.value = [
+      "AI 진단에서 “" + section.title + "” 섹션이 “" + evaluationStatusLabel(row.status)
+        + "”(" + row.score + "점)으로 나왔습니다.",
+      "지적된 내용: " + decodeSafeText(row.feedback),
+      "이 섹션을 채우려면 어떤 질문부터 어떻게 답해야 할지 하나씩 짚어 주세요."
+    ].join("\n");
+    const panel = document.getElementById("write-support-panel");
+    if (panel.classList.contains("show")) {
+      input.focus();
+      return;
+    }
+    panel.addEventListener("shown.bs.offcanvas", function focusOnce() {
+      panel.removeEventListener("shown.bs.offcanvas", focusOnce);
+      input.focus();
+    });
+    bootstrap.Offcanvas.getOrCreateInstance(panel).show();
   }
 
   function renderSelectedEvaluation() {
