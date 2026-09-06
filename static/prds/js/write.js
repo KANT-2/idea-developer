@@ -36,12 +36,19 @@
   const perspectiveDraftButton = document.getElementById("run-perspective-draft");
   const perspectiveDraftAlert = document.getElementById("perspective-draft-alert");
   const perspectiveDraftModalElement = document.getElementById("perspective-draft-modal");
-  const perspectiveDraftModal = bootstrap.Modal.getOrCreateInstance(perspectiveDraftModalElement);
   const perspectiveDraftModalPersona = document.getElementById("perspective-draft-modal-persona");
   const perspectiveDraftList = document.getElementById("perspective-draft-list");
   const perspectiveDraftToggleAll = document.getElementById("perspective-draft-toggle-all");
   const perspectiveDraftSelectedCount = document.getElementById("perspective-draft-selected-count");
   const perspectiveDraftApplyButton = document.getElementById("perspective-draft-apply");
+  const perspectiveDraftAvailable = Boolean(
+    perspectiveDraftButton && perspectiveDraftAlert && perspectiveDraftModalElement &&
+    perspectiveDraftModalPersona && perspectiveDraftList && perspectiveDraftToggleAll &&
+    perspectiveDraftSelectedCount && perspectiveDraftApplyButton
+  );
+  const perspectiveDraftModal = perspectiveDraftAvailable
+    ? bootstrap.Modal.getOrCreateInstance(perspectiveDraftModalElement)
+    : null;
   let perspectiveDraftJob = null;
   const exportModalElement = document.getElementById("export-modal");
   const exportPreview = document.getElementById("export-preview");
@@ -121,25 +128,55 @@
     return area.value;
   }
 
-  async function api(url, options) {
-    const response = await fetch(url, {
-      credentials: "same-origin",
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        "X-CSRFToken": csrfToken,
-        ...(options?.headers || {})
+  function firstErrorDetail(value) {
+    if (!value) return "";
+    if (typeof value === "string") return value.trim();
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const message = firstErrorDetail(item);
+        if (message) return message;
       }
-    });
+      return "";
+    }
+    if (typeof value === "object") {
+      for (const item of Object.values(value)) {
+        const message = firstErrorDetail(item);
+        if (message) return message;
+      }
+    }
+    return "";
+  }
+
+  async function api(url, options) {
+    let response;
+    try {
+      response = await fetch(url, {
+        credentials: "same-origin",
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrfToken,
+          ...(options?.headers || {})
+        }
+      });
+    } catch (networkError) {
+      throw new Error("서버에 연결하지 못했습니다. 네트워크 상태를 확인해 주세요.");
+    }
     const contentType = response.headers.get("content-type") || "";
     if (!contentType.includes("application/json")) {
-      throw new Error(response.ok
+      throw new Error(response.status === 401 || response.redirected
+        ? "로그인 상태가 만료되었습니다. 페이지를 새로고침해 주세요."
+        : response.ok
         ? "서버 응답 형식을 확인하지 못했습니다. 다시 시도해 주세요."
         : "서버에서 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     }
     const payload = await response.json();
     if (!response.ok || !payload.ok) {
-      const error = new Error(payload.error?.message || "요청을 처리하지 못했습니다.");
+      const error = new Error(
+        firstErrorDetail(payload.error?.details) ||
+        payload.error?.message ||
+        "요청을 처리하지 못했습니다."
+      );
       error.code = payload.error?.code;
       error.details = payload.error?.details;
       throw error;
@@ -414,6 +451,8 @@
     exportPreviewState.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> 미리보기를 준비하고 있습니다.';
     try {
       const response = await fetch(exportApi, {credentials: "same-origin"});
+      const contentType = response.headers.get("content-type") || "";
+      if (response.redirected || contentType.includes("text/html")) throw new Error("로그인 상태를 확인한 뒤 다시 시도해 주세요.");
       if (!response.ok) throw new Error("PRD 내보내기 내용을 불러오지 못했습니다.");
       exportedMarkdown = await response.text();
       exportPreview.textContent = exportedMarkdown;
@@ -1081,7 +1120,11 @@
     perspectiveDraftModal.show();
   }
 
-  perspectiveDraftButton.addEventListener("click", async function () {
+  perspectiveDraftButton?.addEventListener("click", async function () {
+    if (!perspectiveDraftAvailable) {
+      showAlert("화면 구성 요소를 새로 불러와야 합니다. 페이지를 새로고침해 주세요.", "warning");
+      return;
+    }
     clearAlert();
     setPerspectiveDraftBusy(true);
     setPerspectiveDraftNotice((evaluationPersonaLabels[evaluationPersona] || evaluationPersona) + " 관점의 PRD 초안을 작성하고 있습니다.", "working");
@@ -1105,7 +1148,7 @@
     }
   });
 
-  perspectiveDraftToggleAll.addEventListener("click", function () {
+  perspectiveDraftToggleAll?.addEventListener("click", function () {
     const boxes = Array.from(perspectiveDraftList.querySelectorAll('input[type="checkbox"]'));
     const shouldCheck = boxes.some(function (box) { return !box.checked; });
     boxes.forEach(function (box) {
@@ -1115,7 +1158,7 @@
     updatePerspectiveDraftSelectedCount();
   });
 
-  perspectiveDraftApplyButton.addEventListener("click", async function () {
+  perspectiveDraftApplyButton?.addEventListener("click", async function () {
     if (!perspectiveDraftJob) return;
     const checked = Array.from(perspectiveDraftList.querySelectorAll('input[type="checkbox"]:checked'));
     if (!checked.length) return;

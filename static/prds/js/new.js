@@ -23,15 +23,49 @@
   const searchSpinner = document.getElementById("participant-search-spinner");
   const addTeamButton = document.getElementById("add-team");
 
-  async function api(url, options) {
-    const response = await fetch(url, {credentials: "same-origin", ...options, headers: {"Content-Type": "application/json", "X-CSRFToken": csrf, ...(options?.headers || {})}});
+  function firstErrorDetail(value) {
+    if (typeof value === "string") return value.trim();
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const detail = firstErrorDetail(item);
+        if (detail) return detail;
+      }
+      return "";
+    }
+    if (value && typeof value === "object") {
+      for (const item of Object.values(value)) {
+        const detail = firstErrorDetail(item);
+        if (detail) return detail;
+      }
+    }
+    return "";
+  }
+
+  async function parseJsonResponse(response, fallbackMessage) {
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      throw new Error(response.status === 401 || response.redirected
+        ? "로그인 상태가 만료되었습니다. 새로고침 후 다시 로그인해 주세요."
+        : fallbackMessage);
+    }
     const body = await response.json();
     if (!response.ok || !body.ok) {
-      const error = new Error(body.error?.message || "요청을 처리하지 못했습니다.");
+      const error = new Error(firstErrorDetail(body.error?.details) || body.error?.message || fallbackMessage);
       error.details = body.error?.details;
+      error.code = body.error?.code;
       throw error;
     }
     return body.data;
+  }
+
+  async function api(url, options) {
+    let response;
+    try {
+      response = await fetch(url, {credentials: "same-origin", ...options, headers: {"Content-Type": "application/json", "X-CSRFToken": csrf, ...(options?.headers || {})}});
+    } catch (networkError) {
+      throw new Error("서버에 연결하지 못했습니다. 네트워크 상태를 확인해 주세요.");
+    }
+    return parseJsonResponse(response, "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
   }
 
   function requestKey() {

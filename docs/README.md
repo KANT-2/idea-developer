@@ -43,6 +43,10 @@
 5. [부모 프로젝트 이관](08_PARENT_HANDOFF.md)
 6. [소스 전달 양식](integration/SOURCE_DELIVERY_TEMPLATE.md)
 
+### 최근 통합 내용을 확인할 때
+
+- [2026-09-06 develop 동기화 기록](updates/2026-09-06-develop-sync.md)
+
 ### 개발 환경과 협업을 시작할 때
 
 `00_START_HERE.md`부터 번호 순서대로 읽는다. 팀원이 기능을 전달할 때는
