@@ -187,5 +187,7 @@ class PrdPerspectiveDraftResultProcessor:
                 }
             )
         if seen != expected_ids:
-            raise AiOutputValidationError("Perspective draft must cover every current question once.")
+            raise AiOutputValidationError(
+                "Perspective draft must cover every current question once."
+            )
         return {"answers": answers}
