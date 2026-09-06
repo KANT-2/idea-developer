@@ -670,7 +670,10 @@
     }
     function previewPrd() {
       var selectedDefaults = [];
-      setBusy(true); request(apiBase + "ai/prd-apply/preview/", {method: "POST", headers: {"Idempotency-Key": key()}, body: JSON.stringify({selected_default_nodes: selectedDefaults})}).then(function (result) { if (!result.job) { setBusy(false); return setNotice({kind: "info", text: result.message}); } pollJob(result.id, function (job) { setAiPanel({type: "prd", job: job}); }); }).catch(function (error) { setBusy(false); setNotice({kind: "danger", text: error.message}); });
+      // 성공 응답은 작업 필드가 최상위에 그대로 펼쳐져 있어 job이라는 키가 없다.
+      // 반영할 메모가 없을 때만 서버가 {job: null, message: "..."}를 따로 보낸다.
+      // result.job으로 나누면 성공 응답도 매번 이 없음 판정에 걸려 결과를 못 받았다.
+      setBusy(true); request(apiBase + "ai/prd-apply/preview/", {method: "POST", headers: {"Idempotency-Key": key()}, body: JSON.stringify({selected_default_nodes: selectedDefaults})}).then(function (result) { if (!result.id) { setBusy(false); return setNotice({kind: "info", text: result.message}); } pollJob(result.id, function (job) { setAiPanel({type: "prd", job: job}); }); }).catch(function (error) { setBusy(false); setNotice({kind: "danger", text: error.message}); });
     }
     function applyPrd() {
       var job = aiPanel.job;
@@ -790,11 +793,13 @@
           u * u * u * y1 + 3 * u * u * t * bend.ay + 3 * u * t * t * bend.by + t * t * t * y2
         ]);
       }
-      // 가리키거나 고른 메모가 있으면 그 메모로 이어진 선만 살리고 나머지는 죽인다.
+      // 평소엔 숨겨 두고, 가리키거나 고른 메모로 이어진 선만 그때 드러낸다.
       var spotlight = hoveredNode || focused;
       var touches = spotlight && (connection.node_a_id === spotlight || connection.node_b_id === spotlight);
-      var emphasis = !spotlight ? "" : touches ? " highlighted" : " dimmed";
-      return h("g", {key: connection.id}, h("path", {d: curve, className: "brain-connection" + emphasis + (connection.pending ? " pending" : "")}), canEdit && !connection.pending ? h("circle", {cx: handleX, cy: handleY, r: 9, className: "brain-connection-delete" + emphasis, onClick: function () { deleteConnection(connection); }}) : null);
+      var emphasis = touches ? " highlighted" : "";
+      return h("g", {key: connection.id},
+        h("path", {d: curve, className: "brain-connection" + emphasis + (connection.pending ? " pending" : "")}),
+        canEdit && !connection.pending ? h("circle", {cx: handleX, cy: handleY, r: 9, className: "brain-connection-delete" + emphasis, onClick: function () { deleteConnection(connection); }}) : null);
     }
     function note(node) {
       var p = positions[node.id], selected = focused === node.id, connect = source?.id === node.id;
