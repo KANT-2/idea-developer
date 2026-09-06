@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from django.conf import settings
-from django.db import DatabaseError, connections, transaction
+from django.db import DatabaseError, OperationalError, connections, transaction
 from django.db.models import Q
 
 from .exceptions import (
@@ -1013,11 +1013,15 @@ class FailoverIntegrationRepository:
                     with transaction.atomic(using=database_alias):
                         return primary_method(*args, **kwargs)
                 return primary_method(*args, **kwargs)
-            except IntegrationUnavailableError:
+            except (IntegrationUnavailableError, OperationalError) as exc:
+                # IntegrationUnavailableError는 뷰는 있지만 조회가 실패한 경우다.
+                # OperationalError는 접속 자체가 안 되는 경우로, 조회를 시작하기도
+                # 전에 transaction.atomic(...) 진입 시점에 난다. 이것도 부모가
+                # 죽은 것이므로 같은 폴백을 타야 한다.
                 self._primary_unavailable = True
                 logger.warning(
                     "Parent integration unavailable; using DEBUG fixture",
-                    extra={"integration_method": name},
+                    extra={"integration_method": name, "cause": type(exc).__name__},
                 )
                 return fallback_method(*args, **kwargs)
 

@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.db import DatabaseError
+from django.db import DatabaseError, OperationalError
 from django.test import SimpleTestCase, TestCase
 
 from apps.accounts.models import LocalUserMapping
@@ -95,6 +95,18 @@ class FailoverIntegrationRepositoryTests(SimpleTestCase):
         self.primary.get_user.return_value = expected
 
         self.assertIs(self.repository.get_user(24), expected)
+
+    def test_connection_failure_also_uses_development_fixture(self):
+        # 뷰 조회가 실패하는 것과 접속 자체가 안 되는 것은 다른 예외로 온다.
+        # 부모 DB가 완전히 죽어 있으면 조회를 시작하기도 전에 접속 단계에서
+        # OperationalError가 나므로, 이것도 IntegrationUnavailableError와
+        # 똑같이 폴백을 타야 한다.
+        self.primary.search_login_users.side_effect = OperationalError("connection timeout expired")
+
+        result = self.repository.search_login_users(query="리오넬 메시", page=1, page_size=20)
+
+        self.assertEqual(result.results[0].user_id, 24)
+        self.primary.get_user.assert_not_called()
 
 
 class FailoverTransactionIsolationTests(TestCase):

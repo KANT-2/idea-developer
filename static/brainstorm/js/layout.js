@@ -44,12 +44,13 @@
   function canvasContentSize() {
     return {w: BOARD.x * 2 + BOARD.w + TRAY_GAP + TRAY_W, h: BOARD.y * 2 + BOARD.h};
   }
+  // 3+3+1로 나누면 마지막 항목 하나가 아랫줄 전체를 혼자 차지해 어색하다.
+  // 3+4로 나눠 아랫줄도 여러 항목이 나눠 갖게 한다.
   var REGION_CELLS = [
     {row: 0, col: 0}, {row: 0, col: 1}, {row: 0, col: 2},
-    {row: 1, col: 0}, {row: 1, col: 1}, {row: 1, col: 2},
-    {row: 2, col: 0}
+    {row: 1, col: 0}, {row: 1, col: 1}, {row: 1, col: 2}, {row: 1, col: 3}
   ];
-  var ROW_COUNT = 3;
+  var ROW_COUNT = 2;
   // 메모가 많이 붙은 항목이 더 넓은 땅을 갖도록 영역별 무게를 둔다.
   // 아무것도 없을 때는 모두 1이라 균등하게 나뉜다.
   var regionWeights = REGION_CELLS.map(function () { return 1; });
