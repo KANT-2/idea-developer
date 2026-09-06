@@ -706,12 +706,15 @@
         if (message.role === "assistant" && message.proposal && message.job?.id) {
           wrap.append(buildProposalCard(message));
         }
-        const stuck = ["failed", "timed_out", "cancelled", "queued", "running", "retry_wait"];
-        if (message.role === "user" && canRequestAi && stuck.includes(message.job?.status)) {
+        const failedStates = ["failed", "timed_out", "cancelled"];
+        const pendingStates = ["queued", "running", "retry_wait"];
+        if (message.role === "user" && canRequestAi && failedStates.includes(message.job?.status)) {
           const retry = element("button", "btn btn-link btn-sm float-end", "다시 시도");
           retry.type = "button";
           retry.addEventListener("click", function () { retryJob(message.job.id); });
           wrap.append(retry);
+        } else if (message.role === "user" && pendingStates.includes(message.job?.status)) {
+          wrap.append(element("small", "text-secondary d-block mt-1", "AI가 답변을 준비하고 있습니다…"));
         }
         messagesRoot.append(wrap);
       });
