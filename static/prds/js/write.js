@@ -33,6 +33,17 @@
   const evaluationButton = document.getElementById("run-evaluation");
   const evaluationCancel = document.getElementById("cancel-evaluation");
   const evaluationAlert = document.getElementById("evaluation-alert");
+  const perspectiveDraftButton = document.getElementById("run-perspective-draft");
+  const perspectiveDraftAlert = document.getElementById("perspective-draft-alert");
+  const perspectiveDraftPersonaLabel = document.getElementById("perspective-draft-persona-label");
+  const perspectiveDraftModalElement = document.getElementById("perspective-draft-modal");
+  const perspectiveDraftModal = bootstrap.Modal.getOrCreateInstance(perspectiveDraftModalElement);
+  const perspectiveDraftModalPersona = document.getElementById("perspective-draft-modal-persona");
+  const perspectiveDraftList = document.getElementById("perspective-draft-list");
+  const perspectiveDraftToggleAll = document.getElementById("perspective-draft-toggle-all");
+  const perspectiveDraftSelectedCount = document.getElementById("perspective-draft-selected-count");
+  const perspectiveDraftApplyButton = document.getElementById("perspective-draft-apply");
+  let perspectiveDraftJob = null;
   const exportModalElement = document.getElementById("export-modal");
   const exportPreview = document.getElementById("export-preview");
   const exportPreviewState = document.getElementById("export-preview-state");
@@ -250,6 +261,7 @@
     input.disabled = !canRequestAi;
     submit.disabled = !canRequestAi;
     evaluationButton.disabled = !canRequestAi;
+    perspectiveDraftButton.disabled = !canRequestAi;
     if (!canRequestAi) input.placeholder = "현재 권한 또는 PRD 상태에서는 AI를 요청할 수 없습니다.";
 
     function buildQuestionBlock(question, extraClass) {
@@ -882,6 +894,8 @@
     }
   }
 
+  const evaluationPersonaLabels = {pm: "PM", engineering: "엔지니어링", investor: "투자자"};
+
   document.querySelectorAll("[data-evaluation-persona]").forEach(function (button) {
     button.addEventListener("click", function () {
       evaluationPersona = button.dataset.evaluationPersona;
@@ -889,6 +903,7 @@
         item.classList.toggle("active", item === button);
       });
       renderSelectedEvaluation();
+      perspectiveDraftPersonaLabel.textContent = evaluationPersonaLabels[evaluationPersona] || evaluationPersona;
     });
   });
 
@@ -932,6 +947,126 @@
       setEvaluationNotice(error.message, "danger");
     } finally {
       setEvaluationBusy(false);
+    }
+  });
+
+  function setPerspectiveDraftNotice(message, kind) {
+    if (!message) { perspectiveDraftAlert.className = "evaluation-alert d-none"; return; }
+    perspectiveDraftAlert.textContent = message;
+    perspectiveDraftAlert.className = "evaluation-alert" + (kind ? " " + kind : "");
+  }
+
+  function setPerspectiveDraftBusy(busy) {
+    perspectiveDraftButton.disabled = busy || !detail?.permissions.can_request_ai || detail?.prd.status === "completed";
+    perspectiveDraftButton.innerHTML = busy
+      ? '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> 초안 작성 중…'
+      : '<i class="bi bi-magic"></i> AI 초안 작성';
+  }
+
+  function findQuestionPrompt(questionId) {
+    if (!detail) return "질문 " + questionId;
+    for (const section of detail.sections) {
+      const question = section.questions.find(function (item) { return item.id === questionId; });
+      if (question) return question.prompt;
+    }
+    return "질문 " + questionId;
+  }
+
+  function updatePerspectiveDraftSelectedCount() {
+    const boxes = Array.from(perspectiveDraftList.querySelectorAll('input[type="checkbox"]'));
+    const checked = boxes.filter(function (box) { return box.checked; });
+    perspectiveDraftSelectedCount.textContent = checked.length + " / " + boxes.length + "개 선택됨";
+    perspectiveDraftApplyButton.disabled = !checked.length;
+  }
+
+  function renderPerspectiveDraftModal(job) {
+    perspectiveDraftJob = job;
+    const answers = job.output?.answers || [];
+    perspectiveDraftModalPersona.textContent = (evaluationPersonaLabels[evaluationPersona] || evaluationPersona) + " 관점 · 질문 " + answers.length + "개";
+    perspectiveDraftList.replaceChildren();
+    answers.forEach(function (row) {
+      const item = element("label", "perspective-draft-item");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = true;
+      checkbox.dataset.questionId = row.question_id;
+      checkbox.dataset.questionVersion = row.question_version;
+      checkbox.addEventListener("change", function () {
+        item.classList.toggle("is-unchecked", !checkbox.checked);
+        updatePerspectiveDraftSelectedCount();
+      });
+      const body = element("div", "perspective-draft-item-body");
+      body.append(element("strong", "", findQuestionPrompt(row.question_id)));
+      body.append(Object.assign(element("p", "perspective-draft-item-draft"), {textContent: decodeSafeText(row.draft)}));
+      if (row.reasoning) {
+        const reasoning = element("div", "perspective-draft-item-reasoning");
+        reasoning.append(element("i", "bi bi-info-circle"), element("span", "", decodeSafeText(row.reasoning)));
+        body.append(reasoning);
+      }
+      item.append(checkbox, body);
+      perspectiveDraftList.append(item);
+    });
+    updatePerspectiveDraftSelectedCount();
+    perspectiveDraftModal.show();
+  }
+
+  perspectiveDraftButton.addEventListener("click", async function () {
+    clearAlert();
+    setPerspectiveDraftBusy(true);
+    setPerspectiveDraftNotice((evaluationPersonaLabels[evaluationPersona] || evaluationPersona) + " 관점의 PRD 초안을 작성하고 있습니다.", "working");
+    try {
+      const job = await api(aiBase + "perspective-draft/run/", {
+        method: "POST",
+        headers: {"Idempotency-Key": crypto.randomUUID()},
+        body: JSON.stringify({persona: evaluationPersona})
+      });
+      const finished = await pollJob(job.id, function () {});
+      if (finished?.status === "succeeded") {
+        setPerspectiveDraftNotice(null);
+        renderPerspectiveDraftModal(finished);
+      } else if (finished) {
+        setPerspectiveDraftNotice(finished.error?.message || "초안 작성을 완료하지 못했습니다.", "danger");
+      }
+    } catch (error) {
+      setPerspectiveDraftNotice(error.message, "danger");
+    } finally {
+      setPerspectiveDraftBusy(false);
+    }
+  });
+
+  perspectiveDraftToggleAll.addEventListener("click", function () {
+    const boxes = Array.from(perspectiveDraftList.querySelectorAll('input[type="checkbox"]'));
+    const shouldCheck = boxes.some(function (box) { return !box.checked; });
+    boxes.forEach(function (box) {
+      box.checked = shouldCheck;
+      box.closest(".perspective-draft-item").classList.toggle("is-unchecked", !shouldCheck);
+    });
+    updatePerspectiveDraftSelectedCount();
+  });
+
+  perspectiveDraftApplyButton.addEventListener("click", async function () {
+    if (!perspectiveDraftJob) return;
+    const checked = Array.from(perspectiveDraftList.querySelectorAll('input[type="checkbox"]:checked'));
+    if (!checked.length) return;
+    const approvedQuestions = checked.map(function (box) {
+      return {question_id: Number(box.dataset.questionId), version: Number(box.dataset.questionVersion)};
+    });
+    perspectiveDraftApplyButton.disabled = true;
+    perspectiveDraftApplyButton.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> 반영 중…';
+    try {
+      await api(aiBase + "perspective-draft/" + perspectiveDraftJob.id + "/apply/", {
+        method: "POST",
+        headers: {"Idempotency-Key": crypto.randomUUID()},
+        body: JSON.stringify({approved_questions: approvedQuestions})
+      });
+      perspectiveDraftModal.hide();
+      showAlert(approvedQuestions.length + "개 질문에 초안을 반영했습니다.", "success");
+      renderDetail(await api(detailApi));
+    } catch (error) {
+      showAlert(error.message);
+    } finally {
+      perspectiveDraftApplyButton.disabled = false;
+      perspectiveDraftApplyButton.innerHTML = '<i class="bi bi-check2-circle"></i> 선택한 답변 반영';
     }
   });
 

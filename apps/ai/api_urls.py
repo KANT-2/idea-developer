@@ -10,6 +10,16 @@ urlpatterns = [
     path("drafts/", views.request_draft, name="request-draft"),
     path("evaluation/", views.latest_evaluation, name="latest-evaluation"),
     path("evaluation/run/", views.request_evaluation, name="request-evaluation"),
+    path(
+        "perspective-draft/run/",
+        views.request_perspective_draft,
+        name="request-perspective-draft",
+    ),
+    path(
+        "perspective-draft/<uuid:job_id>/apply/",
+        views.apply_perspective_draft,
+        name="apply-perspective-draft",
+    ),
     path("drafts/<uuid:job_id>/apply/", views.apply_draft, name="apply-draft"),
     path("chat/<uuid:job_id>/apply/", views.apply_chat_proposal, name="apply-chat-proposal"),
     path("chat/<uuid:job_id>/decline/", views.decline_chat_proposal, name="decline-chat-proposal"),
