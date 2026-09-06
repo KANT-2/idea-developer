@@ -701,36 +701,56 @@
           bx: x1 + dx * 2 / 3 + awayX * second, by: y1 + dy * 2 / 3 + awayY * second
         };
       }
-      function hits(c) {
-        // 이은 두 메모는 blockers에서 이미 빠졌으므로 선 전체를 살핀다.
+      // 곡선이 벗어나면 안 되는 도화지 범위. 항목 네모와 미분류 여백을 합친 만큼만 허용하고,
+      // 그 바깥(빈 여백)으로 크게 휘어 나가는 것도 막힌 것으로 친다.
+      var tray = trayBox();
+      var boundsLeft = Math.min(BOARD.x, tray.x) - 30;
+      var boundsRight = Math.max(BOARD.x + BOARD.w, tray.x + tray.w) + 30;
+      var boundsTop = BOARD.y - 30;
+      var boundsBottom = BOARD.y + BOARD.h + 30;
+      // 막힌 샘플 지점 개수를 센다. 0이면 완전히 안 걸리는 곡선이다.
+      function blockedCount(c) {
+        var count = 0;
         for (var step = 1; step <= 47; step += 1) {
           var t = step / 48, u = 1 - t;
           var px = u * u * u * x1 + 3 * u * u * t * c.ax + 3 * u * t * t * c.bx + t * t * t * x2;
           var py = u * u * u * y1 + 3 * u * u * t * c.ay + 3 * u * t * t * c.by + t * t * t * y2;
+          if (px < boundsLeft || px > boundsRight || py < boundsTop || py > boundsBottom) {
+            count += 1;
+            continue;
+          }
           var blocked = blockers.some(function (spot) {
             var edge = spot.margin;
             return px > spot.x - edge && px < spot.x + spot.w + edge
               && py > spot.y - edge && py < spot.y + spot.h + edge;
           });
-          if (blocked) return true;
+          if (blocked) count += 1;
         }
-        return false;
+        return count;
       }
-      // 0은 곧은 선. 그다음부터 양쪽을 함께, 앞쪽만, 뒤쪽만 순서로 넓혀 간다.
-      var steps = [110, 220, 340, 470, 620];
+      // 0은 곧은 선. 그다음부터 양쪽을 함께, 앞쪽만, 뒤쪽만, S자 순서로 점점 크게 넓혀 간다.
+      // 후보를 넉넉히 둬야 메모·이름표가 빽빽한 보드에서도 안 걸리는 곡선을 찾을 확률이 높다.
+      var steps = [90, 170, 260, 360, 470, 600, 750, 920];
       var shapes = [control(0, 0)];
       steps.forEach(function (amount) {
         [amount, -amount].forEach(function (signed) {
           shapes.push(control(signed, signed));
           shapes.push(control(signed, 0));
           shapes.push(control(0, signed));
+          shapes.push(control(signed, -signed));
         });
       });
       for (var i = 0; i < shapes.length; i += 1) {
-        if (!hits(shapes[i])) return shapes[i];
+        if (blockedCount(shapes[i]) === 0) return shapes[i];
       }
-      // 어느 쪽으로도 못 비키면 곧게 잇는다.
-      return shapes[0];
+      // 어느 후보도 완전히 못 비키면, 그나마 가장 덜 가리는 곡선을 쓴다.
+      // 예전엔 이럴 때 무조건 곧게 이어서 메모·이름표를 정면으로 가로질렀다.
+      var best = shapes[0], bestScore = blockedCount(shapes[0]);
+      for (var j = 1; j < shapes.length; j += 1) {
+        var score = blockedCount(shapes[j]);
+        if (score < bestScore) { best = shapes[j]; bestScore = score; }
+      }
+      return best;
     }
     // 한 메모에 여러 선이 붙으면 모두 같은 중심에서 출발해 겹쳐 보인다.
     // 강조 중인 메모에서는 선들을 테두리에 부챗살처럼 나눠 붙여 서로 떨어뜨린다.
