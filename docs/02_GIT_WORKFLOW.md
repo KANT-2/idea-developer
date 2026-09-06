@@ -12,11 +12,18 @@
 
 ## 매 작업의 표준 명령
 
+현재 팀처럼 배정된 개인 브랜치를 계속 사용하는 경우:
+
 ```bash
+git fetch origin
 git switch develop
 git pull origin develop
-git switch -c feat/작업명
+git switch <배정된-내-브랜치>
+git merge develop
 ```
+
+새 작업 브랜치를 사용하기로 한 경우에만 최신 `develop`에서
+`git switch -c feat/작업명`으로 만듭니다.
 
 파일을 수정한 뒤:
 
@@ -30,7 +37,7 @@ git push -u origin feat/작업명
 
 그 다음 GitHub에서 `develop`을 대상으로 PR을 엽니다.
 
-## 새 작업마다 새 branch를 쓰는 이유
+## 작업 branch를 분리하는 이유
 
 - 다른 사람 작업과 섞이지 않습니다.
 - 문제가 생기면 branch만 버릴 수 있습니다.
@@ -43,7 +50,9 @@ git push -u origin feat/작업명
 - `develop`: 팀원 파일을 모아 다음 단계를 조립하는 브랜치
 - 개인 작업 branch: 전달받은 파일을 추가하는 공간
 
-파일별 PR은 `develop`에 합치고, 한 단계의 모든 파일이 모여 테스트가 통과하면 팀장이 `develop → main` PR을 만듭니다.
+파일별 PR은 `develop`에 합치고, 한 단계의 모든 파일이 모여 테스트가 통과하면 팀장이
+`develop → main` PR을 만듭니다. 현재 팀은 배정된 개인 브랜치를 재사용하므로 PR 병합 뒤에도
+다음 작업 전에 위 표준 명령으로 `develop`을 다시 합칩니다.
 
 ## 다른 팀원의 변경 가져오기
 
