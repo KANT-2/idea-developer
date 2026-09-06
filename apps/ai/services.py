@@ -44,6 +44,7 @@ FEATURE_ACTIONS = {
     AiFeatureType.CONTRIBUTION_EVALUATION: frozenset({AiActionType.CONTRIBUTION_EVALUATION}),
     AiFeatureType.COACHING: frozenset({AiActionType.CHAT, AiActionType.DRAFT}),
     AiFeatureType.PRD_EVALUATION: frozenset({AiActionType.EVALUATION}),
+    AiFeatureType.PRD_PERSPECTIVE_DRAFT: frozenset({AiActionType.PERSPECTIVE_DRAFT}),
 }
 
 
@@ -257,6 +258,7 @@ class AiJobService:
         action_type: str,
         input_data: dict[str, Any],
         idempotency_key: str,
+        timeout_seconds: int | None = None,
     ) -> tuple[AiJob, bool]:
         self._validate_request(
             user_id=user_id,
@@ -312,7 +314,7 @@ class AiJobService:
                     request_fingerprint=fingerprint,
                     input_data=input_data,
                     max_attempts=settings.AI_JOB_MAX_ATTEMPTS,
-                    timeout_seconds=settings.AI_JOB_TIMEOUT_SECONDS,
+                    timeout_seconds=timeout_seconds or settings.AI_JOB_TIMEOUT_SECONDS,
                 )
         except IntegrityError:
             job = AiJob.objects.get(

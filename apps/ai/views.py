@@ -31,6 +31,7 @@ from .exceptions import (
     AiUsageLimitExceeded,
 )
 from .models import AiCoachMessage, AiConversationMessageRole, AiJob
+from .perspective_draft import PrdPerspectiveDraftService
 from .services import AiJobService
 
 
@@ -329,6 +330,71 @@ def request_evaluation(request, prd_id):
         AiPromptNotConfigured,
         AiUsageLimitExceeded,
     ) as exc:
+        return _error(request, exc)
+
+
+@require_POST
+def request_perspective_draft(request, prd_id):
+    if response := _authentication_error(request):
+        return response
+    try:
+        payload = _parse_json(request)
+        context, access = _access(request, prd_id)
+        _enforce(access, ParticipantAction.REQUEST_AI)
+        job, created = PrdPerspectiveDraftService().request(
+            prd=access.prd,
+            user_id=context.user_id,
+            persona=payload.get("persona"),
+            idempotency_key=_idempotency_key(request, payload),
+        )
+        return api_success(
+            _serialize_job(job),
+            status=202 if created else 200,
+            request_id=_request_id(request),
+        )
+    except (
+        PrdNotFound,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+        AiPromptNotConfigured,
+        AiUsageLimitExceeded,
+    ) as exc:
+        return _error(request, exc)
+
+
+@require_POST
+def apply_perspective_draft(request, prd_id, job_id):
+    if response := _authentication_error(request):
+        return response
+    try:
+        payload = _parse_json(request)
+        context, access = _access(request, prd_id)
+        _enforce(access, ParticipantAction.APPLY_AI)
+        job = _owned_job(access=access, user_id=context.user_id, job_id=job_id)
+        answers = PrdPerspectiveDraftService().apply(
+            job=job,
+            approved_questions=payload.get("approved_questions"),
+            user_id=context.user_id,
+        )
+        questions = []
+        for answer in answers:
+            answer.question.refresh_from_db()
+            questions.append(
+                {
+                    "question_id": answer.question_id,
+                    "question_version": answer.question.version,
+                    "answer": {
+                        "id": answer.pk,
+                        "content": answer.content,
+                        "updated_at": answer.updated_at.isoformat(),
+                    },
+                }
+            )
+        return api_success({"questions": questions}, request_id=_request_id(request))
+    except AiDraftVersionConflict as exc:
+        return _version_conflict(request, exc)
+    except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
         return _error(request, exc)
 
 

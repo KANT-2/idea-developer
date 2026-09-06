@@ -15,6 +15,7 @@ class AiFeatureType(models.TextChoices):
     CONTRIBUTION_EVALUATION = "CONTRIBUTION_EVALUATION", "기여도 평가"
     COACHING = "COACHING", "AI 코칭"
     PRD_EVALUATION = "PRD_EVALUATION", "PRD 충족도 진단"
+    PRD_PERSPECTIVE_DRAFT = "PRD_PERSPECTIVE_DRAFT", "관점별 PRD 초안"
 
 
 class AiActionType(models.TextChoices):
@@ -25,6 +26,7 @@ class AiActionType(models.TextChoices):
     CHAT = "chat", "대화"
     DRAFT = "draft", "초안"
     EVALUATION = "evaluation", "충족도 진단"
+    PERSPECTIVE_DRAFT = "perspective_draft", "관점별 초안"
 
 
 class AiUsageStatus(models.TextChoices):
@@ -176,6 +178,10 @@ class AiUsageLog(models.Model):
                         feature_type=AiFeatureType.PRD_EVALUATION,
                         action_type=AiActionType.EVALUATION,
                     )
+                    | Q(
+                        feature_type=AiFeatureType.PRD_PERSPECTIVE_DRAFT,
+                        action_type=AiActionType.PERSPECTIVE_DRAFT,
+                    )
                 ),
                 name="ai_usage_feature_action_valid",
             ),
@@ -300,6 +306,10 @@ class AiJob(models.Model):
                     | Q(
                         feature_type=AiFeatureType.PRD_EVALUATION,
                         action_type=AiActionType.EVALUATION,
+                    )
+                    | Q(
+                        feature_type=AiFeatureType.PRD_PERSPECTIVE_DRAFT,
+                        action_type=AiActionType.PERSPECTIVE_DRAFT,
                     )
                 ),
                 name="ai_job_feature_action_valid",
