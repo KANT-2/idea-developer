@@ -981,11 +981,17 @@
     return "";
   }
 
-  function goToCoachChat(questionId) {
-    scope.value = findQuestionSectionId(questionId);
+  function goToCoachChat(row) {
+    scope.value = findQuestionSectionId(row.question_id);
     perspectiveDraftModal.hide();
     bootstrap.Offcanvas.getOrCreateInstance(document.getElementById("write-support-panel")).show();
-    window.setTimeout(function () { input.focus(); }, 350);
+    input.value =
+      "\"" + findQuestionPrompt(row.question_id) + "\" 질문에 대해 AI가 제안한 아래 초안을 참고해서 더 다듬고 싶어요:\n\n" +
+      decodeSafeText(row.draft);
+    window.setTimeout(function () {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }, 350);
   }
 
   function updatePerspectiveDraftSelectedCount() {
@@ -1025,7 +1031,7 @@
       chatLink.addEventListener("click", function (event) {
         event.preventDefault();
         event.stopPropagation();
-        goToCoachChat(row.question_id);
+        goToCoachChat(row);
       });
       body.append(chatLink);
       item.append(checkbox, body);
