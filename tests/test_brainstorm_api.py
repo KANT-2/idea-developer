@@ -970,3 +970,64 @@ class BrainstormApiTests(TestCase):
             f'data-api-base="/api/v1/prds/{self.prd.id}/brainstorm/"',
         )
         self.assertContains(response, 'data-polling-interval-ms="3000"')
+
+    def test_canvas_queries_reject_invalid_filter_cursor_limit_and_pagination(self):
+        self.initialize_canvas()
+
+        invalid_filter = self.client.get(self.url("canvas"), {"status": "unknown"})
+        invalid_canvas = self.client.get(self.url("canvas"), {"canvas_id": "bad"})
+        invalid_limit = self.client.get(self.url("events"), {"cursor": 0, "limit": 101})
+        invalid_page = self.client.get(
+            self.url("change-history"),
+            {"page": "bad", "page_size": "bad"},
+        )
+
+        for response in (invalid_filter, invalid_canvas, invalid_limit, invalid_page):
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.json()["error"]["code"], "validation_error")
+
+    def test_canvas_version_creation_rejects_boolean_source_id_and_malformed_json(self):
+        self.initialize_canvas()
+        version_url = self.url("canvas-versions")
+
+        invalid_source = self.json_request(
+            "post",
+            "canvas-versions",
+            {"source_canvas_id": True},
+            headers={"HTTP_IDEMPOTENCY_KEY": "invalid-source"},
+        )
+        malformed = self.client.post(
+            version_url,
+            data="{",
+            content_type="application/json",
+            HTTP_IDEMPOTENCY_KEY="malformed-version",
+        )
+
+        self.assertEqual(invalid_source.status_code, 400)
+        self.assertEqual(malformed.status_code, 400)
+
+    def test_brainstorm_mutations_reject_anonymous_requests(self):
+        node = self.create_note()
+        connection = BrainstormConnection.objects.create(
+            canvas=node.canvas,
+            node_a=node,
+            node_b=self.create_note(content="연결 대상"),
+        )
+        self.client.logout()
+
+        responses = (
+            self.client.get(self.url("canvas-versions")),
+            self.client.delete(
+                self.url("node-delete", node_id=node.pk),
+                data=json.dumps({"version": node.version}),
+                content_type="application/json",
+            ),
+            self.client.delete(
+                self.url("connection-delete", connection_id=connection.pk),
+                data=json.dumps({"version": connection.version}),
+                content_type="application/json",
+            ),
+            self.client.get(self.url("viewport")),
+        )
+
+        self.assertTrue(all(response.status_code == 401 for response in responses))

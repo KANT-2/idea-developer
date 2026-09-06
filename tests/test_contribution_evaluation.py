@@ -3,12 +3,12 @@ from __future__ import annotations
 from decimal import Decimal
 from unittest.mock import patch
 
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from apps.ai.contribution import ContributionEvaluationService
-from apps.ai.exceptions import AiProviderError
+from apps.ai.contribution import ContributionEvaluationService, ContributionResultProcessor
+from apps.ai.exceptions import AiOutputValidationError, AiProviderError
 from apps.ai.models import (
     AiActionType,
     AiFeatureType,
@@ -646,3 +646,68 @@ class ContributionEvaluationTests(TestCase):
         self.assertEqual(self.prd.contribution_status, PrdContributionStatus.PENDING)
         self.assertEqual(evaluation.status, ContributionEvaluationStatus.PENDING)
         self.assertIsNotNone(evaluation.job_id)
+
+    def test_scheduling_same_completion_twice_returns_existing_evaluation(self):
+        first = self.schedule()
+        second = self.schedule()
+
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(ContributionEvaluation.objects.count(), 1)
+
+    def test_successful_evaluation_cannot_be_retried(self):
+        evaluation = self.schedule()
+        self.assertTrue(AiJobRunner(provider=ContributionProvider()).run_once())
+        evaluation.refresh_from_db()
+
+        with self.assertRaises(ValidationError):
+            ContributionEvaluationService().retry_same_input(
+                evaluation=evaluation,
+                access=PrdAccess(prd=self.prd, role=None, is_admin=True),
+            )
+
+    def test_empty_memo_helpers_return_empty_results(self):
+        service = ContributionEvaluationService()
+
+        self.assertEqual(
+            service._memo_contributors(prd=self.prd, nodes=[], eligible_user_ids={7, 8}),
+            {},
+        )
+        self.assertEqual(
+            service._reflection_confidence_by_lineage(prd=self.prd, lineage_ids=set()),
+            {},
+        )
+
+    def test_contribution_output_validation_rejects_incomplete_and_non_numeric_rows(self):
+        evaluation = self.schedule()
+        processor = ContributionResultProcessor()
+        comment_id = evaluation.target_comment_ids[0]
+        malformed_outputs = (
+            {},
+            {"comments": [{}]},
+            {"comments": []},
+            {
+                "comments": [
+                    {
+                        "comment_id": comment_id,
+                        "reflection_score": "not-a-number",
+                        "matched_question_ids": [self.question.pk],
+                        "evidence": ["근거"],
+                        "reason": "이유",
+                        "confidence": 0.5,
+                    }
+                ]
+            },
+        )
+
+        for output in malformed_outputs:
+            with self.subTest(output=output), self.assertRaises(AiOutputValidationError):
+                processor._validate_output(evaluation=evaluation, output=output)
+
+    def test_persisting_an_already_successful_evaluation_is_idempotent(self):
+        evaluation = self.schedule()
+        self.assertTrue(AiJobRunner(provider=ContributionProvider()).run_once())
+        evaluation.refresh_from_db()
+
+        persisted = ContributionResultProcessor().persist(evaluation=evaluation, output={})
+
+        self.assertEqual(persisted.status, ContributionEvaluationStatus.SUCCEEDED)
