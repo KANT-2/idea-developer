@@ -63,8 +63,9 @@ body:has(#brainstorm-root) .studio-header{display:none}.studio-main:has(#brainst
 .brain-version-sidebar nav{min-height:auto;flex:0 0 auto;overflow:visible}
 /* 곡선으로 나눈 영역. 포스트잇과 연결선 아래에 깔린다. */
 .brain-regions{position:absolute;z-index:1;top:0;left:0;pointer-events:none}
+.brain-region-labels{position:absolute;z-index:5;top:0;left:0;pointer-events:none}
 .brain-board{fill:#fff;stroke:#d8dce5;stroke-width:2}
-.brain-region path{stroke-width:2;opacity:.85;transition:d .28s ease}
+.brain-regions path{stroke-width:2;opacity:.85;transition:d .28s ease}
 .brain-region text{transition:x .28s ease,y .28s ease}
 .brain-region text{text-anchor:middle;font-weight:800;paint-order:stroke;stroke:rgba(255,255,255,.85);stroke-width:3px}
 .brain-region-index{font-size:15px;opacity:.6;letter-spacing:.08em}

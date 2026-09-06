@@ -7,7 +7,8 @@ git branch --show-current
 git status
 ```
 
-`main`이면 코드를 수정하기 전에 새 branch를 만듭니다.
+`main`이나 `develop`이면 코드를 수정하지 말고 배정된 개인 브랜치 또는 새 작업 브랜치로
+전환합니다.
 
 ## pull했더니 충돌이 났어요
 
@@ -19,7 +20,7 @@ git status
 
 ```bash
 git add <해결한-파일>
-git commit -m "merge: main 변경과 로그인 화면 충돌 해결"
+git commit -m "merge: develop 변경과 로그인 화면 충돌 해결"
 ```
 
 모르겠으면 `git status` 결과와 충돌 파일을 팀원에게 보여줍니다. 무작정 `--force`를 사용하지 않습니다.
@@ -57,7 +58,16 @@ git commit -m "fix: 저장소에서 환경변수 파일 제거"
 
 ## migration 충돌
 
-두 branch가 같은 app의 migration을 만들면 번호가 겹칠 수 있습니다. 두 PR을 동시에 merge하지 말고 첫 PR merge 후 두 번째 담당자가 main을 가져와 다시 `makemigrations`하고 테스트합니다.
+두 branch가 같은 app의 migration을 만들면 번호가 겹치거나 migration graph에 leaf가 여러 개 생길
+수 있습니다. 파일 번호를 임의로 바꾸거나 기존 migration을 삭제하지 않습니다. 첫 PR을
+`develop`에 병합한 뒤 두 번째 브랜치에 최신 `develop`을 합치고, Django가 두 leaf를 모두
+의존하는 merge migration을 만들 수 있는지 확인합니다.
+
+```bash
+python manage.py makemigrations <app-name> --merge
+python manage.py migrate
+python manage.py test --settings=config.settings.test
+```
 
 ## 서버가 안 켜져요
 

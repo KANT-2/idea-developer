@@ -306,10 +306,17 @@
           save.disabled = !pendingAnswers.has(String(question.id));
           updateSaveAllButton();
         });
+        const draftButton = element("button", "btn btn-outline-secondary btn-sm question-draft-button", "✦ AI 초안");
+        draftButton.type = "button";
+        if (!canRequestAi) {
+          draftButton.disabled = true;
+          draftButton.title = "현재 권한 또는 PRD 상태에서는 AI를 요청할 수 없습니다.";
+        }
+        draftButton.addEventListener("click", function () { requestDraft(question, editor, draftButton); });
         const footer = element("div", "write-answer-footer");
         const saved = element("small", "", question.answer ? "저장된 답변" : "아직 저장되지 않았습니다.");
         const actions = element("span", "write-answer-actions");
-        actions.append(save);
+        actions.append(draftButton, save);
         save.addEventListener("click", function () { saveOneAnswer(String(question.id), save); });
         footer.append(saved, actions);
         block.append(editor, footer);
@@ -583,6 +590,112 @@
     } finally {
       savingAllAnswers = false;
       updateSaveAllButton();
+    }
+  }
+
+  async function requestDraft(question, editor, button) {
+    clearAlert();
+    const container = editor.closest(".write-question");
+    container?.querySelector(".draft-card")?.remove();
+    button.disabled = true;
+    const originalLabel = button.textContent;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> 생성 중…';
+    try {
+      const job = await api(aiBase + "drafts/", {
+        method: "POST",
+        headers: {"Idempotency-Key": crypto.randomUUID()},
+        body: JSON.stringify({question_id: question.id})
+      });
+      await pollJob(job.id, function (succeededJob) {
+        renderDraftCard(container, editor, succeededJob);
+      });
+    } catch (error) {
+      showAlert(error.message);
+    } finally {
+      button.disabled = !canRequestAi;
+      button.textContent = originalLabel;
+    }
+  }
+
+  // AI가 쓴 질문 초안을 보여주고, 사용자가 고쳐서 승인해야만 반영되는 카드.
+  function renderDraftCard(container, editor, job) {
+    if (!container) return;
+    container.querySelector(".draft-card")?.remove();
+
+    const card = element("div", "coach-proposal draft-card");
+    const head = element("div", "coach-proposal-head");
+    head.append(element("i", "bi bi-stars"), element("strong", "", "AI가 쓴 답변 초안이에요"));
+    card.append(head);
+    card.append(element("p", "coach-proposal-reason", "내용을 고친 뒤 적용해도 됩니다. 적용 전에는 이 답변에 아무 영향이 없습니다."));
+
+    const preview = element("textarea", "coach-proposal-preview draft-card-editor");
+    preview.rows = 5;
+    preview.value = job.output?.draft || "";
+    card.append(preview);
+
+    const actions = element("div", "coach-proposal-actions");
+    const apply = element("button", "btn btn-primary btn-sm", "이 내용으로 적용");
+    const close = element("button", "btn btn-outline-secondary btn-sm", "닫기");
+    apply.type = "button";
+    close.type = "button";
+    if (!canRequestAi) {
+      apply.disabled = true;
+      apply.title = "현재 권한 또는 PRD 상태에서는 적용할 수 없습니다.";
+    }
+    apply.addEventListener("click", function () {
+      applyDraft(job.id, editor, preview, apply, close, card);
+    });
+    close.addEventListener("click", function () { card.remove(); });
+    actions.append(close, apply);
+    card.append(actions);
+
+    container.querySelector(".write-answer-footer")?.insertAdjacentElement("afterend", card);
+  }
+
+  async function applyDraft(jobId, editor, preview, apply, close, card) {
+    const content = preview.value;
+    if (!content.trim()) {
+      showAlert("반영할 답변을 입력해 주세요.");
+      return;
+    }
+    apply.disabled = true;
+    close.disabled = true;
+    const originalLabel = apply.textContent;
+    apply.textContent = "적용 중…";
+    try {
+      const data = await api(aiBase + "drafts/" + jobId + "/apply/", {
+        method: "POST",
+        body: JSON.stringify({question_version: Number(editor.dataset.version), content: content})
+      });
+      editor.value = data.answer.content;
+      editor.dataset.version = data.question_version;
+      editor.dataset.savedContent = data.answer.content;
+      pendingAnswers.delete(String(data.question_id));
+      const question = findQuestion(data.question_id);
+      if (question) {
+        question.version = data.question_version;
+        question.answer = {content: data.answer.content};
+      }
+      const questionCard = editor.closest(".write-question");
+      const questionSave = questionCard?.querySelector(".question-save-button");
+      if (questionSave) questionSave.disabled = true;
+      const savedState = questionCard?.querySelector(".write-answer-footer small");
+      if (savedState) {
+        savedState.textContent = "방금 저장됨";
+        savedState.className = "small text-success";
+      }
+      card.replaceChildren(element("p", "coach-proposal-applied", "이 답변에 반영했습니다."));
+      showAlert("AI 초안을 PRD 답변에 반영했습니다.", "success");
+      refreshAnswerProgress();
+    } catch (error) {
+      apply.disabled = false;
+      close.disabled = false;
+      apply.textContent = originalLabel;
+      showAlert(
+        error.code === "version_conflict"
+          ? "그 사이 답변이 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요."
+          : error.message
+      );
     }
   }
 

@@ -13,7 +13,10 @@
 | `refactor` | 동작 유지 구조 개선 | `refactor/context-resolver` |
 | `chore` | 설정·도구 | `chore/ruff-config` |
 
-한글, 공백, 개인 이름만 있는 브랜치명은 피합니다. 파일 전달 작업은 `setup/config-settings`, `feat/login-template`처럼 파일의 역할을 이름에 넣습니다.
+일반 프로젝트에서는 한글·공백·개인 이름만 있는 브랜치명을 피하고 기능형 이름을 권장합니다.
+다만 현재 팀 협업 연습에서는 `heeju`, `yg`, `dara`, `hyungjune`, `sungho`, `nakyoung`을 배정된
+지속 브랜치로 사용합니다. 새 기능 브랜치를 별도로 만들지 않는 경우에도 매 작업 전 최신
+`develop`을 배정 브랜치에 병합하고 PR의 base는 `develop`으로 지정합니다.
 
 ## commit 메시지
 

@@ -25,7 +25,7 @@
 ## 그대로 유지할 지점
 
 - PRD·브레인스토밍 비즈니스 규칙
-- 외부 `user_id`, `round_id`, `participant_id`, `team_id` 계약
+- 외부 `user_id`, nullable `round_id`·`participant_id`·`team_id` 계약
 - PRD별 owner/editor/tutor/viewer 권한
 - version 충돌과 idempotency 규칙
 - 소프트 삭제, 감사 로그, AI 사용 로그
@@ -39,6 +39,16 @@
 ## 추가 인프라 선택사항
 
 현재 부모 저장소에는 Redis, Celery, Django Channels가 없습니다. 독립 MVP는 PostgreSQL 작업 worker와 HTTP polling을 사용합니다. 부모 팀이 진짜 실시간 커서·프레즌스를 원하면 Redis와 Channels 도입 범위를 별도로 검토해야 합니다.
+
+## 회차와 기여도 이관 계약
+
+- 회차 없는 개인·일반 팀 PRD를 허용하므로 부모 모델과 URL도 `round_id=null`을 처리해야 합니다.
+- 과거 회차 PRD는 현재 선택 회차와 무관하게 명시적 참여자가 조회할 수 있습니다.
+- 회차 팀 PRD 쓰기는 해당 PRD의 `user_id + round_id` 참가와 `team_id`를 VIEW에서 재검증합니다.
+- 기여도는 100점 기준이며 코멘트 50%, 메모 50%를 적용합니다.
+- 메모 기여도는 실제 PRD 반영 lineage의 작성자·내용 편집자와 반영 confidence를 사용합니다.
+- 부모 점수 전달 payload, 인증, idempotency key와 `results_scoreinput` 사용 여부는 아직 부모팀과
+  확정하지 않았으므로 이 저장소에서 임의 구현하지 않습니다.
 
 ## Slack 알림 이관
 

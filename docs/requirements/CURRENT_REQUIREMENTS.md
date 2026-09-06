@@ -1,7 +1,9 @@
 # 현재 구현 기준
 
-이 문서는 초기 단계별 프롬프트 이후 변경된 결정을 포함한 현재 구현 기준입니다. 초기 프롬프트와
-충돌하면 이 문서와 제품 기준 문서의 최신 내용을 우선하며, 보류 항목은 임의로 확장하지 않습니다.
+이 문서는 초기 단계별 프롬프트 이후 변경된 결정을 포함한 현재 구현의 최우선 정책 기준입니다.
+다른 문서나 과거 프롬프트와 충돌하면 이 문서를 우선합니다. 세부 구현 계약은 API 문서, 모델·
+서비스 코드와 자동 테스트로 검증합니다. `docs/specs/`의 시나리오와 프롬프트는 내부 소장 자료이며
+현재 요구사항을 덮어쓰지 않습니다. 보류 항목은 임의로 확장하지 않습니다.
 
 ## 확정
 
@@ -15,14 +17,14 @@
 | 독립 인증 | 단독 실행에서는 이메일 OTP 로그인을 유지하고, 부모 인증 교체는 통합 저장소에서 처리 |
 | PRD 역할 | owner, editor, tutor, viewer; 모든 권한은 서버에서 재검사 |
 | 회차 | 회차 없는 개인·일반 팀 PRD를 허용하고 명시적 참여자로 접근 제어 |
-| 회차 팀 PRD | `user_id + round_id` VIEW 참가정보와 현재 팀을 검증 |
+| 회차 팀 PRD | `user_id + round_id` VIEW 참가정보와 해당 회차의 팀을 검증 |
 | 과거 PRD | 현재 회차와 관계없이 명시적 참여자는 조회 가능 |
 | 참여자 | 초대 수락 없이 즉시 추가하며 추가·역할 변경·제거 지원 |
 | 질문 보류 | 완성도와 AI PRD 충족도 입력에서 제외 |
 | 브레인스토밍 분류 결과 | AI 호출 없이 서버의 현재 섹션·상태 통계를 표시 |
 | 메모 상태 | 미분류는 default, 섹션 배치 시 accepted, 보류 구역은 held |
 | 보드 버전 | PRD마다 여러 버전, 최초 진입은 최신 버전, 과거 버전 조회·편집 가능 |
-| 기여도 | 의미 있는 동일 lineage 메모의 작성자와 내용 편집자에게 각각 기여 인정 |
+| 기여도 | 실제 PRD에 반영된 accepted 메모를 lineage별로 한 번만 집계하고, 작성자와 의미 있는 내용 편집자에게 반영 confidence만큼 각각 기여 인정 |
 | 기여도 공개 | staff/superuser 관리자만 결과 조회 가능 |
 | 삭제 | PRD와 메모는 30일 소프트 삭제 후 자정 유지보수에서 영구 삭제 |
 | 삭제 기록 | 영구 삭제 시 상세 변경·AI·기여도 기록도 삭제하고 독립 삭제 사실 로그만 장기 보존 |
@@ -55,7 +57,15 @@
 
 ## 기준 문서
 
-- `docs/specs/home-backend-scenario.md`
-- `docs/specs/brainstorm-backend-scenario.md`
+- 이 문서(최우선)
 - `docs/integration/VIEW_GUIDE.md`
-- 이 문서에 기록된 이후 확정 변경사항
+- `docs/FUNCTIONAL_SPEC.md`
+- `docs/EXCEPTION_CATALOG.md`
+- `docs/api/README.md`
+- `docs/decisions/README.md`
+- `docs/ARCHITECTURE.md`
+- `docs/database/ERD.md`
+- `docs/database/DATA_DICTIONARY.md`
+- `docs/REQUIREMENTS_TRACEABILITY.md`
+
+`docs/specs/` 아래의 시나리오와 단계별 프롬프트는 구현 과정의 내부 기록입니다.
