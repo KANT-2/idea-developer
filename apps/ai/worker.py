@@ -18,6 +18,7 @@ from .exceptions import (
     AiReferenceValidationError,
 )
 from .models import AiJob, AiJobStatus, AiUsageLog, AiUsageStatus
+from .providers import AiProvider
 from .services import (
     AiPromptEnvelopeBuilder,
     AiReferenceValidator,
@@ -46,7 +47,7 @@ def _shorten_output(raw_output) -> str:
 class AiJobRunner:
     """Claims one PostgreSQL-backed AI job and executes it outside the web process."""
 
-    def __init__(self, provider=None, worker_id: str | None = None):
+    def __init__(self, provider: AiProvider | None = None, worker_id: str | None = None):
         provider_class = import_string(settings.AI_PROVIDER_CLASS)
         self.provider = provider or provider_class()
         self.result_processor = import_string(settings.AI_RESULT_PROCESSOR_CLASS)()

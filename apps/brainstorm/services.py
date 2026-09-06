@@ -822,19 +822,3 @@ class BrainstormMutationService:
         )
         viewport.full_clean()
         return viewport
-
-
-class BrainstormEventPublisher:
-    """Handoff point for later PRD-apply code without coupling it to polling views."""
-
-    @staticmethod
-    def prd_apply_completed(*, canvas, actor_user_id, application_id, details=None):
-        return BrainstormChangeLog.objects.create(
-            canvas=canvas,
-            actor_user_id=actor_user_id,
-            action="prd_apply_completed",
-            target_type=BrainstormChangeTarget.CANVAS,
-            target_id=str(canvas.pk),
-            before_data={},
-            after_data={**(details or {}), "application_id": str(application_id)},
-        )

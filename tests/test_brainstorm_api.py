@@ -19,7 +19,6 @@ from apps.brainstorm.models import (
     BrainstormNodeType,
     UserCanvasViewport,
 )
-from apps.brainstorm.services import BrainstormEventPublisher
 from apps.integration.context import IntegrationContext
 from apps.integration.repository import FixtureIntegrationRepository
 from apps.prds.models import (
@@ -939,10 +938,13 @@ class BrainstormApiTests(TestCase):
 
     def test_change_history_uses_operation_units_and_excludes_audit_log(self):
         canvas = self.initialize_canvas()
-        BrainstormEventPublisher.prd_apply_completed(
+        BrainstormChangeLog.objects.create(
             canvas=canvas,
             actor_user_id=7,
-            application_id="apply-1",
+            action="prd_apply_completed",
+            target_type="canvas",
+            target_id=str(canvas.pk),
+            after_data={"application_id": "apply-1"},
         )
         AuditLog.objects.create(
             canvas=canvas,
