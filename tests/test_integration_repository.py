@@ -101,9 +101,7 @@ class FailoverIntegrationRepositoryTests(SimpleTestCase):
         # 부모 DB가 완전히 죽어 있으면 조회를 시작하기도 전에 접속 단계에서
         # OperationalError가 나므로, 이것도 IntegrationUnavailableError와
         # 똑같이 폴백을 타야 한다.
-        self.primary.search_login_users.side_effect = OperationalError(
-            "connection timeout expired"
-        )
+        self.primary.search_login_users.side_effect = OperationalError("connection timeout expired")
 
         result = self.repository.search_login_users(query="리오넬 메시", page=1, page_size=20)
 
