@@ -283,6 +283,23 @@ class AiJobRunnerTests(AiInfrastructureTestCase):
         self.assertEqual(job.status, AiJobStatus.RETRY_WAIT)
         self.assertEqual(usage.error_code, "invalid_output")
 
+    @override_settings(AI_PROVIDER_CLASS="tests.test_ai_infrastructure.InvalidOutputProvider")
+    def test_invalid_structured_output_logs_reason_and_raw_response(self):
+        # 실패한 응답 내용이 로그에 없으면 같은 요청을 모델에 다시 호출해 보기 전에는
+        # 무엇이 잘못됐는지 알 수 없다.
+        job, _ = self.enqueue()
+
+        with self.assertLogs("apps.ai.worker", level="WARNING") as captured:
+            AiJobRunner().run_once()
+
+        record = next(
+            row for row in captured.records if row.getMessage() == "AI output failed validation"
+        )
+        self.assertEqual(record.ai_job_id, str(job.pk))
+        self.assertTrue(record.ai_retryable)
+        self.assertIn("JSON Schema", record.ai_validation_error)
+        self.assertIn('"unexpected": true', record.ai_raw_output)
+
     @override_settings(
         AI_PROVIDER_CLASS="tests.test_ai_infrastructure.InvalidOutputProvider",
         AI_JOB_MAX_ATTEMPTS=1,

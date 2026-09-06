@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import socket
@@ -24,6 +25,22 @@ from .services import (
 )
 
 logger = logging.getLogger(__name__)
+
+# 실패한 응답 전문을 그대로 남기면 로그가 감당이 안 되므로 앞부분만 남긴다.
+INVALID_OUTPUT_LOG_LIMIT = 2000
+
+
+def _shorten_output(raw_output) -> str:
+    """검증에 걸린 응답을 로그에 넣을 수 있을 만큼 줄인다."""
+    if raw_output is None:
+        return ""
+    try:
+        text = json.dumps(raw_output, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        text = repr(raw_output)
+    if len(text) <= INVALID_OUTPUT_LOG_LIMIT:
+        return text
+    return text[:INVALID_OUTPUT_LOG_LIMIT] + "…(이하 생략)"
 
 
 class AiJobRunner:
@@ -86,6 +103,7 @@ class AiJobRunner:
         return job
 
     def _execute(self, job: AiJob) -> None:
+        raw_output = None
         try:
             request = AiPromptEnvelopeBuilder.build(
                 prompt=job.prompt,
@@ -96,6 +114,7 @@ class AiJobRunner:
                 timeout_seconds=job.timeout_seconds,
                 cancellation_check=lambda: self._cancel_requested(job.pk),
             )
+            raw_output = result.output
             output = AiStructuredOutputValidator.validate(
                 schema=job.prompt.output_schema,
                 output=result.output,
@@ -117,18 +136,20 @@ class AiJobRunner:
                 error_message="AI provider request failed.",
                 retryable=exc.retryable,
             )
-        except AiReferenceValidationError:
+        except AiReferenceValidationError as exc:
             # 이 PRD의 것이 아닌 대상을 가리킨 응답이다. 다시 물어도 같은 대상을 가리킬 뿐이고
             # 남의 자료를 건드리려는 시도일 수도 있어 곧바로 끝낸다.
+            self._log_invalid_output(job, exc, raw_output, retryable=False)
             self._finish_failure(
                 job.pk,
                 error_code="invalid_output",
                 error_message="AI output referenced data outside this PRD.",
                 retryable=False,
             )
-        except AiOutputValidationError:
+        except AiOutputValidationError as exc:
             # 모델이 형식을 한 번 어기는 일은 흔하고, 같은 요청을 다시 보내면 대개 통과한다.
             # 매번 사용자가 직접 다시 누르게 하는 대신 정해진 횟수까지만 자동으로 다시 시도한다.
+            self._log_invalid_output(job, exc, raw_output, retryable=True)
             self._finish_failure(
                 job.pk,
                 error_code="invalid_output",
@@ -143,6 +164,26 @@ class AiJobRunner:
                 error_message="Unexpected AI worker error.",
                 retryable=True,
             )
+
+    @staticmethod
+    def _log_invalid_output(job: AiJob, exc: Exception, raw_output, *, retryable: bool) -> None:
+        """어떤 검사에 걸렸는지와 모델이 실제로 준 응답을 함께 남긴다.
+
+        둘 다 없으면 같은 요청을 실제 모델에 다시 호출해 보기 전에는 무엇이
+        잘못됐는지 확인할 방법이 없다.
+        """
+        logger.warning(
+            "AI output failed validation",
+            extra={
+                "ai_job_id": str(job.pk),
+                "ai_feature_type": job.feature_type,
+                "ai_action_type": job.action_type,
+                "ai_attempt_number": job.attempt_count,
+                "ai_retryable": retryable,
+                "ai_validation_error": str(exc),
+                "ai_raw_output": _shorten_output(raw_output),
+            },
+        )
 
     @staticmethod
     def _cancel_requested(job_id) -> bool:
