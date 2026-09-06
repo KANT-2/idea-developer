@@ -34,6 +34,7 @@ requirements 변경 여부:
 - python manage.py check --settings=config.settings.test
 - python manage.py makemigrations --check --dry-run --settings=config.settings.test
 - python manage.py test --settings=config.settings.test
+- python manage.py test --settings=config.settings.test_postgres
 - ruff format --check .
 - ruff check .
 
@@ -48,3 +49,6 @@ requirements 변경 여부:
 - `.env`, 실제 DB 비밀번호, Gemini 키, 개인정보가 commit되지 않았는지 확인합니다.
 - 부모 프로젝트에서 사용하는 `accounts_user.id`와 자식의 외부 `user_id` 계약을 확인합니다.
 - 브레인스토밍 React CDN origin을 부모 CSP에 반영해야 하는지 확인합니다.
+- `docs/requirements/CURRENT_REQUIREMENTS.md`의 회차 없는 PRD, 과거 PRD와 기여도 정책을 함께
+  전달합니다.
+- 브레인스토밍 AI 분석·항목 분류 API는 Legacy이며 신규 UI에서 사용하지 않음을 표시합니다.

@@ -18,9 +18,11 @@ Settings → Collaborators → Add people
 
 - `main`: 단계별 안정 버전
 - `develop`: 파일별 코드를 조립하는 브랜치
-- 개인 branch: 팀원이 전달받은 파일을 추가하는 브랜치
+- 개인 branch: 팀원이 전달받은 파일을 추가하는 배정 브랜치
 
-팀원은 `develop`에서 branch를 만들고 PR 대상도 `develop`으로 선택합니다. 팀장은 단계 전체가 실행되고 테스트가 통과한 뒤 `develop → main` PR을 만듭니다.
+현재 배정 브랜치는 `heeju`, `yg`, `dara`, `hyungjune`, `sungho`, `nakyoung`입니다. 팀원은 작업 전
+`develop`을 최신화해 자기 브랜치에 병합하고 PR 대상은 `develop`으로 선택합니다. 팀장은 단계
+전체가 실행되고 테스트가 통과한 뒤 `develop → main` PR을 만듭니다.
 
 ## 3. 팀원에게 처음 보낼 메시지
 
@@ -29,7 +31,7 @@ Settings → Collaborators → Add people
 2. https://github.com/KANT-2/idea-developer 를 clone해 주세요.
 3. README와 docs/00_START_HERE.md부터 읽어 주세요.
 4. 코드는 제가 보내는 파일 경로와 전체 내용을 그대로 추가합니다.
-5. 항상 develop에서 개인 branch를 만든 뒤 develop 대상 PR을 열어 주세요.
+5. develop을 최신화해 배정된 개인 branch에 병합한 뒤 develop 대상 PR을 열어 주세요.
 6. .env와 비밀번호는 절대 commit하지 마세요.
 ```
 
@@ -60,7 +62,7 @@ python manage.py test
 2. GitHub에서 `develop → main` PR을 만듭니다.
 3. 단계에서 구현된 기능과 테스트 결과를 적습니다.
 4. 팀원 리뷰 후 merge합니다.
-5. 다음 단계의 팀원 branch는 최신 `develop`에서 다시 만듭니다.
+5. 다음 작업 전에 각 팀원 branch에 최신 `develop`을 다시 병합합니다.
 
 ## 7. 권장 GitHub 설정
 
@@ -72,4 +74,9 @@ python manage.py test
 - branch 삭제 금지
 - 대화가 해결된 뒤 merge
 
-초기 파일 조립 중에는 필수 CI 검사를 아직 지정하지 않습니다. 테스트 workflow가 추가된 뒤 status check를 필수로 바꿉니다.
+현재 `.github/workflows/quality.yml`의 `Quality / test`가 Pull Request와 `develop`, `main` push에서
+실행됩니다. PostgreSQL 16 전체 테스트, 85% 코드 커버리지, Ruff, migration 일관성과 운영 배포
+설정을 검사하므로 branch protection의 필수 status check로 `Quality / test`를 지정합니다.
+
+관리자 우회 병합은 긴급 복구처럼 명확한 사유가 있을 때만 사용합니다. 일반 변경은 CI 통과와
+요구된 리뷰를 받은 뒤 병합하고, 실패한 검사를 우회하지 않습니다.

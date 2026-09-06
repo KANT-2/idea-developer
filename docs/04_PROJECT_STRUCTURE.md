@@ -1,6 +1,6 @@
 # 04. 프로젝트 구조
 
-코드 생성 후 목표 구조입니다. 초기에는 일부 폴더만 존재할 수 있습니다.
+현재 독립 시스템의 주요 구조입니다.
 
 ```text
 idea-developer/
@@ -19,9 +19,19 @@ idea-developer/
 ├── tests/                  # 앱 간 통합 테스트
 ├── requirements/           # base, dev, production 의존성
 ├── docs/
-│   ├── specs/              # 승인된 백엔드 시나리오
+│   ├── README.md             # 문서 순서와 갱신 규칙
+│   ├── FUNCTIONAL_SPEC.md    # 기능·권한·상태 변화 명세
+│   ├── EXCEPTION_CATALOG.md  # 도메인별 예외와 처리 원칙
+│   ├── ARCHITECTURE.md      # 시스템 구성과 주요 요청 흐름
+│   ├── requirements/       # 최우선 현재 구현 기준
+│   ├── specs/              # 시나리오·프롬프트 내부 소장 자료
 │   ├── integration/        # VIEW 규격과 이관 문서
-│   └── team-practice/      # 팀 Git 연습
+│   ├── api/                # API 계약 개요
+│   ├── database/           # ERD와 데이터 사전
+│   ├── decisions/          # 제품·아키텍처 결정 기록
+│   ├── report/             # 화면·데이터·시퀀스 도식과 보고서 양식
+│   ├── QUALITY_ASSURANCE.md # 테스트·보안·운영 기준
+│   └── REQUIREMENTS_TRACEABILITY.md # 요구사항과 코드·테스트 추적
 ├── manage.py
 ├── .env.example
 └── README.md

@@ -16,24 +16,33 @@
 
 처음 참여한다면 아래 문서를 순서대로 읽으세요.
 
-1. [프로젝트 시작 안내](docs/00_START_HERE.md)
-2. [개발 환경 설치](docs/01_LOCAL_SETUP.md)
-3. [Git과 GitHub 작업 흐름](docs/02_GIT_WORKFLOW.md)
-4. [브랜치·커밋·Pull Request](docs/03_BRANCH_COMMIT_PR.md)
-5. [프로젝트 구조](docs/04_PROJECT_STRUCTURE.md)
-6. [팀 코드 분배표](docs/05_TEAM_TASKS.md)
-7. [문제 해결](docs/06_TROUBLESHOOTING.md)
-8. [AI 코딩 규칙](docs/07_AI_CODING_RULES.md)
-9. [부모 팀 이관 메모](docs/08_PARENT_HANDOFF.md)
-10. [코드 전달 양식](docs/09_CODE_DISTRIBUTION_TEMPLATE.md)
-11. [저장소 관리자 설정](docs/10_REPOSITORY_OWNER_SETUP.md)
-12. [현재 구현 기준](docs/requirements/CURRENT_REQUIREMENTS.md)
-13. [4조 소스 전달 양식](docs/integration/SOURCE_DELIVERY_TEMPLATE.md)
+1. [전체 문서 안내](docs/README.md)
+2. [프로젝트 시작 안내](docs/00_START_HERE.md)
+3. [현재 구현 기준](docs/requirements/CURRENT_REQUIREMENTS.md)
+4. [기능 명세](docs/FUNCTIONAL_SPEC.md)
+5. [예외 처리 목록](docs/EXCEPTION_CATALOG.md)
+6. [개발 환경 설치](docs/01_LOCAL_SETUP.md)
+7. [Git과 GitHub 작업 흐름](docs/02_GIT_WORKFLOW.md)
+8. [브랜치·커밋·Pull Request](docs/03_BRANCH_COMMIT_PR.md)
+9. [프로젝트 구조](docs/04_PROJECT_STRUCTURE.md)
+10. [팀 코드 분배표](docs/05_TEAM_TASKS.md)
+11. [문제 해결](docs/06_TROUBLESHOOTING.md)
+12. [AI 코딩 규칙](docs/07_AI_CODING_RULES.md)
+13. [API 계약 개요](docs/api/README.md)
+14. [제품 결정 기록](docs/decisions/README.md)
+15. [시스템 아키텍처](docs/ARCHITECTURE.md)
+16. [데이터베이스 ERD](docs/database/ERD.md)
+17. [데이터 사전](docs/database/DATA_DICTIONARY.md)
+18. [요구사항 추적표](docs/REQUIREMENTS_TRACEABILITY.md)
+19. [테스트·보안·운영 품질](docs/QUALITY_ASSURANCE.md)
+20. [최종보고서 도식·양식](docs/report/README.md)
+21. [부모 팀 이관 메모](docs/08_PARENT_HANDOFF.md)
+22. [4조 소스 전달 양식](docs/integration/SOURCE_DELIVERY_TEMPLATE.md)
 
 ## 가장 중요한 규칙
 
 - `main`에서 직접 작업하거나 push하지 않습니다.
-- 작업 하나마다 새 브랜치를 만듭니다.
+- `develop`에서 직접 작업하지 않고 배정된 개인 브랜치 또는 작업 브랜치를 사용합니다.
 - 작은 단위로 commit하고 GitHub에 push합니다.
 - Pull Request(PR)를 열고 팀원 한 명의 확인을 받은 뒤 merge합니다.
 - `.env`, 비밀번호, API 키, 실제 사용자 데이터는 절대 commit하지 않습니다.
@@ -41,10 +50,13 @@
 
 ## 현재 상태
 
-독립 Django 시스템의 PRD·홈·브레인스토밍·AI 작업 기반이 구현되어 있습니다. 실제 외부 AI
-제공자와 운영 프롬프트는 승인된 모델·프롬프트를 환경과 DB에 등록하기 전까지 비활성 상태입니다.
-기준 정책은 `docs/specs/home-backend-scenario.md`와
-`docs/specs/brainstorm-backend-scenario.md`입니다.
+독립 Django 시스템의 PRD·홈·브레인스토밍·AI 작업 기반과 Gemini Developer API 어댑터가
+구현되어 있습니다. 실제 AI 호출에는 개인 또는 배포 환경의 `GEMINI_API_KEY`, 기능별 활성
+프롬프트와 별도 worker가 필요합니다. 개발 환경에서는 키가 없을 때 PRD 충족도 화면에 한해
+샘플 결과를 생성할 수 있습니다.
+
+현재 정책의 최우선 기준은 `docs/requirements/CURRENT_REQUIREMENTS.md`입니다. `docs/specs/`는 개발
+과정에서 사용한 시나리오와 단계별 프롬프트를 보관하는 내부 소장 자료입니다.
 
 ## 로컬 실행
 
@@ -57,7 +69,9 @@ python -m pip install -r requirements/development.txt
 Copy-Item .env.example .env
 ```
 
-PostgreSQL에서 로컬 사용자와 `idea_developer` 데이터베이스를 준비한 뒤 `.env`의 접속값을 수정합니다. 애플리케이션 schema는 다음 명령으로 생성합니다.
+PostgreSQL에서 로컬 사용자와 `idea_developer` 데이터베이스를 준비한 뒤 `.env`의 접속값을
+수정합니다. DBeaver 기준 생성·연결 방법은 `docs/01_LOCAL_SETUP.md`를 참고합니다. 아래 `psql`
+명령은 사용자와 데이터베이스가 이미 준비된 경우 애플리케이션 schema만 생성합니다.
 
 ```powershell
 psql -U idea_developer -d idea_developer -f scripts/bootstrap_database.sql
@@ -187,11 +201,15 @@ PRD Context만 전달합니다.
 초안 생성 당시 질문 version과 현재 version이 다르면 반영 API는 `409 Conflict`를 반환합니다.
 대화 만료 시각은 메시지를 저장할 때마다 30일 뒤로 갱신되며 worker가 만료 대화를 삭제합니다.
 
-## 브레인스토밍 AI 분석과 항목 분류
+## 브레인스토밍 분류 결과와 Legacy AI API
 
-브레인스토밍 화면에서 분석과 분류 요청도 PostgreSQL AI 작업으로 등록합니다. 분석의 전체·채택·
-보류·미분류 및 섹션별 개수는 서버가 요청 시점의 데이터로 계산하며 AI 응답의 개수는 저장하거나
-표시하지 않습니다. 활성 일반 메모가 없는 캔버스는 AI를 호출하지 않습니다.
+현재 사용자 화면의 `분류 결과`는 외부 AI를 호출하지 않습니다. 서버가 전체·채택·보류·미분류 및
+섹션별 개수를 현재 DB 상태에서 계산해 반환합니다. AI 브레인스토밍 분석과 AI 항목 분류 화면은
+제품 범위에서 제외했습니다.
+
+아래 API는 과거 구현과 기존 호출자 호환성 검토를 위해 백엔드에만 남아 있는 Legacy 계약입니다.
+신규 UI나 신규 기능은 이 API에 의존하지 않습니다. 통합 저장소에서 호출자가 없음을 확인한 뒤
+별도 호환성 제거 작업으로 정리합니다.
 
 - 분석 요청: `POST /api/v1/prds/<prd_id>/brainstorm/ai/analysis/`
 - 분류 요청: `POST /api/v1/prds/<prd_id>/brainstorm/ai/classification/`
@@ -203,7 +221,7 @@ PRD Context만 전달합니다.
 프롬프트는 `recommendations[]` 안에 `node_id`, `section_id`, `reason`을 요구하는 JSON Schema를
 사용합니다. AI가 반환한 노드·섹션 ID는 요청 snapshot 및 현재 DB와 다시 대조합니다.
 
-분류 요청에는 삭제되지 않고 보류되지 않은 미분류 일반 메모와 현재 PRD 섹션만 전달됩니다.
+Legacy 분류 요청에는 삭제되지 않고 보류되지 않은 미분류 일반 메모와 현재 PRD 섹션만 전달됩니다.
 추천은 미리보기일 뿐 데이터를 변경하지 않으며, 사용자가 선택한 항목만 version 검사를 거쳐 한
 트랜잭션으로 반영합니다. 하나라도 충돌하면 전체 반영을 취소하고 `409 Conflict`와 최신 노드를
 반환합니다. 요청과 반영 API는 각각 `Idempotency-Key` 헤더를 사용합니다.
@@ -273,12 +291,18 @@ PRD 완료 트랜잭션이 커밋되면 `CONTRIBUTION_EVALUATION` 작업을 Post
 재평가는 staff/superuser 관리자만 실패한 계산에 수행할 수 있으며 저장된 입력 snapshot과
 fingerprint를 그대로 사용합니다. 관리자 직접 점수 수정과 이의 제기 기능은 구현하지 않았습니다.
 
-메모 점수에는 삭제되지 않은 `accepted` 일반 메모만 포함하고 완료 시점의 최종 담당자를
-사용합니다. 코멘트 AI 입력에는 `general`이면서 `is_contribution_eligible=true`인 owner/editor
-코멘트만 포함합니다. tutor 지도·리뷰, 삭제 코멘트와 다른 회차·비활성 사용자는 제외합니다.
+메모 점수에는 삭제되지 않은 `accepted` 일반 메모 중 실제 PRD 반영 기록에 연결된 아이디어만
+포함합니다. 모든 보드 버전에서 같은 `lineage_id`는 하나의 아이디어로 취급하고, 최초 작성자와
+의미 있는 내용 편집자에게 각각 기여를 인정합니다. 담당자·위치·섹션·상태만 바꾼 행위는 새 내용
+기여로 보지 않습니다. 각 기여자의 원점수에는 PRD 반영 당시 저장된 `reflection_confidence`를
+사용합니다. 과거 snapshot은 재현 가능한 재평가를 위해 당시 최종 담당자 방식으로 유지합니다.
+
+코멘트 AI 입력에는 `general`이면서 `is_contribution_eligible=true`인 owner/editor 코멘트만
+포함합니다. tutor 지도·리뷰, 삭제 코멘트와 다른 회차·비활성 사용자는 제외합니다.
 
 ```text
-memo_contribution = 사용자 담당 채택 메모 수 / 전체 담당자 지정 채택 메모 수 * 100
+memo_raw = sum(사용자가 기여한 lineage별 PRD 반영 confidence)
+memo_contribution = 사용자 memo_raw / 전체 참여자 memo_raw 합 * 100
 comment_contribution = 사용자 코멘트 반영 점수 합 / 전체 사용자 반영 점수 합 * 100
 total_score = 0.5 * comment_contribution + 0.5 * memo_contribution
 ```
@@ -308,11 +332,18 @@ INTEGRATION_DB_USER=<읽기 전용 계정>
 INTEGRATION_ACTIVE_ROUND_STATUSES=<부모가 확인한 실제 상태값>
 ```
 
-회차 확인 화면은 `/integration/round/`입니다. 단일 진행 회차는 자동 확인하고, 없으면 회차 없음 화면, 여러 개면 선택 화면을 표시합니다. URL·form·session의 `round_id`는 항상 `user_round_team_view`의 `user_id + round_id`로 다시 검증합니다. VIEW 장애나 중복 팀 데이터가 발생하면 `503`으로 fail closed하며, 참가하지 않은 회차는 `403`을 반환합니다.
+회차 확인 화면은 `/integration/round/`입니다. 단일 진행 회차는 자동 확인하고, 여러 개면 선택
+화면을 표시합니다. 진행 회차가 없어도 회차 없는 PRD와 명시적으로 참여한 과거 PRD는 사용할 수
+있습니다. URL·form·session의 `round_id`는 항상 `user_round_team_view`의
+`user_id + round_id`로 다시 검증합니다. 회차 기반 쓰기 중 VIEW 장애나 중복 팀 데이터가 발생하면
+`503`으로 fail closed하며, 참가하지 않은 회차는 `403`을 반환합니다.
 
 `apps/integration/migrations/0001_initial.py`는 unmanaged Django model state만 기록합니다. `RunSQL`이나 VIEW 생성·수정 SQL은 포함하지 않으며 부모 VIEW의 생명주기를 소유하지 않습니다.
 
-협업 polling 간격은 `.env`에서 설정합니다. 실제 polling endpoint와 version 충돌 응답은 제품 리소스·version 필드 정책이 승인된 뒤 추가합니다.
+협업 polling 간격은 `.env`에서 설정합니다. 브레인스토밍 변경 이벤트는 cursor 기반 증분 API로
+조회하고, cursor가 유효하지 않거나 네트워크가 재연결되면 전체 상태를 다시 조회합니다. PRD 답변,
+참여자, 코멘트, 브레인스토밍 노드·연결선 등 변경 API는 resource version을 검사하며 충돌 시
+`409 Conflict`와 최신 데이터를 반환합니다.
 
 ## 이메일 인증 로그인
 
