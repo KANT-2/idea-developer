@@ -216,6 +216,8 @@ class TemplateContractTests(SimpleTestCase):
         self.assertIn('id="write-contribution-panel"', template)
         self.assertIn("can_view_contributions", script)
         self.assertNotIn('"✦ AI 초안"', script)
+        self.assertIn("diagnosis-coach-button", script)
+        self.assertIn("startSectionCoaching", script)
         self.assertIn("write-question-group", script)
         self.assertIn("write-question-list-intro", script)
         self.assertIn("질문 리스트로 보기", template)
