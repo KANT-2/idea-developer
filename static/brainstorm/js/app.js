@@ -979,16 +979,22 @@
               state.counts.unclassified + "개 · 네모 밖에 두면 분류되지 않습니다"),
             state.sections.map(function (section, index) {
               var color = laneColors[index % laneColors.length];
+              return h("path", {key: section.id, d: regionPath(index), fill: color[0], stroke: color[1]});
+            })),
+          h("svg", {className: "brain-lines", width: canvasWidth(), height: CANVAS_H}, state.connections.map(line)),
+          // 이름표는 연결선보다 위에 그린다. 강조된 연결선이 항목 이름을 가로질러도
+          // 글자가 항상 또렷하게 읽히도록 하기 위해서다.
+          h("svg", {className: "brain-region-labels", width: CANVAS_W, height: CANVAS_H},
+            state.sections.map(function (section, index) {
+              var color = laneColors[index % laneColors.length];
               var box = regionCenter(index);
               var count = visible.filter(function (node) { return node.section_id === section.id; }).length;
               return h("g", {key: section.id, className: "brain-region"},
-                h("path", {d: regionPath(index), fill: color[0], stroke: color[1]}),
                 h("text", {className: "brain-region-index", x: box.x, y: box.top + 46, fill: color[2]}, String(index + 1).padStart(2, "0")),
                 h("text", {className: "brain-region-title", x: box.x, y: box.top + 76, fill: color[2]}, section.title),
                 h("text", {className: "brain-region-count", x: box.x, y: box.top + 98, fill: color[2]}, count + "개 아이디어")
               );
             })),
-          h("svg", {className: "brain-lines", width: canvasWidth(), height: CANVAS_H}, state.connections.map(line)),
           visible.map(note)));
     }
 
