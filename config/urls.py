@@ -41,3 +41,4 @@ if settings.DEBUG:
     urlpatterns.append(path("accounts/dev/", include("apps.accounts.debug_urls")))
 
 handler404 = "apps.common.views.api_not_found"
+handler500 = "apps.common.views.server_error"

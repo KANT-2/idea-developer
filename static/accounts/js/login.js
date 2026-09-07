@@ -29,16 +29,44 @@
     button.querySelector(".spinner-border").classList.toggle("d-none", !value);
   }
 
+  function firstErrorDetail(value) {
+    if (typeof value === "string") return value.trim();
+    if (Array.isArray(value)) {
+      for (var index = 0; index < value.length; index += 1) {
+        var detail = firstErrorDetail(value[index]);
+        if (detail) return detail;
+      }
+      return "";
+    }
+    if (value && typeof value === "object") {
+      var entries = Object.values(value);
+      for (var itemIndex = 0; itemIndex < entries.length; itemIndex += 1) {
+        var nested = firstErrorDetail(entries[itemIndex]);
+        if (nested) return nested;
+      }
+    }
+    return "";
+  }
+
   async function postJson(url, payload) {
-    var response = await fetch(url, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken },
-      body: JSON.stringify(payload),
-    });
+    var response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken },
+        body: JSON.stringify(payload),
+      });
+    } catch (networkError) {
+      throw new Error("서버에 연결하지 못했습니다. 네트워크 상태를 확인해 주세요.");
+    }
+    var contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      throw new Error("로그인 요청을 처리하지 못했습니다. 페이지를 새로고침해 주세요.");
+    }
     var body = await response.json();
-    if (!response.ok) {
-      var error = new Error(body.error && body.error.message ? body.error.message : "요청에 실패했습니다.");
+    if (!response.ok || !body.ok) {
+      var error = new Error(firstErrorDetail(body.error && body.error.details) || (body.error && body.error.message) || "요청에 실패했습니다.");
       error.code = body.error && body.error.code;
       throw error;
     }

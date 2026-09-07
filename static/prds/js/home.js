@@ -19,6 +19,36 @@
   let studentSearchRequest = 0;
 
   function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
+  function firstErrorDetail(value) {
+    if (typeof value === "string") return value.trim();
+    if (Array.isArray(value)) {
+      for (const item of value) { const detail = firstErrorDetail(item); if (detail) return detail; }
+      return "";
+    }
+    if (value && typeof value === "object") {
+      for (const item of Object.values(value)) { const detail = firstErrorDetail(item); if (detail) return detail; }
+    }
+    return "";
+  }
+  async function requestJson(url, options, fallbackMessage) {
+    let response;
+    try {
+      response = await fetch(url, {credentials: "same-origin", ...(options || {})});
+    } catch (networkError) {
+      throw new Error("서버에 연결하지 못했습니다. 네트워크 상태를 확인해 주세요.");
+    }
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      throw new Error(response.status === 401 || response.redirected
+        ? "로그인 상태가 만료되었습니다. 페이지를 새로고침해 주세요."
+        : fallbackMessage);
+    }
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      throw new Error(firstErrorDetail(payload.error?.details) || payload.error?.message || fallbackMessage);
+    }
+    return payload.data;
+  }
   function avatarColor(user) {
     const rawId = Number(user.user_id);
     if (Number.isSafeInteger(rawId)) return (Math.imul(rawId, -1640531527) >>> 0) % 8;
@@ -29,15 +59,11 @@
   }
   function showError(message) { alertBox.className = "alert alert-danger"; alertBox.textContent = message; }
   async function mutation(url, body) {
-    const response = await fetch(url, {
+    return requestJson(url, {
       method: "POST",
-      credentials: "same-origin",
       headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
       body: JSON.stringify(body)
-    });
-    const payload = await response.json();
-    if (!response.ok || !payload.ok) throw new Error(payload.error?.message || "요청을 처리하지 못했습니다.");
-    return payload.data;
+    }, "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.");
   }
   function pageUrl(id) { return "/ideas/prds/" + encodeURIComponent(id) + "/"; }
   function brainstormUrl(id) { return pageUrl(id) + "brainstorm/"; }
@@ -127,9 +153,8 @@
     if (state.projectScope !== "all") query.append("project_scope", state.projectScope);
     if (state.dashboardMode === "tutor" || state.dashboardView !== "tutoring") query.append("dashboard_view", state.dashboardView);
     try {
-      const response = await fetch(root.dataset.apiUrl + "?" + query, {credentials: "same-origin"}); const payload = await response.json();
-      if (!response.ok || !payload.ok) throw new Error(payload.error?.message || "홈 정보를 불러오지 못했습니다.");
-      render(payload.data);
+      const data = await requestJson(root.dataset.apiUrl + "?" + query, null, "홈 정보를 불러오지 못했습니다.");
+      render(data);
     } catch (error) { showError(error.message); } finally { loading.classList.add("d-none"); }
   }
   function applyDashboardMode(data) {
@@ -309,12 +334,10 @@
       const params = new URLSearchParams({q: query, page: String(page || 1), page_size: "8"});
       if (state.roundScope !== "all") params.append("round_scope", state.roundScope);
       if (state.projectScope !== "all") params.append("project_scope", state.projectScope);
-      const response = await fetch(root.dataset.tutorStudentsApiUrl + "?" + params, {credentials: "same-origin"});
-      const payload = await response.json();
+      const data = await requestJson(root.dataset.tutorStudentsApiUrl + "?" + params, null, "학생을 검색하지 못했습니다.");
       if (requestId !== studentSearchRequest || input.value.trim() !== query) return;
-      if (!response.ok || !payload.ok) throw new Error(payload.error?.message || "학생을 검색하지 못했습니다.");
-      renderStudentResults(payload.data);
-      help.textContent = payload.data.pagination.total_items + "명의 학생을 찾았습니다.";
+      renderStudentResults(data);
+      help.textContent = data.pagination.total_items + "명의 학생을 찾았습니다.";
     } catch (error) {
       if (requestId !== studentSearchRequest) return;
       resultRoot.replaceChildren(el("div", "tutor-student-empty text-danger", error.message));
@@ -335,11 +358,9 @@
     modalList.replaceChildren();
     try {
       const query = new URLSearchParams({page: String(page), page_size: "8"});
-      const response = await fetch(root.dataset.recentActivityApiUrl + "?" + query, {credentials: "same-origin"});
-      const payload = await response.json();
-      if (!response.ok || !payload.ok) throw new Error(payload.error?.message || "최근 활동을 불러오지 못했습니다.");
-      renderRecentList(modalList, payload.data.items);
-      renderRecentPages(payload.data.pagination);
+      const data = await requestJson(root.dataset.recentActivityApiUrl + "?" + query, null, "최근 활동을 불러오지 못했습니다.");
+      renderRecentList(modalList, data.items);
+      renderRecentPages(data.pagination);
     } catch (error) {
       modalAlert.textContent = error.message;
       modalAlert.classList.remove("d-none");
@@ -368,10 +389,8 @@
     trashAlert.classList.add("d-none");
     trashList.replaceChildren();
     try {
-      const response = await fetch(root.dataset.trashApiUrl + "?page_size=50", {credentials: "same-origin"});
-      const payload = await response.json();
-      if (!response.ok || !payload.ok) throw new Error(payload.error?.message || "휴지통을 불러오지 못했습니다.");
-      renderTrash(payload.data.items);
+      const data = await requestJson(root.dataset.trashApiUrl + "?page_size=50", null, "휴지통을 불러오지 못했습니다.");
+      renderTrash(data.items);
     } catch (error) {
       trashAlert.textContent = error.message;
       trashAlert.classList.remove("d-none");
@@ -460,14 +479,11 @@
     deleteConfirmButton.disabled = true;
     deleteError.classList.add("d-none");
     try {
-      const response = await fetch(deleteUrl(pendingDeletion.id), {
+      await requestJson(deleteUrl(pendingDeletion.id), {
         method: "DELETE",
-        credentials: "same-origin",
         headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
         body: JSON.stringify({version: pendingDeletion.version})
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload.ok) throw new Error(payload.error?.message || "PRD를 삭제하지 못했습니다.");
+      }, "PRD를 삭제하지 못했습니다.");
       pendingDeletion = null;
       deleteConfirmModal.hide();
       await fetchData();

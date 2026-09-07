@@ -160,14 +160,39 @@ def _error(request, exc):
         )
     if isinstance(exc, ValidationError):
         details = exc.message_dict if hasattr(exc, "message_dict") else exc.messages
+        message = _first_error_detail(details) or "입력값을 확인해 주세요."
         return api_error(
             code="validation_error",
-            message="입력값을 확인해 주세요.",
+            message=message,
             status=400,
             details=details,
             request_id=_request_id(request),
         )
+    if isinstance(exc, PermissionDenied):
+        return api_error(
+            code="permission_denied",
+            message="이 AI 기능을 사용할 권한이 없습니다.",
+            status=403,
+            request_id=_request_id(request),
+        )
     return _context_error(request, exc)
+
+
+def _first_error_detail(value):
+    if isinstance(value, dict):
+        for item in value.values():
+            if message := _first_error_detail(item):
+                return message
+        return None
+    if isinstance(value, list | tuple):
+        for item in value:
+            if message := _first_error_detail(item):
+                return message
+        return None
+    if value is None:
+        return None
+    message = str(value).strip()
+    return message or None
 
 
 @require_GET

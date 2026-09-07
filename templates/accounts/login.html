@@ -73,7 +73,7 @@
 
 {% block extra_js %}
   <script
-    src="{% static 'accounts/js/login.js' %}"
+    src="{% static 'accounts/js/login.js' %}?v=20260906-1"
     data-request-url="{% url 'accounts_api:request-otp' %}"
     data-verify-url="{% url 'accounts_api:verify-otp' %}"
   ></script>

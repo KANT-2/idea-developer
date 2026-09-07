@@ -30,6 +30,8 @@ class PrdPerspectiveDraftService:
             for section in context["sections"]
             for question in section["questions"]
         }
+        if not versions:
+            raise ValidationError({"prd": "초안을 작성할 활성 질문이 없습니다."})
         input_data = {
             "kind": "prd_perspective_draft",
             "personas": [
