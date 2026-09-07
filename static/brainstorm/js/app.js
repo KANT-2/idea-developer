@@ -1164,6 +1164,7 @@
           versionsOpen ? h("span", null, "BOARD VERSIONS") : null,
           h("button", {type: "button", onClick: function () { setVersionsOpen(function (value) { return !value; }); }, title: versionsOpen ? "버전 목록 접기" : "버전 목록 펼치기", "aria-label": versionsOpen ? "버전 목록 접기" : "버전 목록 펼치기"}, h("i", {className: "bi " + (versionsOpen ? "bi-chevron-left" : "bi-chevron-right")}))
         ),
+        versionsOpen && state.permissions.can_manage_versions ? h("button", {type: "button", className: "brain-version-add", disabled: busy, onClick: createCanvasVersion, title: "현재 보드를 복제해 새 버전 만들기", "aria-label": "새 캔버스 버전 만들기"}, h("i", {className: "bi bi-plus-lg"}), h("span", null, "새 보드")) : null,
         versionsOpen ? h("nav", {"aria-label": "캔버스 버전"}, versions.map(function (row, index) {
           return h("div", {key: row.id, className: "brain-version-row" + (row.id === state.canvas.id ? " active" : "")},
             h("button", {type: "button", className: "brain-version-select", onClick: function () { switchCanvas(row.id); }},
@@ -1177,8 +1178,7 @@
               row.is_latest && versions.length > 1 ? h("button", {type: "button", className: "danger", disabled: busy, title: "최신 보드 삭제", "aria-label": "ver." + row.version_number + " 삭제", onClick: function () { deleteLatestCanvas(row); }}, h("i", {className: "bi bi-trash3"})) : null
             ) : null
           );
-        })) : null,
-        versionsOpen && state.permissions.can_manage_versions ? h("button", {type: "button", className: "brain-version-add", disabled: busy, onClick: createCanvasVersion, title: "현재 보드를 복제해 새 버전 만들기", "aria-label": "새 캔버스 버전 만들기"}, h("i", {className: "bi bi-plus-lg"}), h("span", null, "새 보드")) : null
+        })) : null
       );
     }
 
