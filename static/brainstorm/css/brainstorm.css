@@ -49,6 +49,20 @@ body:has(#brainstorm-root) .studio-header{display:none}.studio-main:has(#brainst
 
 /* Deterministic server-side classification summary. */
 .brain-result-counts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0}.brain-result-counts span{display:flex;flex-direction:column;gap:4px;padding:10px;border:1px solid #e8eaf0;border-radius:10px;color:#667085;background:#fafbfc}.brain-result-counts strong{color:#344054;font-size:16px}.brain-ai-body>div>ul{padding:0;list-style:none}.brain-ai-body>div>ul li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 10px;border-bottom:1px solid #eef0f4}.brain-ai-body>div>ul li strong{color:#4f46e5;white-space:nowrap}
+/* PRD 반영 미리보기: 큰 주제만 먼저 보이고, 펼쳐야 그 안의 질문이 나온다.
+   글자 크기 앞에 .brain-ai-body 를 붙여, 넓은 화면에서 덮어쓰는 반응형 규칙보다 우선하게 한다. */
+.brain-ai-body .brain-ai-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px;color:#7b8494;font-size:9.5px;font-weight:750}.brain-ai-body .brain-ai-preview-toolbar button{padding:5px 9px;border:1px solid #e0e3ea;border-radius:99px;color:#4f46e5;background:#fff;font-size:9.5px;font-weight:800}.brain-ai-body .brain-ai-preview-toolbar button:hover{border-color:#a5b4fc;background:#f5f5ff}
+.brain-ai-body article.brain-ai-section{margin-bottom:8px;padding:0;overflow:hidden;border:1px solid #e6e8ee;border-radius:11px;background:#fff}
+.brain-ai-body .brain-ai-section-head{display:flex;width:100%;align-items:center;gap:9px;padding:12px;border:0;background:transparent;text-align:left}.brain-ai-body .brain-ai-section-head:hover{background:#f7f8fc}
+.brain-ai-body .brain-ai-section-index{display:grid;width:21px;height:21px;flex:0 0 auto;place-items:center;border-radius:6px;color:#6b7280;background:#f1f3f6;font-size:9.5px;font-weight:850}
+.brain-ai-body .brain-ai-section.open .brain-ai-section-index{color:#fff;background:#4f46e5}
+.brain-ai-body .brain-ai-section-head strong{flex:1;min-width:0;color:#2f3a4c;font-size:13.5px;line-height:1.4}
+.brain-ai-body .brain-ai-section-count{flex:0 0 auto;padding:3px 8px;border-radius:99px;color:#5b6474;background:#f2f4f7;font-size:8.5px;font-weight:800;white-space:nowrap}
+.brain-ai-body .brain-ai-section-head i{flex:0 0 auto;color:#98a2b3;font-size:10.5px;transition:transform .18s ease}.brain-ai-body .brain-ai-section.open .brain-ai-section-head i{transform:rotate(180deg)}
+.brain-ai-body .brain-ai-section-body{padding:0 12px 4px;border-top:1px solid #eef0f4}
+.brain-ai-body .brain-ai-answer-row{padding:11px 0;border-bottom:1px solid #f2f4f7}.brain-ai-body .brain-ai-answer-row:last-child{border-bottom:0}
+.brain-ai-body .brain-ai-answer-row strong{display:block;color:#333d4f;font-size:12.5px;line-height:1.45}
+.brain-ai-body .brain-ai-answer-row p{margin:6px 0 0;color:#4b5565;font-size:12.5px;line-height:1.65;white-space:pre-wrap}
 .brain-connection.pending{stroke:#6366f1;stroke-width:2.2;stroke-dasharray:8 5;opacity:.95}
 
 /* Keep the selected-note actions compact: hold and assignee share one row. */

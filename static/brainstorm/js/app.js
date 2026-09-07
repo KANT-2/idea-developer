@@ -57,6 +57,8 @@
     var busyPair = window.React.useState(false), busy = busyPair[0], setBusy = busyPair[1];
     var jobPair = window.React.useState(null), jobId = jobPair[0], setJobId = jobPair[1];
     var aiPair = window.React.useState(null), aiPanel = aiPair[0], setAiPanel = aiPair[1];
+    // PRD 반영 미리보기에서 펼쳐 둔 질문. 답변이 길어 전부 펼쳐 두면 읽기 어렵다.
+    var openAnswersPair = window.React.useState({}), openAnswers = openAnswersPair[0], setOpenAnswers = openAnswersPair[1];
     var editorPair = window.React.useState(null), editor = editorPair[0], setEditor = editorPair[1];
     var assigneeMenuPair = window.React.useState(null), assigneeMenu = assigneeMenuPair[0], setAssigneeMenu = assigneeMenuPair[1];
     var heldExpandedPair = window.React.useState(true), heldExpanded = heldExpandedPair[0], setHeldExpanded = heldExpandedPair[1];
@@ -1061,8 +1063,60 @@
           }))
         );
       } else {
+        // 질문을 전부 펼쳐 두면 패널이 글로 가득 차 무엇을 저장하는지 훑기 어렵다.
+        // PRD 구조 화면처럼 큰 주제(섹션)만 먼저 보이고, 펼쳐야 그 안의 질문이 나오게 한다.
+        var answers = aiPanel.job.output.answers || [];
+        var groups = [], groupById = {};
+        answers.forEach(function (row) {
+          var sectionKey = String(row.section_id);
+          if (!groupById[sectionKey]) {
+            groupById[sectionKey] = {sectionId: row.section_id, rows: []};
+            groups.push(groupById[sectionKey]);
+          }
+          groupById[sectionKey].rows.push(row);
+        });
+        // 보드에 보이는 섹션 차례대로 세운다. 답변이 온 순서는 그 차례와 다를 수 있다.
+        var sectionOrder = {};
+        (state.sections || []).forEach(function (section, index) { sectionOrder[String(section.id)] = index; });
+        groups.sort(function (left, right) {
+          var leftAt = sectionOrder[String(left.sectionId)], rightAt = sectionOrder[String(right.sectionId)];
+          return (leftAt === undefined ? 999 : leftAt) - (rightAt === undefined ? 999 : rightAt);
+        });
+        var allOpen = groups.length > 0 && groups.every(function (group) { return openAnswers[group.sectionId]; });
         body = h("div", null,
-          (aiPanel.job.output.answers || []).map(function (row) { return h("article", {key: row.question_id}, h("strong", null, row.question_prompt || "질문 " + row.question_id), h("p", null, row.draft)); }),
+          h("div", {className: "brain-ai-preview-toolbar"},
+            h("span", null, "항목 " + groups.length + "개 · 질문 " + answers.length + "개"),
+            h("button", {type: "button", onClick: function () {
+              var next = {};
+              if (!allOpen) groups.forEach(function (group) { next[group.sectionId] = true; });
+              setOpenAnswers(next);
+            }}, allOpen ? "모두 접기" : "모두 펼치기")
+          ),
+          groups.map(function (group, index) {
+            var open = Boolean(openAnswers[group.sectionId]);
+            var section = (state.sections || []).find(function (item) { return item.id === group.sectionId; });
+            return h("article", {key: group.sectionId, className: "brain-ai-section" + (open ? " open" : "")},
+              h("button", {type: "button", className: "brain-ai-section-head", onClick: function () {
+                setOpenAnswers(function (current) {
+                  var next = Object.assign({}, current);
+                  if (next[group.sectionId]) delete next[group.sectionId];
+                  else next[group.sectionId] = true;
+                  return next;
+                });
+              }},
+                h("span", {className: "brain-ai-section-index"}, String(index + 1).padStart(2, "0")),
+                h("strong", null, section ? section.title : "섹션 " + group.sectionId),
+                h("span", {className: "brain-ai-section-count"}, group.rows.length + "개 질문"),
+                h("i", {className: "bi bi-chevron-down"})
+              ),
+              open ? h("div", {className: "brain-ai-section-body"}, group.rows.map(function (row) {
+                return h("div", {key: row.question_id, className: "brain-ai-answer-row"},
+                  h("strong", null, row.question_prompt || "질문 " + row.question_id),
+                  h("p", null, row.draft)
+                );
+              })) : null
+            );
+          }),
           h("button", {className: "btn btn-primary w-100", onClick: applyPrd}, "질문별 통합 답변 저장")
         );
       }
