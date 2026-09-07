@@ -344,7 +344,6 @@ def request_perspective_draft(request, prd_id):
         job, created = PrdPerspectiveDraftService().request(
             prd=access.prd,
             user_id=context.user_id,
-            persona=payload.get("persona"),
             idempotency_key=_idempotency_key(request, payload),
         )
         return api_success(

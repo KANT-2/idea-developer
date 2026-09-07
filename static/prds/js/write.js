@@ -733,9 +733,9 @@
     cancel.classList.toggle("d-none", !busy || !jobId);
   }
 
-  async function pollJob(jobId, onSuccess) {
+  async function pollJob(jobId, onSuccess, timeoutMs) {
     const pending = ["queued", "running", "retry_wait", "cancel_requested"];
-    const deadline = Date.now() + pollTimeoutMs;
+    const deadline = Date.now() + (timeoutMs || pollTimeoutMs);
     let networkFailures = 0;
     for (;;) {
       await new Promise(function (resolve) { setTimeout(resolve, pollIntervalMs); });
@@ -1044,7 +1044,7 @@
   function renderPerspectiveDraftModal(job) {
     perspectiveDraftJob = job;
     const answers = job.output?.answers || [];
-    perspectiveDraftModalPersona.textContent = (evaluationPersonaLabels[evaluationPersona] || evaluationPersona) + " 관점 · 질문 " + answers.length + "개";
+    perspectiveDraftModalPersona.textContent = "PM·엔지니어링·투자자 통합 · 질문 " + answers.length + "개";
     perspectiveDraftList.replaceChildren();
     answers.forEach(function (row) {
       const item = element("label", "perspective-draft-item");
@@ -1084,14 +1084,16 @@
   perspectiveDraftButton.addEventListener("click", async function () {
     clearAlert();
     setPerspectiveDraftBusy(true);
-    setPerspectiveDraftNotice((evaluationPersonaLabels[evaluationPersona] || evaluationPersona) + " 관점의 PRD 초안을 작성하고 있습니다.", "working");
+    setPerspectiveDraftNotice("PM·엔지니어링·투자자 관점을 종합한 PRD 초안을 작성하고 있습니다.", "working");
     try {
       const job = await api(aiBase + "perspective-draft/run/", {
         method: "POST",
         headers: {"Idempotency-Key": crypto.randomUUID()},
-        body: JSON.stringify({persona: evaluationPersona})
+        body: JSON.stringify({})
       });
-      const finished = await pollJob(job.id, function () {});
+      // 백엔드 timeout_seconds(240초, apps/ai/perspective_draft.py)보다 여유 있게 잡는다 —
+      // 안 그러면 작업이 정상 진행 중인데도 폴링이 먼저 포기해 버린다.
+      const finished = await pollJob(job.id, function () {}, 260000);
       if (finished?.status === "succeeded") {
         setPerspectiveDraftNotice(null);
         renderPerspectiveDraftModal(finished);
