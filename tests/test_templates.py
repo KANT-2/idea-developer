@@ -195,6 +195,10 @@ class TemplateContractTests(SimpleTestCase):
         self.assertIn("zoom(-.05)", source)
         self.assertNotIn("zoom(.1)", source)
         self.assertNotIn("zoom(-.1)", source)
+        self.assertLess(
+            source.index('className: "brain-version-add"'),
+            source.index('h("nav", {"aria-label": "캔버스 버전"}'),
+        )
         self.assertNotIn("WebSocket", source)
         self.assertIn("onDragStart", source)
         self.assertIn("onDrop", source)
