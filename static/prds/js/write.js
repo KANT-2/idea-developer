@@ -772,9 +772,9 @@
     cancel.classList.toggle("d-none", !busy || !jobId);
   }
 
-  async function pollJob(jobId, onSuccess, timeoutMs) {
+  async function pollJob(jobId, onSuccess) {
     const pending = ["queued", "running", "retry_wait", "cancel_requested"];
-    const deadline = Date.now() + (timeoutMs || pollTimeoutMs);
+    const deadline = Date.now() + pollTimeoutMs;
     let networkFailures = 0;
     for (;;) {
       await new Promise(function (resolve) { setTimeout(resolve, pollIntervalMs); });
@@ -1134,9 +1134,7 @@
         headers: {"Idempotency-Key": crypto.randomUUID()},
         body: JSON.stringify({})
       });
-      // 백엔드 timeout_seconds(240초, apps/ai/perspective_draft.py)보다 여유 있게 잡는다 —
-      // 안 그러면 작업이 정상 진행 중인데도 폴링이 먼저 포기해 버린다.
-      const finished = await pollJob(job.id, function () {}, 260000);
+      const finished = await pollJob(job.id, function () {});
       if (finished?.status === "succeeded") {
         setPerspectiveDraftNotice(null);
         renderPerspectiveDraftModal(finished);
