@@ -372,9 +372,7 @@ def canvas(request, prd_id):
         return api_success(
             {
                 "canvas": {
-                    **_serialize_canvas_version(
-                        canvas_row, latest_canvas_id=latest_canvas_id
-                    ),
+                    **_serialize_canvas_version(canvas_row, latest_canvas_id=latest_canvas_id),
                     "prd_id": access.prd.id,
                     "created": created,
                 },
@@ -418,8 +416,7 @@ def canvas_versions(request, prd_id):
             return api_success(
                 {
                     "items": [
-                        _serialize_canvas_version(row, latest_canvas_id=rows[0].pk)
-                        for row in rows
+                        _serialize_canvas_version(row, latest_canvas_id=rows[0].pk) for row in rows
                     ]
                 },
                 request_id=_request_id(request),
@@ -469,8 +466,7 @@ def canvas_version_order(request, prd_id):
         return api_success(
             {
                 "items": [
-                    _serialize_canvas_version(row, latest_canvas_id=rows[0].pk)
-                    for row in rows
+                    _serialize_canvas_version(row, latest_canvas_id=rows[0].pk) for row in rows
                 ],
                 "latest_canvas_id": rows[0].pk,
             },

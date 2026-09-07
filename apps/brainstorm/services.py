@@ -106,9 +106,7 @@ class BrainstormAccessService:
                     },
                 )
             except IntegrityError:
-                canvas = BrainstormCanvas.objects.filter(
-                    prd=access.prd, is_deleted=False
-                ).first()
+                canvas = BrainstormCanvas.objects.filter(prd=access.prd, is_deleted=False).first()
                 created = False
         canvas.validate_context(context)
         return canvas, created
