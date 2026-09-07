@@ -6,7 +6,6 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from apps.accounts.models import LocalUserMapping
-from apps.ai.models import AiActionType, AiFeatureType, AiUsageLog, AiUsageStatus
 from apps.integration.context import IntegrationContext
 from apps.integration.repository import FixtureIntegrationRepository
 from apps.prds.models import (
@@ -169,7 +168,6 @@ class HomeApiTests(TestCase):
             participants=((7, PrdParticipantRole.OWNER),),
             is_deleted=True,
         )
-        self.add_ai_logs()
 
     def make_prd(
         self,
@@ -226,37 +224,6 @@ class HomeApiTests(TestCase):
         prd.refresh_from_db()
         return prd
 
-    def add_ai_logs(self):
-        for _ in range(2):
-            AiUsageLog.objects.create(
-                prd=self.collaborative,
-                user_id=7,
-                feature_type=AiFeatureType.COACHING,
-                action_type=AiActionType.CHAT,
-                status=AiUsageStatus.SUCCESS,
-            )
-        AiUsageLog.objects.create(
-            prd=self.collaborative,
-            user_id=7,
-            feature_type=AiFeatureType.COACHING,
-            action_type=AiActionType.CHAT,
-            status=AiUsageStatus.FAILED,
-        )
-        AiUsageLog.objects.create(
-            prd=self.collaborative,
-            user_id=7,
-            feature_type=AiFeatureType.COACHING,
-            action_type=AiActionType.DRAFT,
-            status=AiUsageStatus.SUCCESS,
-        )
-        AiUsageLog.objects.create(
-            prd=self.unauthorized,
-            user_id=10,
-            feature_type=AiFeatureType.COACHING,
-            action_type=AiActionType.CHAT,
-            status=AiUsageStatus.SUCCESS,
-        )
-
     def get_home(self, **params):
         return self.client.get(reverse("home_api:home"), params)
 
@@ -275,7 +242,6 @@ class HomeApiTests(TestCase):
                 "held_prds": 1,
                 "due_this_week": 1,
                 "average_completion_rate": 30,
-                "ai_coaching_count": 2,
             },
         )
         self.assertEqual(
@@ -292,17 +258,20 @@ class HomeApiTests(TestCase):
         personal = cards[self.personal.id]
         self.assertEqual(personal["version"], self.personal.version)
         self.assertTrue(personal["show_new_badge"])
+        self.assertEqual(personal["created_at"], self.personal.created_at.isoformat())
         self.assertEqual(personal["completion_rate"], 50)
         self.assertEqual(personal["d_day"], "D-Day")
         self.assertEqual(personal["my_role"], "owner")
+        self.assertTrue(personal["is_creator"])
         self.assertTrue(personal["can_edit"])
         self.assertTrue(personal["can_delete"])
         collaborative = cards[self.collaborative.id]
+        self.assertFalse(collaborative["is_creator"])
         self.assertFalse(collaborative["show_new_badge"])
         self.assertEqual(collaborative["d_day"], "D-6")
         self.assertEqual(collaborative["participant_count"], 6)
         self.assertEqual(len(collaborative["participants"]), 4)
-        self.assertEqual(collaborative["ai_coaching_count"], 2)
+        self.assertNotIn("ai_coaching_count", collaborative)
         self.assertFalse(collaborative["can_edit"])
         self.assertFalse(collaborative["can_delete"])
         team_shared = cards[self.team_shared.id]
@@ -486,20 +455,27 @@ class HomeApiTests(TestCase):
         self.assertEqual(cards[self.team_shared.id]["d_day"], "D-6")
         self.assertFalse(cards[self.personal.id]["show_new_badge"])
 
-    def test_completion_updated_and_ai_sorting(self):
+    def test_completion_and_updated_sorting(self):
         completion_ids = [
             item["id"] for item in self.get_home(sort="completion_desc").json()["data"]["items"]
-        ]
-        ai_ids = [
-            item["id"] for item in self.get_home(sort="ai_coaching_desc").json()["data"]["items"]
         ]
         updated_ids = [
             item["id"] for item in self.get_home(sort="updated_desc").json()["data"]["items"]
         ]
 
         self.assertEqual(completion_ids[:2], [self.collaborative.id, self.personal.id])
-        self.assertEqual(ai_ids[0], self.collaborative.id)
         self.assertEqual(updated_ids[0], self.personal.id)
+
+    def test_created_date_sorting(self):
+        newest_ids = [
+            item["id"] for item in self.get_home(sort="created_desc").json()["data"]["items"]
+        ]
+        oldest_ids = [
+            item["id"] for item in self.get_home(sort="created_asc").json()["data"]["items"]
+        ]
+
+        self.assertEqual(newest_ids[0], self.personal.id)
+        self.assertEqual(oldest_ids[-1], self.personal.id)
 
     def test_pagination_and_invalid_filters(self):
         page = self.get_home(page=2, page_size=2).json()["data"]
@@ -512,6 +488,7 @@ class HomeApiTests(TestCase):
             {"scope": "unknown"},
             {"status": "pending"},
             {"sort": "oldest"},
+            {"sort": "ai_coaching_desc"},
             {"deadline_from": "2026/09/02"},
             {"round_scope": "previous"},
             {"project_scope": "shared"},

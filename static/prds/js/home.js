@@ -95,6 +95,11 @@
     if (seconds < 604800) return Math.floor(seconds / 86400) + "일 전";
     return new Intl.DateTimeFormat("ko-KR", {month: "numeric", day: "numeric"}).format(new Date(value));
   }
+  function createdDate(value) {
+    if (!value) return "생성일 없음";
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "생성일 없음" : localDateKey(date) + " 생성";
+  }
   function renderRecentList(target, activities) {
     target.replaceChildren();
     if (!activities.length) {
@@ -176,9 +181,6 @@
     if (!tutorMode) return;
     document.getElementById("home-subtitle").textContent = tutorManagementMode ? "함께 참여 중인 프로젝트를 학생별로 찾고 진행 상황을 한눈에 확인하세요." : "직접 만들거나 편집 역할로 참여한 PRD를 작성하고 관리하세요.";
     document.getElementById("home-scope-description").textContent = tutorManagementMode ? "튜터 역할로 참여한 PRD만 표시됩니다." : "직접 만들었거나 편집자로 참여한 PRD입니다.";
-    document.getElementById("kpi-ai-label").textContent = tutorManagementMode ? "보류" : "AI 코칭";
-    document.getElementById("kpi-ai-icon").className = "kpi-icon kpi-purple";
-    document.getElementById("kpi-ai-icon").replaceChildren(el("i", tutorManagementMode ? "bi bi-pause-circle" : "bi bi-stars"));
   }
   function render(data) {
     applyDashboardMode(data);
@@ -186,7 +188,7 @@
     const tutorManagementMode = tutorMode && data.dashboard_view === "tutoring";
     renderFilterOptions(data.filter_options || {});
     document.getElementById("home-greeting").textContent = "안녕하세요, " + data.user.display_name + "님 👋";
-    const k = data.kpis; document.getElementById("kpi-total").textContent = k.total_prds + "건"; document.getElementById("kpi-progress").textContent = k.in_progress_prds + "건"; document.getElementById("kpi-average").textContent = k.average_completion_rate + "%"; document.getElementById("kpi-completed").textContent = k.completed_prds + "건"; document.getElementById("kpi-ai").textContent = tutorManagementMode ? k.held_prds + "건" : k.ai_coaching_count + "회"; document.getElementById("kpi-due").textContent = k.due_this_week + "건";
+    const k = data.kpis; document.getElementById("kpi-total").textContent = k.total_prds + "건"; document.getElementById("kpi-progress").textContent = k.in_progress_prds + "건"; document.getElementById("kpi-average").textContent = k.average_completion_rate + "%"; document.getElementById("kpi-completed").textContent = k.completed_prds + "건"; document.getElementById("kpi-held").textContent = k.held_prds + "건"; document.getElementById("kpi-due").textContent = k.due_this_week + "건";
     renderActivity(data);
     list.replaceChildren(); empty.classList.toggle("d-none", data.items.length !== 0);
     document.getElementById("home-empty-title").textContent = tutorManagementMode ? (state.participantUserId ? "선택한 학생과 함께하는 PRD가 없습니다." : "튜터로 참여한 PRD가 없습니다.") : state.scope === "viewer" ? "뷰어로 참여한 PRD가 없습니다." : "조건에 맞는 PRD가 없습니다.";
@@ -196,20 +198,23 @@
       const body = el("div", "card-body d-flex flex-column");
       const cardTop = el("div", "prd-card-top mb-2");
       const badges = el("div", "d-flex flex-wrap gap-2");
-      badges.append(el("span", "badge text-bg-light", labels[item.prd_type] || item.prd_type), el("span", "badge " + (item.status === "completed" ? "text-bg-success" : item.status === "in_progress" ? "text-bg-warning" : "text-bg-secondary"), labels[item.status] || item.status)); if (tutorMode) { const scopeText = projectScopeLabels[item.project_scope] || item.project_scope; const roundText = item.round_id ? (state.roundTitles.get(String(item.round_id)) || "회차 #" + item.round_id) + " · " + scopeText : scopeText; badges.append(el("span", "badge tutor-scope-badge", roundText)); } if (item.my_role === "viewer") badges.append(el("span", "badge viewer-role-badge", "뷰어")); if (item.my_role === "tutor") badges.append(el("span", "badge tutor-role-badge", "튜터")); if (item.show_new_badge) badges.append(el("span", "badge text-bg-primary", "NEW"));
+      badges.append(el("span", "badge text-bg-light", labels[item.prd_type] || item.prd_type), el("span", "badge " + (item.status === "completed" ? "text-bg-success" : item.status === "in_progress" ? "text-bg-warning" : "text-bg-secondary"), labels[item.status] || item.status)); if (tutorMode) { const scopeText = projectScopeLabels[item.project_scope] || item.project_scope; const roundText = item.round_id ? (state.roundTitles.get(String(item.round_id)) || "회차 #" + item.round_id) + " · " + scopeText : scopeText; badges.append(el("span", "badge tutor-scope-badge", roundText)); } const roleLabels = {owner: "소유자", editor: "편집자", viewer: "뷰어", tutor: "튜터"}; const roleClasses = {owner: "owner-role-badge", editor: "editor-role-badge", viewer: "viewer-role-badge", tutor: "tutor-role-badge"}; const visibleRole = item.is_creator ? "owner" : item.my_role; if (visibleRole && roleLabels[visibleRole]) { const roleBadge = el("span", "badge " + roleClasses[visibleRole], roleLabels[visibleRole]); roleBadge.title = item.is_creator ? "이 PRD를 생성한 소유자입니다." : "이 PRD에서 나의 역할입니다."; badges.append(roleBadge); } if (item.show_new_badge) badges.append(el("span", "badge text-bg-primary", "NEW"));
       const dueState = deadlineState(item);
       if (dueState === "overdue") badges.append(el("span", "badge deadline-alert-badge overdue", "마감 지남"));
       if (dueState === "today") badges.append(el("span", "badge deadline-alert-badge today", "오늘 마감"));
+      const titleRow = el("div", "prd-card-title-row");
+      const title = el("h3", "h6 fw-bold", item.title);
       const brain = el("a", "prd-card-brainstorm", "아이디어 맵");
       brain.href = brainstormUrl(item.id);
       brain.prepend(el("i", "bi bi-lightbulb-fill"));
       brain.addEventListener("click", function (event) { event.stopPropagation(); });
-      cardTop.append(badges, brain);
-      const title = el("h3", "h6 fw-bold", item.title); const description = el("p", "small text-secondary prd-card-description", item.description || "한 줄 소개가 없습니다.");
+      cardTop.append(badges);
+      titleRow.append(title, brain);
+      const description = el("p", "small text-secondary prd-card-description", item.description || "한 줄 소개가 없습니다.");
       const progressText = el("div", "d-flex justify-content-between small mb-1"); progressText.append(el("span", "text-secondary", "완성도"), el("strong", "", item.completion_rate + "%")); const progress = el("div", "progress mb-3"); progress.style.height = "6px"; const bar = el("div", "progress-bar"); bar.style.width = item.completion_rate + "%"; progress.append(bar);
       const footer = el("div", "d-flex justify-content-between align-items-center mt-auto pt-2 border-top"); const avatars = el("div", "d-flex align-items-center"); item.participants.forEach(function (p) { const a = el("span", "participant-avatar avatar-color-" + avatarColor(p), (p.display_name || "?").slice(0, 2)); a.title = p.display_name; avatars.append(a); }); if (item.participant_count > 4) avatars.append(el("span", "small text-secondary ms-1", "+" + (item.participant_count - 4)));
-      const metaText = tutorMode ? (item.d_day || "마감일 없음") + " · " + relativeTime(item.updated_at) + " 수정" : (item.d_day || "마감일 없음") + " · AI " + item.ai_coaching_count + "회";
-      const meta = el("div", "small text-secondary text-end prd-card-deadline" + (dueState ? " is-" + dueState : ""), metaText); footer.append(avatars, meta); body.append(cardTop, title, description, progressText, progress, footer); card.append(body);
+      const metaText = createdDate(item.created_at) + " · " + (item.d_day || "마감일 없음");
+      const meta = el("div", "small text-secondary text-end prd-card-deadline" + (dueState ? " is-" + dueState : ""), metaText); footer.append(avatars, meta); body.append(cardTop, titleRow, description, progressText, progress, footer); card.append(body);
       card.addEventListener("click", function () { window.location.href = pageUrl(item.id); }); card.addEventListener("keydown", function (event) { if (event.key === "Enter") window.location.href = pageUrl(item.id); });
       if (item.can_delete) {
         const menuWrap = el("div", "dropdown prd-card-menu");

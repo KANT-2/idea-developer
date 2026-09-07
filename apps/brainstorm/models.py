@@ -129,6 +129,13 @@ class BrainstormNode(models.Model):
         null=True,
         blank=True,
     )
+    held_from_section = models.ForeignKey(
+        PrdSection,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        null=True,
+        blank=True,
+    )
     author_id = models.PositiveBigIntegerField(null=True, blank=True)
     assignee_id = models.PositiveBigIntegerField(null=True, blank=True)
     status = models.CharField(
@@ -137,6 +144,7 @@ class BrainstormNode(models.Model):
         null=True,
         blank=True,
     )
+    introduced_in_version = models.PositiveIntegerField(default=1)
     version = models.PositiveBigIntegerField(default=1)
     is_deleted = models.BooleanField(default=False)
     deleted_at = models.DateTimeField(null=True, blank=True)
@@ -199,8 +207,17 @@ class BrainstormNode(models.Model):
                 name="brain_node_version_positive",
             ),
             models.CheckConstraint(
+                condition=Q(introduced_in_version__gte=1),
+                name="brain_node_introduced_ver_positive",
+            ),
+            models.CheckConstraint(
                 condition=~Q(status=BrainstormNodeStatus.HELD) | Q(section__isnull=True),
                 name="brain_held_node_unclassified",
+            ),
+            models.CheckConstraint(
+                condition=Q(status=BrainstormNodeStatus.HELD)
+                | Q(held_from_section__isnull=True),
+                name="brain_hold_origin_only_while_held",
             ),
             models.CheckConstraint(
                 condition=(
@@ -246,6 +263,11 @@ class BrainstormNode(models.Model):
         errors: dict[str, str] = {}
         if self.section_id is not None and self.section.prd_id != self.canvas.prd_id:
             errors["section"] = "The section must belong to the canvas PRD."
+        if (
+            self.held_from_section_id is not None
+            and self.held_from_section.prd_id != self.canvas.prd_id
+        ):
+            errors["held_from_section"] = "The held origin must belong to the canvas PRD."
         if self.node_type == BrainstormNodeType.NOTE:
             expected_status = (
                 BrainstormNodeStatus.HELD
@@ -321,6 +343,7 @@ class BrainstormNode(models.Model):
                 if section is not None
                 else BrainstormNodeStatus.DEFAULT
             ),
+            introduced_in_version=canvas.version_number,
         )
         node.full_clean()
         node.save(force_insert=True)
@@ -406,24 +429,45 @@ class BrainstormNode(models.Model):
         changed_at = timezone.now()
         BrainstormNode.objects.filter(pk=self.pk).update(
             status=BrainstormNodeStatus.HELD,
+            held_from_section_id=self.section_id,
             section=None,
             version=F("version") + 1,
             updated_at=changed_at,
         )
         self.refresh_from_db()
 
-    def restore_from_hold(self, *, position_x: Decimal, position_y: Decimal) -> None:
+    def restore_from_hold(
+        self,
+        *,
+        position_x: Decimal | None = None,
+        position_y: Decimal | None = None,
+    ) -> None:
         if self.node_type != BrainstormNodeType.NOTE or self.status != BrainstormNodeStatus.HELD:
             raise ValidationError("Only held note nodes can be restored from hold.")
+        restore_section = None
+        if self.held_from_section_id is not None:
+            restore_section = PrdSection.objects.filter(
+                pk=self.held_from_section_id,
+                prd_id=self.canvas.prd_id,
+                is_deleted=False,
+            ).first()
+        if restore_section is None and (position_x is None or position_y is None):
+            raise ValidationError("An unclassified restore position is required.")
         changed_at = timezone.now()
-        BrainstormNode.objects.filter(pk=self.pk).update(
-            status=BrainstormNodeStatus.DEFAULT,
-            section=None,
-            position_x=position_x,
-            position_y=position_y,
+        updates = dict(
+            status=(
+                BrainstormNodeStatus.ACCEPTED
+                if restore_section is not None
+                else BrainstormNodeStatus.DEFAULT
+            ),
+            section_id=restore_section.pk if restore_section is not None else None,
+            held_from_section_id=None,
             version=F("version") + 1,
             updated_at=changed_at,
         )
+        if restore_section is None:
+            updates.update(position_x=position_x, position_y=position_y)
+        BrainstormNode.objects.filter(pk=self.pk).update(**updates)
         self.refresh_from_db()
 
 

@@ -2,6 +2,7 @@ import json
 from datetime import date, timedelta
 from unittest.mock import Mock, patch
 
+from django.conf import settings
 from django.db import connection
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -54,7 +55,7 @@ def user_row(user_id):
         "first_name": "사용자",
         "last_name": str(user_id),
         "role": "student",
-        "approval_status": "fixture-approved",
+        "approval_status": settings.INTEGRATION_APPROVED_USER_STATUS,
         "is_active": True,
         "is_staff": False,
         "is_superuser": False,
@@ -225,6 +226,7 @@ class PrdDetailApiTests(TestCase):
         self.assertEqual(len(questions), 1)
         self.assertEqual(questions[0]["answer"]["content"], "사용자 문제입니다.")
         self.assertEqual(data["permissions"]["role"], "owner")
+        self.assertTrue(data["permissions"]["is_creator"])
         self.assertTrue(data["permissions"]["can_edit"])
         self.assertTrue(data["permissions"]["can_comment"])
         self.assertFalse(data["permissions"]["can_view_contributions"])
@@ -412,6 +414,7 @@ class PrdDetailApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         permissions = response.json()["data"]["permissions"]
         self.assertEqual(permissions["role"], PrdParticipantRole.TUTOR)
+        self.assertFalse(permissions["is_creator"])
         self.assertFalse(permissions["can_edit"])
         self.assertFalse(permissions["can_delete"])
         self.assertFalse(permissions["can_view_contributions"])

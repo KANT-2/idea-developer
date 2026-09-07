@@ -194,9 +194,11 @@ def _serialize_node(node, *, include_deleted=False):
         "x": float(node.position_x),
         "y": float(node.position_y),
         "section_id": node.section_id,
+        "held_from_section_id": node.held_from_section_id,
         "author_id": node.author_id,
         "assignee_id": node.assignee_id,
         "status": node.status,
+        "introduced_in_version": node.introduced_in_version,
         "version": node.version,
         "updated_at": node.updated_at.isoformat(),
     }
