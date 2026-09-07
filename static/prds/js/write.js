@@ -86,8 +86,9 @@
   let savingAllAnswers = false;
   const statusLabels = {in_progress: "진행 중", completed: "완료", held: "보류", dropped: "드랍"};
   const evaluationPersonas = ["pm", "engineering", "investor"];
-  let evaluationPersona = "pm";
   let evaluationResults = {};
+  let synthesisResult = null;
+  let synthesisRequestInFlight = false;
   let evaluationJobIds = [];
   let exportedMarkdown = "";
   let alertTimer = null;
@@ -825,27 +826,55 @@
     evaluationAlert.className = "evaluation-alert" + (kind ? " " + kind : "");
   }
 
-  function renderEvaluationEmpty() {
+  function renderPersonaRing(persona, result) {
+    const card = document.querySelector('.write-score-persona[data-persona="' + persona + '"]');
+    if (!card) return;
+    const ring = card.querySelector(".write-score-persona-ring");
+    const progress = card.querySelector(".write-score-persona-progress");
+    const value = card.querySelector(".write-score-persona-value");
+    const feedback = card.querySelector(".write-score-persona-feedback");
+    const job = result?.job;
+    if (!job || job.status !== "succeeded") {
+      ring.classList.add("is-pending");
+      progress.style.strokeDashoffset = "100";
+      value.textContent = "—";
+      feedback.textContent = job ? "진단이 진행 중입니다." : "아직 진단하지 않았습니다.";
+      return;
+    }
+    const output = job.output || {};
+    const score = Number(output.overall_score || 0);
+    ring.classList.remove("is-pending");
+    progress.style.strokeDashoffset = String(100 - Math.max(0, Math.min(100, score)));
+    value.textContent = score;
+    feedback.textContent = decodeSafeText(output.summary || "진단 결과를 확인해 주세요.");
+  }
+
+  function renderSynthesisEmpty(message) {
     document.getElementById("write-score-value").textContent = "—";
     document.getElementById("write-score-progress").style.strokeDashoffset = "100";
     document.getElementById("write-score-ring").classList.add("is-pending");
     document.getElementById("score-state").textContent = "진단 전";
     document.getElementById("write-score-label").textContent = "아직 진단하지 않았습니다";
-    document.getElementById("write-score-feedback").textContent = "AI 진단을 실행하면 세 관점의 충족도와 보완점을 한 번에 확인할 수 있습니다.";
+    document.getElementById("write-score-feedback").textContent = message || "AI 진단을 실행하면 PM·엔지니어링·투자자 세 관점을 종합한 의견을 확인할 수 있습니다.";
     document.getElementById("write-section-diagnostics").replaceChildren(
       Object.assign(element("div", "evaluation-empty"), {innerHTML: '<i class="bi bi-stars"></i><span>AI 진단 후 섹션별 피드백이 표시됩니다.</span>'})
     );
-    evaluationAlert.className = "evaluation-alert d-none";
   }
 
-  function renderEvaluationResult(job, isCurrent) {
+  function renderEvaluationEmpty() {
+    renderSynthesisEmpty();
+    evaluationAlert.className = "evaluation-alert d-none";
+    evaluationPersonas.forEach(function (persona) { renderPersonaRing(persona, null); });
+  }
+
+  function renderSynthesisResult(job, isCurrent) {
     const output = job.output || {};
     const score = Number(output.overall_score || 0);
     const ring = document.getElementById("write-score-ring");
     ring.classList.remove("is-pending");
     document.getElementById("write-score-progress").style.strokeDashoffset = String(100 - Math.max(0, Math.min(100, score)));
     document.getElementById("write-score-value").textContent = score;
-    document.getElementById("score-state").textContent = isCurrent ? (output.persona_label || "AI 진단") : "업데이트 필요";
+    document.getElementById("score-state").textContent = isCurrent ? "종합 진단" : "업데이트 필요";
     document.getElementById("write-score-label").textContent = evaluationStateLabel(score);
     document.getElementById("write-score-feedback").textContent = decodeSafeText(output.summary || "진단 결과를 확인해 주세요.");
     if (!isCurrent) setEvaluationNotice("진단 후 답변이 변경되었습니다. 최신 내용으로 다시 진단해 주세요.", "warning");
@@ -915,25 +944,18 @@
     bootstrap.Offcanvas.getOrCreateInstance(panel).show();
   }
 
-  function renderSelectedEvaluation() {
-    const selected = evaluationResults[evaluationPersona];
-    if (selected?.job?.status === "succeeded") {
-      renderEvaluationResult(selected.job, selected.isCurrent);
-      return;
-    }
-    renderEvaluationEmpty();
-    if (selected?.job) setEvaluationNotice("선택한 관점의 AI 진단이 진행 중입니다.", "working");
-  }
-
-  function setEvaluationBusy(busy, jobIds) {
+  function setEvaluationBusy(busy, jobIds, label) {
     evaluationJobIds = busy ? (Array.isArray(jobIds) ? jobIds : (jobIds ? [jobIds] : [])) : [];
     evaluationButton.disabled = busy || !detail?.permissions.can_request_ai || detail?.prd.status === "completed";
     evaluationButton.innerHTML = busy
-      ? '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> 세 관점 진단 중…'
+      ? '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> ' + (label || "세 관점 진단 중…")
       : '<i class="bi bi-stars"></i> AI 진단하기';
     evaluationCancel.classList.toggle("d-none", !busy || !evaluationJobIds.length);
   }
 
+  // AI 진단하기는 PM/엔지니어링/투자자 세 관점을 각각 진단한 뒤, 세 결과가 모두
+  // 최신 상태로 갖춰지면 이어서 종합 의견을 만든다. 새로고침으로 다시 들어왔을
+  // 때도 세 관점은 있는데 종합만 없거나 낡은 경우 여기서 자동으로 채운다.
   async function loadEvaluation() {
     try {
       const data = await api(aiBase + "evaluation/");
@@ -945,22 +967,66 @@
           isCurrent: Boolean(data.is_current_by_persona?.[persona])
         };
       });
-      if (!Object.keys(evaluationResults).length && data.job?.output?.persona) {
-        evaluationResults[data.job.output.persona] = {job: data.job, isCurrent: data.is_current};
-      }
+      evaluationPersonas.forEach(function (persona) { renderPersonaRing(persona, evaluationResults[persona]); });
+
       if (!Object.keys(evaluationResults).length) {
         renderEvaluationEmpty();
         return;
       }
+
       const activeJobs = Object.values(evaluationResults).map(function (item) { return item.job; })
         .filter(function (job) { return ["queued", "running", "retry_wait", "cancel_requested"].includes(job.status); });
-      renderSelectedEvaluation();
       if (activeJobs.length) {
         setEvaluationNotice("PM·엔지니어링·투자자 관점 진단을 진행하고 있습니다.", "working");
-        setEvaluationBusy(true, activeJobs.map(function (job) { return job.id; }));
+        setEvaluationBusy(true, activeJobs.map(function (job) { return job.id; }), "세 관점 진단 중…");
         await Promise.allSettled(activeJobs.map(function (job) { return pollJob(job.id, function () {}); }));
         setEvaluationBusy(false);
         await loadEvaluation();
+        return;
+      }
+
+      const allSucceededAndCurrent = evaluationPersonas.every(function (persona) {
+        const result = evaluationResults[persona];
+        return result?.job?.status === "succeeded" && result.isCurrent;
+      });
+
+      let synthesisJob = data.synthesis;
+      let synthesisIsCurrent = Boolean(data.synthesis_is_current);
+
+      if (
+        allSucceededAndCurrent
+        && (!synthesisJob || synthesisJob.status !== "succeeded" || !synthesisIsCurrent)
+        && !synthesisRequestInFlight
+      ) {
+        synthesisRequestInFlight = true;
+        setEvaluationNotice("세 관점 진단을 종합하고 있습니다.", "working");
+        try {
+          const job = await api(aiBase + "evaluation/synthesis/run/", {
+            method: "POST",
+            headers: {"Idempotency-Key": crypto.randomUUID()},
+            body: JSON.stringify({})
+          });
+          setEvaluationBusy(true, [job.id], "종합 의견 생성 중…");
+          const finished = await pollJob(job.id, function () {});
+          setEvaluationBusy(false);
+          if (finished?.status === "succeeded") {
+            synthesisJob = finished;
+            synthesisIsCurrent = true;
+          }
+        } catch (error) {
+          setEvaluationBusy(false);
+        } finally {
+          synthesisRequestInFlight = false;
+        }
+      }
+
+      synthesisResult = synthesisJob ? {job: synthesisJob, isCurrent: synthesisIsCurrent} : null;
+      if (synthesisJob?.status === "succeeded") {
+        renderSynthesisResult(synthesisJob, synthesisIsCurrent);
+      } else if (!allSucceededAndCurrent) {
+        renderSynthesisEmpty("PM·엔지니어링·투자자 진단을 모두 완료하면 종합 의견을 확인할 수 있습니다.");
+      } else {
+        renderSynthesisEmpty("종합 의견을 준비하지 못했습니다. 다시 시도해 주세요.");
       }
     } catch (error) {
       setEvaluationNotice(error.message, "danger");
@@ -969,23 +1035,12 @@
 
   function markEvaluationStale() {
     Object.values(evaluationResults).forEach(function (result) { result.isCurrent = false; });
+    if (synthesisResult) synthesisResult.isCurrent = false;
     if (document.getElementById("write-score-value").textContent !== "—") {
       document.getElementById("score-state").textContent = "업데이트 필요";
       setEvaluationNotice("답변이 변경되었습니다. 저장을 마친 뒤 다시 진단해 주세요.", "warning");
     }
   }
-
-  const evaluationPersonaLabels = {pm: "PM", engineering: "엔지니어링", investor: "투자자"};
-
-  document.querySelectorAll("[data-evaluation-persona]").forEach(function (button) {
-    button.addEventListener("click", function () {
-      evaluationPersona = button.dataset.evaluationPersona;
-      document.querySelectorAll("[data-evaluation-persona]").forEach(function (item) {
-        item.classList.toggle("active", item === button);
-      });
-      renderSelectedEvaluation();
-    });
-  });
 
   evaluationButton.addEventListener("click", async function () {
     clearAlert();

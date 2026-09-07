@@ -2,7 +2,7 @@
 {% load static %}
 
 {% block title %}{{ prd.title }} | Idea Developer{% endblock %}
-{% block extra_head %}<link href="{% static 'prds/css/write.css' %}?v=20260906-5" rel="stylesheet">{% endblock %}
+{% block extra_head %}<link href="{% static 'prds/css/write.css' %}?v=20260906-11" rel="stylesheet">{% endblock %}
 
 {% block content %}
 <div id="prd-write-app" data-prd-id="{{ prd.id }}" data-detail-api="{{ detail_api_url }}" data-export-api="{% url 'prd_api:export-markdown' prd.id %}" data-participants-api="{{ participants_api_url }}" data-participant-search-api="{{ participant_search_api_url }}" data-participant-team-api="{{ participant_team_api_url }}" data-comments-api="{{ comments_api_url }}" data-contributions-api="{{ contributions_api_url }}" data-ai-api-base="{{ ai_api_base }}">
@@ -34,14 +34,29 @@
     <aside class="write-evaluation" aria-labelledby="evaluation-heading">
       <div class="write-evaluation-title"><div><span>AI PRD REVIEW</span><h2 id="evaluation-heading">AI PRD 충족도</h2></div><span id="score-state">진단 전</span></div>
       <section class="write-score-card" aria-label="AI PRD 충족도">
-        <div class="evaluation-personas" role="group" aria-label="AI 진단 관점">
-          <button class="active" type="button" data-evaluation-persona="pm"><i class="bi bi-kanban"></i> PM</button>
-          <button type="button" data-evaluation-persona="engineering"><i class="bi bi-code-slash"></i> 엔지니어링</button>
-          <button type="button" data-evaluation-persona="investor"><i class="bi bi-graph-up-arrow"></i> 투자자</button>
-        </div>
         <div class="write-score-main">
           <div id="write-score-ring" class="write-score-ring is-pending"><svg class="write-score-svg" viewBox="0 0 84 84" aria-hidden="true"><circle class="write-score-track" cx="42" cy="42" r="34" pathLength="100"></circle><circle id="write-score-progress" class="write-score-progress" cx="42" cy="42" r="34" pathLength="100"></circle></svg><span class="write-score-copy"><strong id="write-score-value">—</strong><small>/ 100</small></span></div>
-          <div><strong id="write-score-label">아직 진단하지 않았습니다</strong><p id="write-score-feedback">관점을 선택하고 AI 진단을 실행하면 내용의 충족도와 보완점을 확인할 수 있습니다.</p></div>
+          <div><strong id="write-score-label">아직 진단하지 않았습니다</strong><p id="write-score-feedback">AI 진단을 실행하면 PM·엔지니어링·투자자 세 관점을 종합한 의견을 확인할 수 있습니다.</p></div>
+        </div>
+        <div id="write-score-personas" class="write-score-personas">
+          <div class="write-score-persona" data-persona="pm">
+            <div class="write-score-persona-inner">
+              <div class="write-score-persona-ring is-pending"><svg class="write-score-persona-svg" viewBox="0 0 84 84" aria-hidden="true"><circle class="write-score-persona-track" cx="42" cy="42" r="34" pathLength="100"></circle><circle class="write-score-persona-progress" cx="42" cy="42" r="34" pathLength="100"></circle></svg><span class="write-score-persona-value">—</span></div>
+              <div class="write-score-persona-copy"><strong><i class="bi bi-kanban"></i> PM</strong><p class="write-score-persona-feedback">아직 진단하지 않았습니다.</p></div>
+            </div>
+          </div>
+          <div class="write-score-persona" data-persona="engineering">
+            <div class="write-score-persona-inner">
+              <div class="write-score-persona-ring is-pending"><svg class="write-score-persona-svg" viewBox="0 0 84 84" aria-hidden="true"><circle class="write-score-persona-track" cx="42" cy="42" r="34" pathLength="100"></circle><circle class="write-score-persona-progress" cx="42" cy="42" r="34" pathLength="100"></circle></svg><span class="write-score-persona-value">—</span></div>
+              <div class="write-score-persona-copy"><strong><i class="bi bi-code-slash"></i> 엔지니어링</strong><p class="write-score-persona-feedback">아직 진단하지 않았습니다.</p></div>
+            </div>
+          </div>
+          <div class="write-score-persona" data-persona="investor">
+            <div class="write-score-persona-inner">
+              <div class="write-score-persona-ring is-pending"><svg class="write-score-persona-svg" viewBox="0 0 84 84" aria-hidden="true"><circle class="write-score-persona-track" cx="42" cy="42" r="34" pathLength="100"></circle><circle class="write-score-persona-progress" cx="42" cy="42" r="34" pathLength="100"></circle></svg><span class="write-score-persona-value">—</span></div>
+              <div class="write-score-persona-copy"><strong><i class="bi bi-graph-up-arrow"></i> 투자자</strong><p class="write-score-persona-feedback">아직 진단하지 않았습니다.</p></div>
+            </div>
+          </div>
         </div>
         <div id="evaluation-alert" class="evaluation-alert d-none" role="status"></div>
         <div id="perspective-draft-alert" class="evaluation-alert d-none" role="status"></div>
@@ -138,5 +153,5 @@
 <script src="{% static 'prds/js/write-participants.js' %}?v=20260906-2"></script>
 <script src="{% static 'prds/js/write-comments.js' %}?v=20260906-2"></script>
 <script src="{% static 'prds/js/write-contributions.js' %}?v=20260906-1"></script>
-<script src="{% static 'prds/js/write.js' %}?v=20260906-12"></script>
+<script src="{% static 'prds/js/write.js' %}?v=20260906-13"></script>
 {% endblock %}

@@ -378,7 +378,10 @@ class BrainstormAiResultRouter:
     def __init__(self):
         from .coaching import AiResultProcessor
         from .contribution import ContributionResultProcessor
-        from .evaluation import PrdEvaluationResultProcessor
+        from .evaluation import (
+            PrdEvaluationResultProcessor,
+            PrdEvaluationSynthesisResultProcessor,
+        )
         from .perspective_draft import PrdPerspectiveDraftResultProcessor
         from .prd_apply import PrdApplyResultProcessor
 
@@ -387,6 +390,7 @@ class BrainstormAiResultRouter:
         self.prd_apply = PrdApplyResultProcessor()
         self.contribution = ContributionResultProcessor()
         self.evaluation = PrdEvaluationResultProcessor()
+        self.evaluation_synthesis = PrdEvaluationSynthesisResultProcessor()
         self.perspective_draft = PrdPerspectiveDraftResultProcessor()
 
     def process(self, *, job, output):
@@ -395,6 +399,7 @@ class BrainstormAiResultRouter:
         output = self.prd_apply.process(job=job, output=output)
         output = self.contribution.process(job=job, output=output)
         output = self.evaluation.process(job=job, output=output)
+        output = self.evaluation_synthesis.process(job=job, output=output)
         return self.perspective_draft.process(job=job, output=output)
 
 
