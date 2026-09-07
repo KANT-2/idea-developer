@@ -47,7 +47,7 @@
         <div id="perspective-draft-alert" class="evaluation-alert d-none" role="status"></div>
         <div class="evaluation-actions"><button id="run-evaluation" class="btn btn-primary" type="button"><i class="bi bi-stars"></i> AI 진단하기</button><button id="run-perspective-draft" class="btn btn-primary" type="button"><i class="bi bi-magic"></i> AI 초안 작성</button></div>
         <button id="cancel-evaluation" class="btn btn-outline-secondary btn-sm w-100 d-none" type="button">진단 취소</button>
-        <p class="evaluation-caption"><i class="bi bi-info-circle"></i> AI 진단하기는 PM·엔지니어링·투자자 세 관점을 모두 진단합니다. AI 초안 작성은 지금 선택된 관점 기준으로 PRD 전체 답변 초안을 만들어 드립니다.</p>
+        <p class="evaluation-caption"><i class="bi bi-info-circle"></i> AI 진단하기는 PM·엔지니어링·투자자 세 관점을 모두 진단합니다. AI 초안 작성은 세 관점을 종합해 PRD 전체 답변 초안을 만들어 드립니다.</p>
       </section>
       <section class="write-diagnosis" aria-labelledby="diagnosis-heading">
         <div class="write-diagnosis-head"><div><span>AI SECTION REVIEW</span><h3 id="diagnosis-heading">섹션별 충족도와 보완점</h3></div><small>항목을 누르면 이동합니다</small></div>
@@ -125,7 +125,7 @@
 </div></div></div>
 
 <div class="modal fade" id="perspective-draft-modal" tabindex="-1" aria-labelledby="perspective-draft-modal-title" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content perspective-draft-modal-content">
-  <div class="modal-header"><div><span>AI DRAFT PREVIEW</span><h2 class="modal-title" id="perspective-draft-modal-title">관점별 PRD 초안 미리보기</h2><p id="perspective-draft-modal-persona"></p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button></div>
+  <div class="modal-header"><div><span>AI DRAFT PREVIEW</span><h2 class="modal-title" id="perspective-draft-modal-title">PRD 초안 미리보기</h2><p id="perspective-draft-modal-persona"></p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button></div>
   <div class="modal-body">
     <div class="perspective-draft-toolbar"><button id="perspective-draft-toggle-all" type="button" class="btn btn-outline-secondary btn-sm">전체 선택 해제</button><small id="perspective-draft-selected-count"></small></div>
     <div id="perspective-draft-list" class="perspective-draft-list"></div>
@@ -138,5 +138,5 @@
 <script src="{% static 'prds/js/write-participants.js' %}?v=20260906-2"></script>
 <script src="{% static 'prds/js/write-comments.js' %}?v=20260906-2"></script>
 <script src="{% static 'prds/js/write-contributions.js' %}?v=20260906-1"></script>
-<script src="{% static 'prds/js/write.js' %}?v=20260906-10"></script>
+<script src="{% static 'prds/js/write.js' %}?v=20260906-12"></script>
 {% endblock %}

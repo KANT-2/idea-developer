@@ -20,11 +20,8 @@ class PrdPerspectiveDraftService:
         *,
         prd: Prd,
         user_id: int,
-        persona: Any,
         idempotency_key: str,
     ) -> tuple[AiJob, bool]:
-        if persona not in EVALUATION_PERSONAS:
-            raise ValidationError({"persona": "지원하는 관점을 선택해 주세요."})
         context = PrdAiContextBuilder().build(prd=prd, section=None)
         if not context["sections"]:
             raise ValidationError({"prd": "초안을 작성할 PRD 섹션이 없습니다."})
@@ -37,15 +34,16 @@ class PrdPerspectiveDraftService:
             raise ValidationError({"prd": "초안을 작성할 활성 질문이 없습니다."})
         input_data = {
             "kind": "prd_perspective_draft",
-            "persona": persona,
-            "persona_label": EVALUATION_PERSONAS[persona]["label"],
-            "evaluation_focus": EVALUATION_PERSONAS[persona]["focus"],
+            "personas": [
+                {"key": key, "label": value["label"], "focus": value["focus"]}
+                for key, value in EVALUATION_PERSONAS.items()
+            ],
             "question_versions": versions,
             "context": context,
         }
-        reference = self._reference_diagnosis(prd=prd, user_id=user_id, persona=persona)
-        if reference is not None:
-            input_data["reference_diagnosis"] = reference
+        references = self._reference_diagnoses(prd=prd, user_id=user_id)
+        if references:
+            input_data["reference_diagnoses"] = references
         return AiJobService().enqueue(
             prd=prd,
             user_id=user_id,
@@ -53,38 +51,47 @@ class PrdPerspectiveDraftService:
             action_type=AiActionType.PERSPECTIVE_DRAFT,
             input_data=input_data,
             idempotency_key=idempotency_key,
-            # 다른 기능과 달리 PRD 전체(질문 수십 개)를 한 번에 쓰기 때문에
-            # 기본 타임아웃(AI_JOB_TIMEOUT_SECONDS, 30초)로는 부족하다.
-            timeout_seconds=100,
+            # PRD 전체(질문 수십 개)를 한 번에 쓰기 때문에 기본 타임아웃
+            # (AI_JOB_TIMEOUT_SECONDS, 30초)로는 부족하다. gemini-3.5-flash-lite로
+            # 바꾼 뒤 41개 질문 기준 15~25초가 걸리는 것을 확인해 여유를 두고
+            # 60초로 잡았다.
+            timeout_seconds=60,
         )
 
     @staticmethod
-    def _reference_diagnosis(*, prd, user_id, persona):
-        """최신 AI 진단 결과를 참고 자료로만 곁들인다.
+    def _reference_diagnoses(*, prd, user_id):
+        """세 관점의 최신 AI 진단 결과를 참고 자료로만 곁들인다.
 
-        없거나, 실패했거나, 지금 PRD 내용과 안 맞으면(버전이 다르면) 그냥 생략한다 —
-        초안 작성은 진단 없이도 PRD 내용만으로 동작해야 한다.
+        관점별로 없거나, 실패했거나, 지금 PRD 내용과 안 맞으면(버전이 다르면) 그
+        관점만 빼고, 하나도 없으면 아예 생략한다 — 초안 작성은 진단 없이도 PRD
+        내용만으로 동작해야 한다.
         """
         jobs_by_persona = PrdEvaluationService.latest_by_persona(prd=prd, user_id=user_id)
-        job = jobs_by_persona.get(persona)
-        if job is None or job.status != AiJobStatus.SUCCEEDED or not job.output_data:
-            return None
-        if not PrdEvaluationService.is_current(job):
-            return None
-        output = job.output_data
-        return {
-            "overall_score": output.get("overall_score"),
-            "summary": output.get("summary"),
-            "improvements": output.get("improvements", []),
-            "sections": [
+        references = []
+        for persona, job in jobs_by_persona.items():
+            if job is None or job.status != AiJobStatus.SUCCEEDED or not job.output_data:
+                continue
+            if not PrdEvaluationService.is_current(job):
+                continue
+            output = job.output_data
+            references.append(
                 {
-                    "section_id": row["section_id"],
-                    "status": row["status"],
-                    "missing_points": row.get("missing_points", []),
+                    "persona": persona,
+                    "persona_label": EVALUATION_PERSONAS[persona]["label"],
+                    "overall_score": output.get("overall_score"),
+                    "summary": output.get("summary"),
+                    "improvements": output.get("improvements", []),
+                    "sections": [
+                        {
+                            "section_id": row["section_id"],
+                            "status": row["status"],
+                            "missing_points": row.get("missing_points", []),
+                        }
+                        for row in output.get("sections", [])
+                    ],
                 }
-                for row in output.get("sections", [])
-            ],
-        }
+            )
+        return references
 
     @transaction.atomic
     def apply(
@@ -101,7 +108,7 @@ class PrdPerspectiveDraftService:
             or job.action_type != AiActionType.PERSPECTIVE_DRAFT
             or job.status != AiJobStatus.SUCCEEDED
         ):
-            raise ValidationError({"job": "반영할 수 있는 관점별 초안 작업이 아닙니다."})
+            raise ValidationError({"job": "반영할 수 있는 PRD 초안 작업이 아닙니다."})
         approvals = self._approvals(approved_questions)
         answers_by_question = {
             row["question_id"]: row for row in (job.output_data or {}).get("answers", [])

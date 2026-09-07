@@ -1083,7 +1083,7 @@
   function renderPerspectiveDraftModal(job) {
     perspectiveDraftJob = job;
     const answers = job.output?.answers || [];
-    perspectiveDraftModalPersona.textContent = (evaluationPersonaLabels[evaluationPersona] || evaluationPersona) + " 관점 · 질문 " + answers.length + "개";
+    perspectiveDraftModalPersona.textContent = "PM·엔지니어링·투자자 통합 · 질문 " + answers.length + "개";
     perspectiveDraftList.replaceChildren();
     answers.forEach(function (row) {
       const item = element("label", "perspective-draft-item");
@@ -1127,12 +1127,12 @@
     }
     clearAlert();
     setPerspectiveDraftBusy(true);
-    setPerspectiveDraftNotice((evaluationPersonaLabels[evaluationPersona] || evaluationPersona) + " 관점의 PRD 초안을 작성하고 있습니다.", "working");
+    setPerspectiveDraftNotice("PM·엔지니어링·투자자 관점을 종합한 PRD 초안을 작성하고 있습니다.", "working");
     try {
       const job = await api(aiBase + "perspective-draft/run/", {
         method: "POST",
         headers: {"Idempotency-Key": crypto.randomUUID()},
-        body: JSON.stringify({persona: evaluationPersona})
+        body: JSON.stringify({})
       });
       const finished = await pollJob(job.id, function () {});
       if (finished?.status === "succeeded") {

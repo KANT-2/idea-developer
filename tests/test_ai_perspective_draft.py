@@ -40,8 +40,8 @@ class PerspectiveDraftProvider:
                 answers.append(
                     {
                         "question_id": question["id"],
-                        "draft": f"{data['persona_label']} 관점 초안 {question['id']}",
-                        "reasoning": "현재 답변을 유지하면서 선택 관점의 판단 기준을 보강했습니다.",
+                        "draft": f"통합 관점 초안 {question['id']}",
+                        "reasoning": "현재 답변을 유지하면서 세 관점의 판단 기준을 보강했습니다.",
                     }
                 )
         return AiProviderResult(
@@ -136,10 +136,10 @@ class PrdPerspectiveDraftApiTests(TestCase):
     def url(self, name, **kwargs):
         return reverse(f"ai_api:{name}", kwargs={"prd_id": self.prd.pk, **kwargs})
 
-    def request_draft(self, *, persona="pm", key="perspective-draft-key"):
+    def request_draft(self, *, key="perspective-draft-key"):
         return self.client.post(
             self.url("request-perspective-draft"),
-            data=json.dumps({"persona": persona}),
+            data=json.dumps({}),
             content_type="application/json",
             HTTP_IDEMPOTENCY_KEY=key,
         )
@@ -147,9 +147,9 @@ class PrdPerspectiveDraftApiTests(TestCase):
     def run_job(self):
         self.assertTrue(AiJobRunner(worker_id="perspective-draft-worker").run_once())
 
-    def test_request_is_idempotent_and_uses_server_persona_policy(self):
-        first = self.request_draft(persona="engineering")
-        second = self.request_draft(persona="engineering")
+    def test_request_is_idempotent_and_includes_all_personas(self):
+        first = self.request_draft(key="repeat-key")
+        second = self.request_draft(key="repeat-key")
 
         self.assertEqual(first.status_code, 202)
         self.assertEqual(second.status_code, 200)
@@ -157,12 +157,12 @@ class PrdPerspectiveDraftApiTests(TestCase):
         self.assertEqual(jobs.count(), 1)
         job = jobs.get()
         self.assertEqual(job.action_type, AiActionType.PERSPECTIVE_DRAFT)
-        self.assertEqual(job.input_data["persona"], "engineering")
-        self.assertIn("구현 가능성", job.input_data["evaluation_focus"])
-        self.assertEqual(job.timeout_seconds, 100)
+        persona_keys = {row["key"] for row in job.input_data["personas"]}
+        self.assertEqual(persona_keys, {"pm", "engineering", "investor"})
+        self.assertEqual(job.timeout_seconds, 60)
 
     def test_preview_does_not_save_and_only_selected_question_is_applied(self):
-        response = self.request_draft(persona="investor", key="preview-and-apply")
+        response = self.request_draft(key="preview-and-apply")
         self.assertEqual(response.status_code, 202)
         job_id = response.json()["data"]["id"]
         self.run_job()
@@ -172,10 +172,10 @@ class PrdPerspectiveDraftApiTests(TestCase):
         self.assertEqual(len(job.output_data["answers"]), 2)
         self.assertFalse(PrdAnswer.objects.exists())
         request, timeout_seconds = PerspectiveDraftProvider.requests[-1]
-        self.assertEqual(timeout_seconds, 100)
+        self.assertEqual(timeout_seconds, 60)
         self.assertEqual(
-            request.user_data["untrusted_user_data"]["persona"],
-            "investor",
+            len(request.user_data["untrusted_user_data"]["personas"]),
+            3,
         )
 
         applied = self.client.post(
@@ -189,7 +189,7 @@ class PrdPerspectiveDraftApiTests(TestCase):
         self.assertEqual(applied.status_code, 200)
         self.assertEqual(PrdAnswer.objects.count(), 1)
         answer = PrdAnswer.objects.get(question=self.question_a)
-        self.assertIn("투자자", answer.content)
+        self.assertIn("통합 관점", answer.content)
         self.assertFalse(PrdAnswer.objects.filter(question=self.question_b).exists())
 
     def test_question_change_after_preview_returns_conflict_without_saving(self):
@@ -245,11 +245,9 @@ class PrdPerspectiveDraftApiTests(TestCase):
         self.assertEqual(apply_response.status_code, 400)
         self.assertFalse(PrdAnswer.objects.exists())
 
-    def test_invalid_persona_and_empty_prd_are_rejected_before_enqueue(self):
-        unknown = self.request_draft(persona="marketing", key="invalid-persona")
-        self.assertEqual(unknown.status_code, 400)
+    def test_empty_prd_is_rejected_before_enqueue(self):
         self.section.delete()
-        empty = self.request_draft(persona="pm", key="empty-prd")
+        empty = self.request_draft(key="empty-prd")
         self.assertEqual(empty.status_code, 400)
         self.assertFalse(
             AiJob.objects.filter(feature_type=AiFeatureType.PRD_PERSPECTIVE_DRAFT).exists()
