@@ -159,7 +159,7 @@ class PrdPerspectiveDraftApiTests(TestCase):
         self.assertEqual(job.action_type, AiActionType.PERSPECTIVE_DRAFT)
         persona_keys = {row["key"] for row in job.input_data["personas"]}
         self.assertEqual(persona_keys, {"pm", "engineering", "investor"})
-        self.assertEqual(job.timeout_seconds, 240)
+        self.assertEqual(job.timeout_seconds, 60)
 
     def test_preview_does_not_save_and_only_selected_question_is_applied(self):
         response = self.request_draft(key="preview-and-apply")
@@ -172,7 +172,7 @@ class PrdPerspectiveDraftApiTests(TestCase):
         self.assertEqual(len(job.output_data["answers"]), 2)
         self.assertFalse(PrdAnswer.objects.exists())
         request, timeout_seconds = PerspectiveDraftProvider.requests[-1]
-        self.assertEqual(timeout_seconds, 240)
+        self.assertEqual(timeout_seconds, 60)
         self.assertEqual(
             len(request.user_data["untrusted_user_data"]["personas"]),
             3,
