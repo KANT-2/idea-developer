@@ -11,6 +11,11 @@ urlpatterns = [
     path("evaluation/", views.latest_evaluation, name="latest-evaluation"),
     path("evaluation/run/", views.request_evaluation, name="request-evaluation"),
     path(
+        "evaluation/synthesis/run/",
+        views.request_evaluation_synthesis,
+        name="request-evaluation-synthesis",
+    ),
+    path(
         "perspective-draft/run/",
         views.request_perspective_draft,
         name="request-perspective-draft",

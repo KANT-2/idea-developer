@@ -23,7 +23,7 @@ from .coaching import (
     AiDraftService,
     AiDraftVersionConflict,
 )
-from .evaluation import EVALUATION_PERSONAS, PrdEvaluationService
+from .evaluation import EVALUATION_PERSONAS, PrdEvaluationService, PrdEvaluationSynthesisService
 from .exceptions import (
     AiJobNotCancellable,
     AiJobNotRetryable,
@@ -305,6 +305,8 @@ def latest_evaluation(request, prd_id):
             user_id=context.user_id,
             jobs_by_persona=jobs_by_persona,
         )
+        synthesis_service = PrdEvaluationSynthesisService()
+        synthesis_job = synthesis_service.latest(prd=access.prd, user_id=context.user_id)
         return api_success(
             {
                 "job": _serialize_job(job) if job else None,
@@ -321,10 +323,43 @@ def latest_evaluation(request, prd_id):
                     {"id": key, "label": value["label"]}
                     for key, value in EVALUATION_PERSONAS.items()
                 ],
+                "synthesis": _serialize_job(synthesis_job) if synthesis_job else None,
+                "synthesis_is_current": (
+                    synthesis_service.is_current(synthesis_job) if synthesis_job else False
+                ),
             },
             request_id=_request_id(request),
         )
     except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
+        return _error(request, exc)
+
+
+@require_POST
+def request_evaluation_synthesis(request, prd_id):
+    if response := _authentication_error(request):
+        return response
+    try:
+        payload = _parse_json(request)
+        context, access = _access(request, prd_id)
+        _enforce(access, ParticipantAction.REQUEST_AI)
+        job, created = PrdEvaluationSynthesisService().request(
+            prd=access.prd,
+            user_id=context.user_id,
+            idempotency_key=_idempotency_key(request, payload),
+        )
+        return api_success(
+            _serialize_job(job),
+            status=202 if created else 200,
+            request_id=_request_id(request),
+        )
+    except (
+        PrdNotFound,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+        AiPromptNotConfigured,
+        AiUsageLimitExceeded,
+    ) as exc:
         return _error(request, exc)
 
 

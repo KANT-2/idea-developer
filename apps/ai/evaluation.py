@@ -252,6 +252,141 @@ class PrdEvaluationService:
         return snapshot == current
 
 
+class PrdEvaluationSynthesisService:
+    def request(
+        self,
+        *,
+        prd: Prd,
+        user_id: int,
+        idempotency_key: str,
+    ) -> tuple[AiJob, bool]:
+        jobs_by_persona = PrdEvaluationService.latest_by_persona(prd=prd, user_id=user_id)
+        if set(jobs_by_persona) != set(EVALUATION_PERSONAS):
+            raise ValidationError(
+                {"evaluations": "세 관점 진단이 모두 끝나야 종합 의견을 만들 수 있습니다."}
+            )
+        evaluations = []
+        for persona, job in jobs_by_persona.items():
+            if job.status != AiJobStatus.SUCCEEDED or not job.output_data:
+                raise ValidationError(
+                    {"evaluations": "세 관점 진단이 모두 끝나야 종합 의견을 만들 수 있습니다."}
+                )
+            if not PrdEvaluationService.is_current(job):
+                raise ValidationError(
+                    {"evaluations": "진단 결과가 최신 상태가 아닙니다. 다시 진단해 주세요."}
+                )
+            output = job.output_data
+            evaluations.append(
+                {
+                    "persona": persona,
+                    "persona_label": EVALUATION_PERSONAS[persona]["label"],
+                    "overall_score": output.get("overall_score"),
+                    "summary": output.get("summary"),
+                    "sections": [
+                        {
+                            "section_id": row["section_id"],
+                            "score": row.get("score"),
+                            "status": row.get("status"),
+                            "feedback": row.get("feedback"),
+                        }
+                        for row in output.get("sections", [])
+                    ],
+                }
+            )
+        reference_versions = next(iter(jobs_by_persona.values())).input_data.get(
+            "question_versions", {}
+        )
+        sections = [{"section_id": row["section_id"]} for row in evaluations[0]["sections"]]
+        return AiJobService().enqueue(
+            prd=prd,
+            user_id=user_id,
+            feature_type=AiFeatureType.PRD_EVALUATION_SYNTHESIS,
+            action_type=AiActionType.SYNTHESIS,
+            input_data={
+                "kind": "prd_evaluation_synthesis",
+                "evaluations": evaluations,
+                "sections": sections,
+                "question_versions": reference_versions,
+            },
+            idempotency_key=idempotency_key,
+        )
+
+    @staticmethod
+    def latest(*, prd: Prd, user_id: int) -> AiJob | None:
+        active_statuses = [
+            AiJobStatus.QUEUED,
+            AiJobStatus.RUNNING,
+            AiJobStatus.RETRY_WAIT,
+            AiJobStatus.CANCEL_REQUESTED,
+        ]
+        candidates = AiJob.objects.filter(
+            prd=prd,
+            feature_type=AiFeatureType.PRD_EVALUATION_SYNTHESIS,
+            action_type=AiActionType.SYNTHESIS,
+        ).filter(Q(user_id=user_id, status__in=active_statuses) | Q(status=AiJobStatus.SUCCEEDED))
+        active = [job for job in candidates if job.status in active_statuses]
+        if active:
+            return max(active, key=lambda job: (job.created_at, str(job.pk)))
+        succeeded = [job for job in candidates if job.status == AiJobStatus.SUCCEEDED]
+        return (
+            max(succeeded, key=lambda job: (job.finished_at or job.created_at, str(job.pk)))
+            if succeeded
+            else None
+        )
+
+    @staticmethod
+    def is_current(job: AiJob) -> bool:
+        snapshot = job.input_data.get("question_versions") or {}
+        current = {
+            str(question_id): version
+            for question_id, version in PrdQuestion.objects.filter(
+                section__prd=job.prd,
+                section__is_deleted=False,
+                is_deleted=False,
+                is_held=False,
+            ).values_list("id", "version")
+        }
+        return snapshot == current
+
+
+class PrdEvaluationSynthesisResultProcessor:
+    def process(self, *, job: AiJob, output: dict[str, Any]) -> dict[str, Any]:
+        if (
+            job.feature_type != AiFeatureType.PRD_EVALUATION_SYNTHESIS
+            or job.action_type != AiActionType.SYNTHESIS
+        ):
+            return output
+        expected_section_ids = {row["section_id"] for row in job.input_data["sections"]}
+        section_rows = output.get("sections")
+        if not isinstance(section_rows, list):
+            raise AiOutputValidationError("PRD evaluation synthesis sections must be an array.")
+        returned_ids = [row.get("section_id") for row in section_rows]
+        if len(returned_ids) != len(set(returned_ids)):
+            raise AiOutputValidationError("PRD evaluation synthesis repeated a section identifier.")
+        if set(returned_ids) != expected_section_ids:
+            raise AiOutputValidationError(
+                "PRD evaluation synthesis must cover every current section once."
+            )
+        valid_statuses = {"good", "needs_improvement", "missing"}
+        sections = []
+        for row in section_rows:
+            if row.get("status") not in valid_statuses:
+                raise AiOutputValidationError("PRD evaluation synthesis section status invalid.")
+            sections.append(
+                {
+                    "section_id": row["section_id"],
+                    "score": row["score"],
+                    "status": row["status"],
+                    "feedback": sanitize_ai_markdown(row["feedback"]),
+                }
+            )
+        return {
+            "overall_score": output["overall_score"],
+            "summary": sanitize_ai_markdown(output["summary"]),
+            "sections": sections,
+        }
+
+
 class PrdEvaluationResultProcessor:
     def process(self, *, job: AiJob, output: dict[str, Any]) -> dict[str, Any]:
         if (

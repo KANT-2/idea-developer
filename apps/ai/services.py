@@ -44,6 +44,7 @@ FEATURE_ACTIONS = {
     AiFeatureType.CONTRIBUTION_EVALUATION: frozenset({AiActionType.CONTRIBUTION_EVALUATION}),
     AiFeatureType.COACHING: frozenset({AiActionType.CHAT, AiActionType.DRAFT}),
     AiFeatureType.PRD_EVALUATION: frozenset({AiActionType.EVALUATION}),
+    AiFeatureType.PRD_EVALUATION_SYNTHESIS: frozenset({AiActionType.SYNTHESIS}),
     AiFeatureType.PRD_PERSPECTIVE_DRAFT: frozenset({AiActionType.PERSPECTIVE_DRAFT}),
 }
 
