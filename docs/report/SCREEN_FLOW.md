@@ -98,7 +98,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     Detail[PRD 작성]
-    Structure[구조 보기]
+    Structure[섹션 보기]
     Questions[질문 리스트]
     Progress[진행도·AI 충족도]
     Coach[AI 코치]
@@ -149,9 +149,11 @@ flowchart TD
 flowchart TD
     Open[아이디어 맵 진입]
     Latest[최신 보드 전체 조회]
-    Versions[접이식 버전 navigation]
+    Versions[접이식 버전 navigation<br/>순서 변경·최신 지정·이전 버전 조회 전용]
     Select[기존 Ver.N 선택]
     Clone[새 버전 +]
+    Reorder[순서 변경·첫 보드를 최신 지정]
+    DeleteLatest[최신 삭제·다음 보드 승격]
     Canvas[자유 캔버스]
     Note[메모 생성·수정]
     Assignee[담당자 선택]
@@ -167,6 +169,8 @@ flowchart TD
     Latest --> Versions
     Versions --> Select --> Canvas
     Versions --> Clone --> Canvas
+    Versions --> Reorder --> Latest
+    Versions --> DeleteLatest --> Latest
     Canvas --> Note
     Canvas --> Assignee
     Canvas --> Move

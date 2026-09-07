@@ -1,6 +1,6 @@
 # Idea Developer ERD
 
-> 기준: Django 모델 및 migration, 2026-09-06
+> 기준: Django 모델 및 migration, 2026-09-07
 
 ## 1. 시스템 경계
 
@@ -176,6 +176,9 @@ erDiagram
         bigint source_canvas_id FK
         bigint created_by_user_id
         varchar creation_idempotency_key
+        int display_order
+        boolean is_deleted
+        datetime deleted_at
     }
     BRAINSTORM_NODES {
         uuid id PK
@@ -216,9 +219,11 @@ erDiagram
     }
 ```
 
-`(prd_id, version_number)`는 유일하고 최초 진입은 가장 큰 version을 연다. 복제된 메모는 새 PK와
-resource version을 받지만 동일한 `lineage_id`를 유지한다. 연결선은 자기 연결을 금지하고 정렬된
-두 node 조합을 유일하게 유지한다.
+`(prd_id, version_number)`는 유일하다. 최초 진입은 활성 캔버스를 `display_order`, version 역순,
+ID 역순으로 정렬한 첫 보드를 연다. 첫 보드만 최신·편집 가능하며, 순서 변경은 PRD 행 잠금 안에서
+전체 활성 ID를 검증해 원자적으로 적용한다. 최신 보드는 소프트 삭제하고 다음 보드를 승격하되
+마지막 활성 보드는 삭제할 수 없다. 복제된 메모는 새 PK와 resource version을 받지만 동일한
+`lineage_id`를 유지한다. 연결선은 자기 연결을 금지하고 정렬된 두 node 조합을 유일하게 유지한다.
 
 ## 5. AI 작업·코칭·PRD 반영·기여도
 

@@ -58,14 +58,21 @@ class BrainstormCanvas(models.Model):
     )
     created_by_user_id = models.PositiveBigIntegerField(null=True, blank=True)
     creation_idempotency_key = models.CharField(max_length=128, blank=True, default="")
+    display_order = models.PositiveIntegerField(default=0)
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "brainstorm_canvases"
-        ordering = ["-version_number", "-id"]
+        ordering = ["display_order", "-version_number", "-id"]
         indexes = [
             models.Index(fields=["prd", "-version_number"], name="brain_canvas_prd_ver_idx"),
+            models.Index(
+                fields=["prd", "is_deleted", "display_order"],
+                name="brain_canvas_active_order_idx",
+            ),
         ]
         constraints = [
             models.UniqueConstraint(

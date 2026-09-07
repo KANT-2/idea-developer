@@ -1,6 +1,6 @@
 # 데이터 사전
 
-> 기준: Django 모델 및 migration, 2026-09-06
+> 기준: Django 모델 및 migration, 2026-09-07
 
 ## 1. 인증·외부 연동
 
@@ -37,7 +37,7 @@ PRD 상태는 `in_progress`, `completed`, `held`, `dropped` 하나만 사용한�
 
 | 테이블 | 목적 | 핵심 관계·무결성 |
 |---|---|---|
-| `brainstorm_canvases` | PRD의 버전별 보드 | `(prd, version_number)` unique, source self FK, 생성 idempotency unique |
+| `brainstorm_canvases` | PRD의 버전별 보드 | `(prd, version_number)` unique, source self FK, 생성 idempotency unique, `display_order`, `is_deleted/deleted_at` 일관성 |
 | `brainstorm_nodes` | note/title 노드 | UUID PK, lineage 인덱스, 상태·유형 필드 조합 check, version, 소프트 삭제, 생성 idempotency unique |
 | `brainstorm_connections` | 두 노드의 무방향 연결 | UUID PK, 자기 연결 금지, node pair·idempotency unique, version·소프트 삭제 |
 | `brainstorm_user_viewports` | 사용자별 pan·zoom | `(canvas, user_id)` unique, zoom 0.30~2.00 check |
@@ -45,8 +45,10 @@ PRD 상태는 `in_progress`, `completed`, `held`, `dropped` 하나만 사용한�
 | `brainstorm_audit_logs` | 보류 연결선 삭제 등 보안·감사 기록 | actor·target check, reason·생성 시각 인덱스 |
 
 일반 note는 미분류일 때 `default`, 섹션에 배치되면 `accepted`, 보류 영역에서는 `held`다. held
-노드는 반드시 `section_id=null`이고 연결선은 영구 삭제한다. 버전 보드 복제 시 노드 PK는 새로
-만들지만 `lineage_id`는 유지한다.
+노드는 반드시 `section_id=null`이고 연결선은 영구 삭제한다. `held_from_section_id`는 보류 직전
+섹션을 임시로 기억하며 보류 해제 시 그 섹션이 유효하면 돌아간다. 버전 보드 복제 시 노드 PK는
+새로 만들지만 `lineage_id`는 유지한다. 활성 캔버스는 `display_order`, 버전 역순, ID 역순으로
+정렬하고 첫 행만 최신·편집 가능하다.
 
 ## 4. AI·작업·기여도
 

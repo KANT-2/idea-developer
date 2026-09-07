@@ -68,6 +68,17 @@ class BrainstormAccessService:
             is_completed=access.prd.status == "completed",
         )
 
+    @staticmethod
+    def enforce_latest_canvas(canvas: BrainstormCanvas) -> None:
+        latest_id = (
+            BrainstormCanvas.objects.filter(prd_id=canvas.prd_id, is_deleted=False)
+            .order_by("display_order", "-version_number", "-id")
+            .values_list("id", flat=True)
+            .first()
+        )
+        if canvas.is_deleted or latest_id != canvas.pk:
+            raise PermissionDenied("이전 버전 보드는 조회만 할 수 있습니다.")
+
     def get_or_create_canvas(
         self,
         *,
@@ -75,7 +86,11 @@ class BrainstormAccessService:
         context: IntegrationContext,
         idempotency_key: str,
     ) -> tuple[BrainstormCanvas, bool]:
-        canvas = BrainstormCanvas.objects.filter(prd=access.prd).order_by("-version_number").first()
+        canvas = (
+            BrainstormCanvas.objects.filter(prd=access.prd, is_deleted=False)
+            .order_by("display_order", "-version_number", "-id")
+            .first()
+        )
         created = False
         if canvas is None:
             self.enforce_create_note(access)
@@ -87,10 +102,13 @@ class BrainstormAccessService:
                     defaults={
                         "creation_idempotency_key": key,
                         "created_by_user_id": context.user_id,
+                        "display_order": 0,
                     },
                 )
             except IntegrityError:
-                canvas = BrainstormCanvas.objects.filter(prd=access.prd).latest("version_number")
+                canvas = BrainstormCanvas.objects.filter(
+                    prd=access.prd, is_deleted=False
+                ).first()
                 created = False
         canvas.validate_context(context)
         return canvas, created
@@ -116,6 +134,7 @@ class BrainstormAccessService:
         existing = BrainstormCanvas.objects.filter(
             prd=access.prd,
             creation_idempotency_key=key,
+            is_deleted=False,
         ).first()
         if existing is not None:
             existing.validate_context(context)
@@ -125,7 +144,7 @@ class BrainstormAccessService:
             source = (
                 BrainstormCanvas.objects.select_for_update()
                 .select_related("prd")
-                .get(pk=source_canvas_id, prd=access.prd)
+                .get(pk=source_canvas_id, prd=access.prd, is_deleted=False)
             )
         except BrainstormCanvas.DoesNotExist as exc:
             raise ValidationError(
@@ -139,12 +158,16 @@ class BrainstormAccessService:
             .first()
         )
         next_version = (latest.version_number if latest else 0) + 1
+        BrainstormCanvas.objects.filter(prd=access.prd, is_deleted=False).update(
+            display_order=F("display_order") + 1
+        )
         canvas = BrainstormCanvas.objects.create(
             prd=access.prd,
             version_number=next_version,
             source_canvas=source,
             created_by_user_id=context.user_id,
             creation_idempotency_key=key,
+            display_order=0,
         )
 
         node_map = {}
@@ -197,6 +220,106 @@ class BrainstormAccessService:
             after_data={"canvas_id": canvas.pk, "version_number": canvas.version_number},
         )
         return canvas, True
+
+    @transaction.atomic
+    def reorder_versions(
+        self,
+        *,
+        access: PrdAccess,
+        context: IntegrationContext,
+        canvas_ids,
+    ) -> tuple[BrainstormCanvas, ...]:
+        self.enforce_write(access)
+        Prd.objects.select_for_update().get(pk=access.prd.pk)
+        rows = list(
+            BrainstormCanvas.objects.select_for_update()
+            .filter(prd=access.prd, is_deleted=False)
+            .order_by("display_order", "-version_number", "-id")
+        )
+        if not isinstance(canvas_ids, list) or any(
+            isinstance(value, bool) or not isinstance(value, int) for value in canvas_ids
+        ):
+            raise ValidationError({"canvas_ids": "활성 보드 ID 배열이 필요합니다."})
+        if len(canvas_ids) != len(set(canvas_ids)) or set(canvas_ids) != {row.pk for row in rows}:
+            raise ValidationError({"canvas_ids": "활성 보드 전체를 중복 없이 보내 주세요."})
+        by_id = {row.pk: row for row in rows}
+        ordered = [by_id[canvas_id] for canvas_id in canvas_ids]
+        before = [row.pk for row in rows]
+        for display_order, row in enumerate(ordered):
+            row.display_order = display_order
+        BrainstormCanvas.objects.bulk_update(ordered, ["display_order"])
+        latest = ordered[0]
+        BrainstormChangeLog.objects.bulk_create(
+            [
+                BrainstormChangeLog(
+                    canvas=row,
+                    actor_user_id=context.user_id,
+                    action="canvas_versions_reordered",
+                    target_type=BrainstormChangeTarget.CANVAS,
+                    target_id=str(latest.pk),
+                    before_data={"canvas_ids": before},
+                    after_data={"canvas_ids": canvas_ids, "latest_canvas_id": latest.pk},
+                )
+                for row in ordered
+            ]
+        )
+        return tuple(ordered)
+
+    @transaction.atomic
+    def delete_latest_version(
+        self,
+        *,
+        access: PrdAccess,
+        context: IntegrationContext,
+        canvas_id: int,
+    ) -> BrainstormCanvas:
+        self.enforce_write(access)
+        Prd.objects.select_for_update().get(pk=access.prd.pk)
+        rows = list(
+            BrainstormCanvas.objects.select_for_update()
+            .filter(prd=access.prd, is_deleted=False)
+            .order_by("display_order", "-version_number", "-id")
+        )
+        if not rows or rows[0].pk != canvas_id:
+            raise ValidationError({"canvas_id": "현재 최신 보드만 삭제할 수 있습니다."})
+        if len(rows) == 1:
+            raise ValidationError({"canvas_id": "마지막 남은 보드는 삭제할 수 없습니다."})
+        deleted = rows[0]
+        deleted.is_deleted = True
+        deleted.deleted_at = timezone.now()
+        deleted.save(update_fields=["is_deleted", "deleted_at", "updated_at"])
+        remaining = rows[1:]
+        for display_order, row in enumerate(remaining):
+            row.display_order = display_order
+        BrainstormCanvas.objects.bulk_update(remaining, ["display_order"])
+        promoted = remaining[0]
+        BrainstormChangeLog.objects.create(
+            canvas=deleted,
+            actor_user_id=context.user_id,
+            action="canvas_version_deleted",
+            target_type=BrainstormChangeTarget.CANVAS,
+            target_id=str(deleted.pk),
+            before_data={"is_deleted": False},
+            after_data={
+                "is_deleted": True,
+                "promoted_canvas_id": promoted.pk,
+            },
+        )
+        BrainstormChangeLog.objects.bulk_create(
+            [
+                BrainstormChangeLog(
+                    canvas=row,
+                    actor_user_id=context.user_id,
+                    action="canvas_version_promoted",
+                    target_type=BrainstormChangeTarget.CANVAS,
+                    target_id=str(promoted.pk),
+                    before_data={"deleted_canvas_id": deleted.pk},
+                    after_data={"latest_canvas_id": promoted.pk},
+                )
+                for row in remaining
+            ]
+        )
+        return promoted
 
 
 class BrainstormMutationService:
@@ -316,7 +439,12 @@ class BrainstormMutationService:
                 BrainstormAccessService.enforce_create_note(current_access)
             else:
                 BrainstormAccessService.enforce_write(current_access)
-        return BrainstormCanvas.objects.select_for_update().select_related("prd").get(pk=canvas.pk)
+        locked = (
+            BrainstormCanvas.objects.select_for_update().select_related("prd").get(pk=canvas.pk)
+        )
+        if access is not None:
+            BrainstormAccessService.enforce_latest_canvas(locked)
+        return locked
 
     def _lock_node(
         self,
