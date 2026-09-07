@@ -276,13 +276,9 @@ PRD가 하나도 없으면 `0%`를 반환한다. `completionScore`, `progress`�
 
 `status = completed`인 PRD 개수다.
 
-### AI 코칭 횟수
+### 보류
 
-시스템 프롬프트 정의를 저장하는 `AI_Prompts` 행 개수가 아니라, 실제 호출 기록인 `AI_Usage_Logs`를 집계한다.
-
-`feature_type = COACHING`인 성공한 호출만 센다. 초안 생성 호출도 같은 `feature_type`으로 저장 중이라면 대화형 코칭과 구분할 수 없으므로, `action_type = chat | draft`를 추가한 뒤 홈 KPI에는 `chat`만 포함한다.
-
-현재 홈 KPI는 해당 사용자가 접근 가능한 PRD의 성공한 대화형 코칭 호출을 누적으로 반환한다.
+`status = held`인 PRD 개수다. AI 코칭 사용 횟수는 PRD의 품질이나 진행 상태로 오해될 수 있으므로 홈 KPI와 카드에 노출하지 않는다.
 
 ### 이번 주 마감
 
@@ -302,7 +298,7 @@ today <= deadline < today + 7 days
 - 진행 중: `status = in_progress`
 - 평균 완성도: 기본 동작은 필터가 아니라 `completion_rate` 내림차순 정렬
 - 완료됨: `status = completed`
-- AI 코칭 횟수: 기본 동작은 `ai_coaching_count` 내림차순 정렬
+- 보류: `status = held`
 - 이번 주 마감: `deadline_from = today`, `deadline_to = today + 6 days`, 마감 임박순 정렬
 
 같은 KPI 카드를 다시 누르면 해당 빠른 필터를 해제한다. 탭 조건은 유지하고 KPI가 적용한 상태·정렬·마감 조건만 해제한다.
@@ -344,7 +340,8 @@ today <= deadline < today + 7 days
 - 마감 임박순
 - 완성도 높은순
 - 최근 수정순
-- AI 코칭 많은순
+- 생성일 최신순
+- 생성일 오래된순
 
 여러 상태를 선택하면 OR 조건으로 처리하고, 상태·유형·마감일·참여자처럼 종류가 다른 필터끼리는 AND 조건으로 처리한다.
 
@@ -360,15 +357,19 @@ today <= deadline < today + 7 days
 - `prd_type`
 - `status`
 - `show_new_badge`
+- `created_at`
 - `completion_rate`
 - `deadline`
 - `d_day`
 - `updated_at`
 - `participants`
 - `participant_count`
-- `ai_coaching_count`
 
-프론트가 질문 전체, AI 로그 전체, 참여자 전체를 각각 추가 조회해 카드 값을 계산하지 않도록 한다.
+프론트가 질문 전체와 참여자 전체를 각각 추가 조회해 카드 값을 계산하지 않도록 한다. AI 코칭 횟수는 카드 응답에 포함하지 않는다.
+
+카드 하단에는 사용자 타임존으로 변환한 생성일과 계산된 D-Day를 `YYYY-MM-DD 생성 · D-00`
+형식으로 함께 표시한다. PRD 상세 화면에서는 모든 접근 가능 사용자가 설정 창에서 생성일을
+확인할 수 있으며 생성일은 수정할 수 없다.
 
 프로젝트 설명은 별도 필드인 `PRDs.description`에 저장한다. 현재 테이블에 없다면 nullable 필드로 추가하고, 기존 데이터는 빈 문자열로 처리한다.
 
@@ -494,7 +495,7 @@ GET /api/home?tab=all&status=in_progress&sort=updated_desc&page=1&page_size=12
     "in_progress_prds": 5,
     "average_completion_rate": 62,
     "completed_prds": 4,
-    "ai_coaching_count": 59,
+    "held_prds": 1,
     "due_this_week": 1
   },
   "applied_filters": {
@@ -530,9 +531,8 @@ KPI는 현재 목록 필터 결과가 아니라 사용자의 전체 홈 조회 �
 - `PRDs(prd_type, updated_at)`
 - `PRDs(deadline)`
 - `PRDParticipants(user_id, prd_id)`
-- `AIUsageLogs(prd_id, feature_type, action_type, status)`
 
-KPI 때문에 PRD마다 질문과 AI 로그를 반복 조회하지 않는다. 완성도와 AI 횟수는 집계 쿼리, 서브쿼리 또는 갱신 가능한 집계 필드로 한 번에 계산한다.
+KPI 때문에 PRD마다 질문을 반복 조회하지 않는다. 완성도는 집계 쿼리, 서브쿼리 또는 갱신 가능한 집계 필드로 한 번에 계산한다.
 
 집계 필드를 저장한다면 질문 완료 체크나 AI 로그 생성과 같은 원본 데이터 변경과 같은 트랜잭션에서 갱신하거나, 재계산 작업으로 불일치를 복구할 수 있어야 한다.
 
@@ -545,11 +545,11 @@ KPI 때문에 PRD마다 질문과 AI 로그를 반복 조회하지 않는다. �
 - 진행 중 KPI를 누르면 목록에 `in_progress` 필터가 적용되고, 다시 누르면 해제된다.
 - 이번 주 마감 KPI에는 오늘부터 6일 뒤까지의 미완료·미드랍 PRD만 포함된다.
 - 질문 완료 여부가 바뀌면 카드 완성도와 평균 완성도가 같은 계산 기준으로 갱신된다.
-- AI 프롬프트 정의를 추가해도 AI 코칭 횟수는 증가하지 않는다.
-- 실패하거나 취소된 AI 요청은 홈의 AI 코칭 횟수에 포함되지 않는다.
+- 홈 KPI와 카드에 AI 코칭 횟수가 노출되지 않고 AI 코칭 횟수 정렬을 제공하지 않는다.
 - 카드와 상세 화면 모두에서 PRD 권한을 검사한다.
 - 마감일, D-Day, 이번 주 마감, 마감 임박순 정렬이 같은 날짜 기준을 사용한다.
 - 최근 수정일은 질문 완료 시각이 아니라 PRD 내용의 실제 최종 변경 시각을 사용한다.
+- 카드에 생성일과 D-Day가 함께 표시되고, 생성일 최신순·오래된순 정렬이 서버에서 처리된다.
 
 ## 20. 추가 결정이 필요한 사항
 
@@ -559,7 +559,7 @@ KPI 때문에 PRD마다 질문과 AI 로그를 반복 조회하지 않는다. �
 
 `completed` 변경은 완성도 100%를 강제하지 않는다. 권한 있는 사용자의 명시적 완료와 자정
 유지보수의 마감일 경과 자동 완료를 모두 허용한다. 완료·드랍 PRD의 과거 마감일은 기록 정보로
-표시하며, AI 코칭 KPI는 성공한 `COACHING/chat` 사용 로그의 누적값을 사용한다.
+표시한다. AI 사용 기록은 AI 기능의 감사·비용 기록으로 보존하되 홈 화면에는 횟수를 노출하지 않는다.
 
 최근 활동과 이번 주 활동은 홈 범위에 포함한다. 최근 활동은 본인이 참여 중인 PRD의 변경을
 표시하고, 더보기 모달에서 서버 페이지네이션으로 전체 이력을 조회한다.
@@ -576,8 +576,7 @@ KPI 때문에 PRD마다 질문과 AI 로그를 반복 조회하지 않는다. �
 - `days_left`를 저장하지 않고 `deadline`으로 D-Day를 계산한다.
 - 최근 수정일은 `updated_at`을 사용한다.
 - 참여자는 PRD와 사용자의 관계 테이블로 관리한다.
-- AI 코칭 횟수는 `AI_Usage_Logs`에서 계산한다.
-- 프롬프트 정의 테이블인 `AI_Prompts`를 사용량 집계에 사용하지 않는다.
+- AI 코칭 횟수는 홈 KPI, PRD 카드, 정렬 조건으로 사용하지 않는다.
 - 결정되지 않은 기능은 임의로 확정 구현하지 않는다.
 
 ## 22. UI/UX 변경사항 반영 점검

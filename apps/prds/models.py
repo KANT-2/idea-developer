@@ -91,15 +91,6 @@ class PrdQuerySet(models.QuerySet):
         ).values("role")[:1]
         return self.with_completion_rate().annotate(
             participant_count=Count("participants", distinct=True),
-            ai_coaching_count=Count(
-                "ai_usage_logs",
-                filter=Q(
-                    ai_usage_logs__feature_type="COACHING",
-                    ai_usage_logs__action_type="chat",
-                    ai_usage_logs__status="success",
-                ),
-                distinct=True,
-            ),
             my_role=Subquery(my_role, output_field=CharField()),
         )
 

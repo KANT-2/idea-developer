@@ -63,5 +63,18 @@
 .participant-result-row:disabled { cursor:default; opacity:.56; }
 .participant-result-row:nth-child(8n+1) .participant-result-avatar,.selected-participant:nth-child(8n+1) .selected-participant-avatar{background:#6366f1}.participant-result-row:nth-child(8n+2) .participant-result-avatar,.selected-participant:nth-child(8n+2) .selected-participant-avatar{background:#0ea5e9}.participant-result-row:nth-child(8n+3) .participant-result-avatar,.selected-participant:nth-child(8n+3) .selected-participant-avatar{background:#10b981}.participant-result-row:nth-child(8n+4) .participant-result-avatar,.selected-participant:nth-child(8n+4) .selected-participant-avatar{background:#f59e0b}.participant-result-row:nth-child(8n+5) .participant-result-avatar,.selected-participant:nth-child(8n+5) .selected-participant-avatar{background:#f43f5e}.participant-result-row:nth-child(8n+6) .participant-result-avatar,.selected-participant:nth-child(8n+6) .selected-participant-avatar{background:#a855f7}.participant-result-row:nth-child(8n+7) .participant-result-avatar,.selected-participant:nth-child(8n+7) .selected-participant-avatar{background:#f97316}.participant-result-row:nth-child(8n) .participant-result-avatar,.selected-participant:nth-child(8n) .selected-participant-avatar{background:#64748b}
 .participant-search-help { margin:8px 0 4px; color:#98a2b3; font-size:11px; text-align:center; }
+
+/* New-PRD flow typography. */
+.new-eyebrow,.new-section-copy>span { font-size:11px; }
+.new-stepper span { font-size:12px; }
+.new-form-card .form-label { font-size:14px; }
+.new-form-card .form-control,.new-form-card .studio-select-button { font-size:14px; }
+.selected-participant-name { font-size:11px; }
+.selected-participant-owner { font-size:9px; }
+.participant-picker-label { font-size:10px; }
+.participant-search-box input { font-size:13px; }
+.team-add-copy strong,.participant-result-copy strong { font-size:13px; }
+.team-add-copy small,.participant-result-copy small,.team-add-state,.participant-result-state { font-size:11px; }
+.participant-search-help { font-size:12px; }
 .participant-results:empty { display:none; }
 @media (max-width:767.98px) { .new-stepper{margin-left:0}.new-panel{padding:20px;margin-top:22px}.prd-type-card{min-height:150px} }

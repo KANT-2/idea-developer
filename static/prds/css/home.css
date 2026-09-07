@@ -24,9 +24,9 @@ button.home-kpi:hover { transform:translateY(-3px); border-color:#c7d2fe; box-sh
 .idea-card-hover { position:relative; overflow:visible; border:1px solid var(--studio-border)!important; border-radius:17px; background:#fff; box-shadow:0 7px 25px rgba(23,32,51,.04); transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease; }
 .idea-card-hover:hover,.idea-card-hover:focus { transform:translateY(-4px); border-color:#c7d2fe!important; box-shadow:0 17px 36px rgba(45,54,86,.1); outline:none; }
 .idea-card-hover .card-body { padding:20px; }
-.idea-card-hover h3 { margin-bottom:8px; font-size:1.03rem; letter-spacing:-.025em; }
+.idea-card-hover h3 { margin:0; font-size:1.03rem; letter-spacing:-.025em; }
 .idea-card-hover .badge { padding:6px 8px; border-radius:7px; font-size:10px; font-weight:750; }
-.prd-card-top{display:flex;min-height:28px;align-items:flex-start;justify-content:space-between;gap:10px;padding-right:28px}.prd-card-top>div{min-width:0}.prd-card-brainstorm{display:inline-flex;flex:0 0 auto;align-items:center;gap:5px;padding:5px 8px;border:1px solid #dddffc;border-radius:8px;color:#5145cd;background:#fafaff;font-size:10px;font-weight:750;text-decoration:none;white-space:nowrap}.prd-card-brainstorm i{color:#f5b800;font-size:13px}.prd-card-brainstorm:hover{border-color:#bfc4fb;color:#4338ca;background:#f3f2ff}.prd-card-menu{position:absolute;z-index:4;top:14px;right:13px}.prd-card-menu-button{display:grid;width:26px;height:26px;padding:0;place-items:center;border:0;border-radius:8px;color:#8d95a4;background:transparent;font-size:17px}.prd-card-menu-button:hover,.prd-card-menu-button[aria-expanded="true"]{color:#4f46e5;background:#f2f2ff}.prd-card-menu .dropdown-menu{min-width:112px;padding:5px;border-color:#e5e7ee;border-radius:10px;box-shadow:0 12px 28px rgba(23,32,51,.13)}.prd-card-menu .dropdown-item{border-radius:7px;font-size:11px}
+.prd-card-top{display:flex;min-height:28px;align-items:flex-start;gap:10px;padding-right:28px}.prd-card-top>div{min-width:0}.prd-card-title-row{display:flex;min-width:0;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;padding-right:28px}.prd-card-title-row h3{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.prd-card-brainstorm{display:inline-flex;flex:0 0 auto;align-items:center;gap:5px;padding:5px 8px;border:1px solid #dddffc;border-radius:8px;color:#5145cd;background:#fafaff;font-size:10px;font-weight:750;text-decoration:none;white-space:nowrap}.prd-card-brainstorm i{color:#f5b800;font-size:13px}.prd-card-brainstorm:hover{border-color:#bfc4fb;color:#4338ca;background:#f3f2ff}.prd-card-menu{position:absolute;z-index:4;top:14px;right:13px}.prd-card-menu-button{display:grid;width:26px;height:26px;padding:0;place-items:center;border:0;border-radius:8px;color:#8d95a4;background:transparent;font-size:17px}.prd-card-menu-button:hover,.prd-card-menu-button[aria-expanded="true"]{color:#4f46e5;background:#f2f2ff}.prd-card-menu .dropdown-menu{min-width:112px;padding:5px;border-color:#e5e7ee;border-radius:10px;box-shadow:0 12px 28px rgba(23,32,51,.13)}.prd-card-menu .dropdown-item{border-radius:7px;font-size:11px}
 .prd-card-description { min-height:2.8rem; color:#7a8397!important; line-height:1.55; }
 .progress { overflow:hidden; border-radius:999px; background:#eef0f5; }
 .progress-bar { border-radius:999px; background:linear-gradient(90deg,#6366f1,#8b5cf6); }
@@ -61,3 +61,27 @@ button.home-kpi:hover { transform:translateY(-3px); border-color:#c7d2fe; box-sh
 @media (max-width:767.98px){.tutor-home-heading{align-items:flex-start;flex-direction:column;gap:3px}.tutor-student-filter{grid-template-columns:1fr;gap:15px;padding:17px}.tutor-student-results{position:static;margin-top:8px}}
 .tutor-scope-badge{color:#5b21b6!important;background:#ede9fe!important}
 .tutor-dashboard-navigation{display:inline-flex;gap:4px;margin:4px 0 8px;padding:4px;border:1px solid #e1e4ee;border-radius:11px;background:#f6f7fb}.tutor-dashboard-tab{display:inline-flex;min-height:31px;align-items:center;gap:6px;padding:0 11px;border:0;border-radius:8px;color:#747d90;background:transparent;font-size:10px;font-weight:750}.tutor-dashboard-tab:hover{color:#4f46e5;background:#fff}.tutor-dashboard-tab.active{color:#4338ca;background:#fff;box-shadow:0 3px 10px rgba(49,46,129,.1)}
+
+/* Home dashboard typography: retain the compact layout without micro text. */
+.home-eyebrow { font-size:12px; }
+.home-kpi>span:not(.kpi-icon) { font-size:13px; }
+.home-scope-description { font-size:13px; }
+.home-filters .studio-select-button,.home-tabs .btn { font-size:13px; }
+.idea-card-hover h3 { font-size:1.08rem; }
+.idea-card-hover .badge,.prd-card-brainstorm,.prd-card-menu .dropdown-item { font-size:11px; }
+.prd-card-description,.prd-card-deadline { font-size:13px!important; }
+.participant-avatar { font-size:11px; }
+.home-activity-head h2 { font-size:14px; }
+.home-activity-head span,.home-activity-more { font-size:11px; }
+.home-activity-day span,.home-activity-day strong { font-size:10px; }
+.home-recent-copy p { font-size:12px; }
+.home-recent-copy time { font-size:10px; }
+.home-activity-empty { font-size:12px; }
+.owner-role-badge { color:#3730a3!important; background:#e0e7ff!important; }
+.editor-role-badge { color:#047857!important; background:#d1fae5!important; }
+.trash-modal-content .modal-header p,.delete-confirm-content p { font-size:12px; }
+.trash-modal-content .modal-footer small,.trash-item-copy p,.trash-item-meta,.trash-item-actions .btn { font-size:11px; }
+.tutor-home-heading>strong,.tutor-student-filter-copy>span,.tutor-student-search-area>small { font-size:11px; }
+.tutor-student-filter-copy p,.tutor-student-result-copy strong,.tutor-dashboard-tab { font-size:12px; }
+.tutor-student-result-copy small,.tutor-project-count,.tutor-selected-copy small { font-size:10px; }
+.tutor-selected-copy strong { font-size:12px; }

@@ -76,6 +76,15 @@
     window.React.useEffect(function () {
       if (!measured && state) setMeasured(true);
     });
+    window.React.useEffect(function () {
+      function clearFocusedNode(event) {
+        var target = event.target;
+        if (target && target.closest && target.closest(".brain-note, .brain-note-actions, .brain-assignee-menu")) return;
+        setFocused(null);
+      }
+      document.addEventListener("mousedown", clearFocusedNode);
+      return function () { document.removeEventListener("mousedown", clearFocusedNode); };
+    }, []);
     var fullSyncGenerationRef = window.React.useRef(0);
 
     function fullSync(canvasId) {
@@ -98,11 +107,11 @@
             resizeBoard(opened.length, openedPerSection.length ? Math.max.apply(null, openedPerSection) : 0);
             // 페이지를 열 때는 언제나 도화지 전체가 한눈에 들어오게 맞춘다.
             // 지난번에 확대해 둔 배율을 그대로 복원하면 들어오자마자 축소해야 한다.
-            setView(fitBoardView());
+            setView(fitBoardView(.5, .5));
             initialViewport.current = true;
             // 첫 계산은 무대가 아직 그려지기 전일 수 있어 한 번 더 맞춘다.
             window.requestAnimationFrame(function () {
-              window.requestAnimationFrame(function () { setView(fitBoardView()); });
+              window.requestAnimationFrame(function () { setView(fitBoardView(.5, .5)); });
             });
           }
         }).catch(function (error) {
@@ -614,7 +623,7 @@
       event.preventDefault();
       if (event.ctrlKey || event.metaKey) {
         var rect = event.currentTarget.getBoundingClientRect();
-        zoom(event.deltaY < 0 ? .1 : -.1, event.clientX - rect.left, event.clientY - rect.top);
+        zoom(event.deltaY < 0 ? .05 : -.05, event.clientX - rect.left, event.clientY - rect.top);
         return;
       }
       var next = {x: view.x - event.deltaX, y: view.y - event.deltaY, zoom: view.zoom};
@@ -680,7 +689,7 @@
       refresh(request(apiBase + "ai/prd-apply/apply/", {method: "POST", headers: {"Idempotency-Key": key()}, body: JSON.stringify({preview_request_id: job.id, node_versions: job.preview.node_versions, approved_questions: (job.output.answers || []).map(function (row) { return {question_id: row.question_id, version: row.question_version}; })})}), function () { setAiPanel(null); });
     }
 
-    if (!state) return h("div", {className: "brain-loading"}, h("span", {className: "spinner-border text-primary"}), h("p", null, "React 캔버스를 불러오는 중입니다."));
+    if (!state) return h("div", {className: "brain-loading"}, h("span", {className: "spinner-border text-primary"}), h("p", null, "아이디어 캔버스를 불러오는 중입니다."));
     var canEdit = state.permissions.can_edit && !state.permissions.is_completed;
     var canCreateNote = state.permissions.can_create_note && !state.permissions.is_completed;
     var visible = state.nodes.filter(function (node) { return node.node_type === "title" || filter === "all" || node.status === filter; });
@@ -827,7 +836,7 @@
       return h("article", {key: node.id, "data-node": "true", "data-color": node.color, className: "brain-note " + (selected ? "selected " : "") + (connect ? "connect-source" : ""), style: {left: p.x, top: p.y}, onMouseDown: function (event) { beginMove(event, node); }, onMouseEnter: function () { setHoveredNode(node.id); }, onMouseLeave: function () { setHoveredNode(function (current) { return current === node.id ? null : current; }); }, onDoubleClick: function (event) { event.stopPropagation(); if (canEdit) editNode(node); }},
         h("div", {className: "brain-note-top"}, h("span", {className: "brain-note-status " + node.status}, node.status === "accepted" ? "채택" : "아이디어"), canEdit ? h("div", {className: "brain-note-controls", onMouseDown: function (event) { event.stopPropagation(); }}, h("button", {type: "button", onClick: function (event) { event.stopPropagation(); editNode(node); }, title: "내용 수정", "aria-label": "내용 수정"}, "✎"), h("button", {type: "button", onClick: function (event) { event.stopPropagation(); deleteNode(node); }, title: "삭제", "aria-label": "삭제"}, "×")) : null),
         h("p", null, node.content),
-        h("footer", null, h("span", null, "v" + node.version), h("span", {title: assignee ? "담당자 " + assignee.display_name : "담당자 없음"}, assignee ? "담당 " + assignee.display_name : "담당자 없음")),
+        h("footer", null, h("span", null, "ver." + node.introduced_in_version), h("span", {title: assignee ? "담당자 " + assignee.display_name : "담당자 없음"}, assignee ? "담당 " + assignee.display_name : "담당자 없음")),
         selected && canEdit ? (function () {
           var place = actionsOffset(node, p);
           return h("div", {className: "brain-note-actions", style: {left: place.dx, top: place.dy}, onMouseDown: function (event) { event.stopPropagation(); }},
@@ -989,7 +998,7 @@
       setRegionWeights(perSection);
       return h("main", {className: "brain-stage", onMouseDown: pan, onWheel: wheelCanvas},
         h("div", {className: "brain-canvas-hint"}, h("i", {className: "bi bi-arrows-move"}), " 빈 공간을 드래그해 이동 · 휠로 패닝 · Ctrl+휠로 확대/축소"),
-        h("div", {className: "brain-zoom"}, h("button", {onClick: function () { zoom(.1); }}, "+"), h("span", null, Math.round(view.zoom * 100) + "%"), h("button", {onClick: function () { zoom(-.1); }}, "−"), h("button", {title: "도화지 전체 보기", onClick: function () { var next = fitBoardView(); setView(next); saveView(next); }}, "⌂")),
+        h("div", {className: "brain-zoom"}, h("button", {onClick: function () { zoom(.05); }}, "+"), h("span", null, Math.round(view.zoom * 100) + "%"), h("button", {onClick: function () { zoom(-.05); }}, "−"), h("button", {title: "도화지 전체 보기", onClick: function () { var next = fitBoardView(); setView(next); saveView(next); }}, "⌂")),
         h("div", {className: "brain-canvas", style: {width: canvasWidth(), height: CANVAS_H, transform: "translate(" + view.x + "px," + view.y + "px) scale(" + view.zoom + ")"}},
           h("svg", {className: "brain-regions", width: CANVAS_W, height: CANVAS_H},
             h("rect", {className: "brain-board", x: BOARD.x, y: BOARD.y, width: BOARD.w, height: BOARD.h, rx: 26}),
@@ -1144,7 +1153,7 @@
                 h("i", {className: "bi " + (heldExpanded ? "bi-chevron-down" : "bi-chevron-up"), "aria-hidden": "true"})
               )
             ),
-            h("div", {className: "brain-held-list"}, state.held_nodes.map(function (node) { return h("article", {key: node.id, "data-color": node.color}, h("p", null, node.content), canEdit ? h("button", {onClick: function () { statusNode(node, "default"); }}, "미분류로 이동 →") : null); }))
+            h("div", {className: "brain-held-list"}, state.held_nodes.map(function (node) { return h("article", {key: node.id, "data-color": node.color}, h("p", null, node.content), canEdit ? h("button", {onClick: function () { statusNode(node, "default"); }}, "보류 해제 →") : null); }))
           )
         )
       ),

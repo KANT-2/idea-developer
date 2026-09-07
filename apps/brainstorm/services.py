@@ -158,9 +158,11 @@ class BrainstormAccessService:
                 position_x=node.position_x,
                 position_y=node.position_y,
                 section_id=node.section_id,
+                held_from_section_id=node.held_from_section_id,
                 author_id=node.author_id,
                 assignee_id=node.assignee_id,
                 status=node.status,
+                introduced_in_version=node.introduced_in_version,
                 version=1,
             )
             node_map[node.pk] = cloned
@@ -615,8 +617,15 @@ class BrainstormMutationService:
         status = payload.get("status")
         if status not in BrainstormNodeStatus.values:
             raise ValidationError({"status": "메모 상태가 올바르지 않습니다."})
-        before = {"status": node.status, "section_id": node.section_id, "version": node.version}
+        before = {
+            "status": node.status,
+            "section_id": node.section_id,
+            "held_from_section_id": node.held_from_section_id,
+            "version": node.version,
+        }
         if status == BrainstormNodeStatus.HELD:
+            if node.status == BrainstormNodeStatus.HELD:
+                raise ValidationError({"status": "이미 보류 중인 메모입니다."})
             expected_connections = payload.get("connection_versions")
             if not isinstance(expected_connections, list):
                 raise ValidationError(
@@ -650,8 +659,19 @@ class BrainstormMutationService:
         elif node.status == BrainstormNodeStatus.HELD:
             if status != BrainstormNodeStatus.DEFAULT:
                 raise ValidationError({"status": "보류 메모는 기본 상태로만 복원할 수 있습니다."})
-            x, y = self._unclassified_restore_position(canvas, exclude_node_id=node.pk)
-            node.restore_from_hold(position_x=x, position_y=y)
+            origin_is_available = (
+                node.held_from_section_id is not None
+                and PrdSection.objects.filter(
+                    pk=node.held_from_section_id,
+                    prd=canvas.prd,
+                    is_deleted=False,
+                ).exists()
+            )
+            if origin_is_available:
+                node.restore_from_hold()
+            else:
+                x, y = self._unclassified_restore_position(canvas, exclude_node_id=node.pk)
+                node.restore_from_hold(position_x=x, position_y=y)
         else:
             raise ValidationError(
                 {"status": "채택 여부는 메모의 섹션 위치에 따라 자동으로 결정됩니다."}
@@ -663,7 +683,12 @@ class BrainstormMutationService:
             target_type=BrainstormChangeTarget.NODE,
             target_id=node.pk,
             before=before,
-            after={"status": node.status, "section_id": node.section_id, "version": node.version},
+            after={
+                "status": node.status,
+                "section_id": node.section_id,
+                "held_from_section_id": node.held_from_section_id,
+                "version": node.version,
+            },
         )
         return node
 
