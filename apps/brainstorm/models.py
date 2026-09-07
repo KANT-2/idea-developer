@@ -215,8 +215,7 @@ class BrainstormNode(models.Model):
                 name="brain_held_node_unclassified",
             ),
             models.CheckConstraint(
-                condition=Q(status=BrainstormNodeStatus.HELD)
-                | Q(held_from_section__isnull=True),
+                condition=Q(status=BrainstormNodeStatus.HELD) | Q(held_from_section__isnull=True),
                 name="brain_hold_origin_only_while_held",
             ),
             models.CheckConstraint(
