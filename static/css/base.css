@@ -61,3 +61,14 @@ input[type="date"]:focus { border-color:#818cf8; outline:0; box-shadow:0 0 0 .23
 .text-purple { color:#7c3aed!important; }
 @media (max-width:991.98px) { .navbar-collapse{padding:16px 0 6px}.studio-actions{margin-top:12px}.studio-links{margin-top:4px} }
 @media (max-width:575.98px) { .studio-brand small{display:none}.studio-container{padding-inline:15px}.studio-main{padding-top:21px} }
+
+/* Readability baseline shared by every Django template. */
+body { font-size:16px; line-height:1.55; }
+.studio-brand small { font-size:11px; }
+.studio-profile-copy strong { font-size:13px; }
+.studio-profile-copy small { font-size:11px; }
+.studio-session>span { font-size:11px; }
+.studio-session strong { font-size:14px; }
+.studio-session small { font-size:12px; }
+.studio-select-shell:has(.form-select-sm) .studio-select-button { font-size:12px; }
+.studio-select-option { font-size:13px; }

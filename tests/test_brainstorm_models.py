@@ -310,6 +310,7 @@ class BrainstormModelTests(TestCase):
 
         self.assertEqual(first.status, BrainstormNodeStatus.HELD)
         self.assertIsNone(first.section_id)
+        self.assertEqual(first.held_from_section_id, self.section.id)
         self.assertFalse(BrainstormConnection.objects.filter(pk=connection.pk).exists())
         audit = AuditLog.objects.get(reason="node_held")
         self.assertEqual(audit.actor_user_id, 7)
@@ -319,9 +320,10 @@ class BrainstormModelTests(TestCase):
         )
 
         first.restore_from_hold(position_x=Decimal("40"), position_y=Decimal("60"))
-        self.assertEqual(first.status, BrainstormNodeStatus.DEFAULT)
-        self.assertIsNone(first.section_id)
-        self.assertEqual((first.position_x, first.position_y), (Decimal("40"), Decimal("60")))
+        self.assertEqual(first.status, BrainstormNodeStatus.ACCEPTED)
+        self.assertEqual(first.section_id, self.section.id)
+        self.assertIsNone(first.held_from_section_id)
+        self.assertEqual((first.position_x, first.position_y), (Decimal("100"), Decimal("120")))
         self.assertFalse(BrainstormConnection.objects.exists())
 
     def test_change_and_audit_logs_keep_actor_target_and_payload(self):

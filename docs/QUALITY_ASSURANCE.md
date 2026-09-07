@@ -24,10 +24,12 @@ Pull Request와 `develop`, `main` push에서는 GitHub Actions가 PostgreSQL 16�
 | 홈 | 접근 범위, KPI, 과거·회차 없는 PRD, 필터·정렬·날짜 경계, N+1 방지 |
 | 상세 편집 | 역할 권한, 답변·참여자·코멘트 version 충돌, 완료 잠금, 재개 감사 |
 | 브레인스토밍 | 이동·보류·삭제·복원, 연결 무결성, 버전 보드, polling cursor, batch rollback |
-| AI | schema·ID 검증, prompt 분리, timeout·취소·재시도, 사용량, 코치 동시 append, 승인 전 미저장 |
+| AI | schema·ID 검증, prompt 분리, timeout·취소·재시도, 사용량, 코치 동시 append, 승인 전 미저장, 관점별 전체 초안의 선택 반영·version 충돌 |
+| 로깅 | request ID·`extra` 필드 보존, 예외 stack, 직렬화 불가능한 값의 안전한 문자열 변환 |
 | 기여도 | lineage 중복 제거, 내용 편집자, PRD 반영 confidence, 50:50 정규화, AI 실패 유지 |
 | 유지보수 | 마감 자동 완료, 30일 TTL, 빈 batch idempotency, 삭제 감사 보존 |
 | 알림 | transaction commit 이후 호출, 수신자 제외, 일시 실패 재시도, 최종 실패 시 저장 유지 |
+| 화면 전환 | 루트·로그인 `next`, 홈→생성→상세, 상세↔브레인스토밍, 개발 모드 404 복구, API 비정상 응답 유지 |
 
 ## 3. 보안 통제
 
@@ -58,3 +60,19 @@ Pull Request와 `develop`, `main` push에서는 GitHub Actions가 PostgreSQL 16�
 - `results_scoreinput` 사용 여부
 - 부모 공통 감사 로그의 책임과 보존기간
 - Legacy 브레인스토밍 AI API의 기존 호출자 확인 후 제거 시점
+
+## 6. 최신 통합 기능의 검증 근거
+
+- 관점별 PRD 전체 초안은 `tests/test_ai_perspective_draft.py`에서 persona 검증, 멱등 요청,
+  100초 timeout 전달, 승인 전 미저장, 부분 승인, 다른 사용자 job 차단, 질문 version 409, 결과
+  질문 ID 누락·중복·범위 이탈, 활성 질문 없음, viewer·완료 잠금, 중복 반영과 batch rollback을
+  검증한다. 비로그인과 부모 연동 장애도 HTML 오류 화면이 아닌 401·503 JSON인지 확인한다.
+  테스트 provider만 사용하므로 Gemini API를 호출하거나 토큰을 소비하지 않는다.
+- 구조화 로그의 `extra` 보존과 직렬화 실패 방지는 `tests/test_logging.py`에서 검증한다.
+- `tests/test_ui_navigation.py`는 로그인 전후 진입 경로, 보호 화면의 안전한 `next`, 홈·새 PRD
+  렌더링, 일반 화면 HTML 404/API JSON 404 분리, `DEBUG=True` 기술 404 차단, 모든 주요 fetch
+  client의 비정상 응답·네트워크 실패 방어를 검증한다. 브라우저 smoke test는 홈→새 PRD 2단계와
+  참여자 검색, 홈→PRD 상세, 상세→새 탭 브레인스토밍→상세 복귀, 404→홈 복귀를 확인한다.
+- SQLite 전체 회귀에서는 PostgreSQL `select_for_update` 전용 동시성 테스트 5개가 skip된다.
+  GitHub Actions의 PostgreSQL 16 job에서 이 5개를 포함해 실행한다. 로컬 PostgreSQL에서 직접
+  실행하려면 애플리케이션 DB와 분리된 테스트 DB 생성 권한이 필요하다.

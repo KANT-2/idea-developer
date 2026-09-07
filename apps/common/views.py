@@ -1,6 +1,6 @@
 from django.conf import settings
 from django.http import HttpRequest
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import reverse
 
 from .responses import api_error, api_success
@@ -33,13 +33,26 @@ def health(request: HttpRequest):
     )
 
 
-def api_not_found(request: HttpRequest, exception):
+def api_not_found(request: HttpRequest, exception=None):
+    if not request.path.startswith("/api/"):
+        return render(request, "404.html", status=404)
     return api_error(
         code="not_found",
         message="요청한 API 경로를 찾을 수 없습니다.",
         status=404,
         request_id=getattr(request, "request_id", None),
     )
+
+
+def server_error(request: HttpRequest):
+    if request.path.startswith("/api/"):
+        return api_error(
+            code="internal_error",
+            message="요청을 처리하는 중 오류가 발생했습니다.",
+            status=500,
+            request_id=getattr(request, "request_id", None),
+        )
+    return render(request, "500.html", status=500)
 
 
 def csrf_failure(request: HttpRequest, reason=""):

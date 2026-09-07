@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.accounts.models import LocalUserMapping
 from apps.brainstorm.models import (
@@ -19,7 +20,6 @@ from apps.brainstorm.models import (
     BrainstormNodeType,
     UserCanvasViewport,
 )
-from apps.brainstorm.services import BrainstormEventPublisher
 from apps.integration.context import IntegrationContext
 from apps.integration.repository import FixtureIntegrationRepository
 from apps.prds.models import (
@@ -232,6 +232,7 @@ class BrainstormApiTests(TestCase):
         cloned = second.nodes.get(lineage_id=first_note.lineage_id)
         self.assertEqual(cloned.content, first_note.content)
         self.assertEqual(cloned.lineage_id, first_note.lineage_id)
+        self.assertEqual(cloned.introduced_in_version, 1)
         self.assertNotEqual(cloned.pk, first_note.pk)
         self.assertEqual(second.source_canvas, first)
         self.assertEqual(second.created_by_user_id, 7)
@@ -247,6 +248,15 @@ class BrainstormApiTests(TestCase):
         data = response.json()["data"]
         self.assertEqual(data["canvas"]["id"], second.pk)
         self.assertEqual([row["version_number"] for row in data["versions"]], [1, 2])
+
+        added_to_second = self.json_request(
+            "post",
+            "node-create",
+            {"content": "두 번째 보드에서 추가", "color": "blue", "x": 50, "y": 60},
+            headers={"HTTP_X_BRAINSTORM_CANVAS_ID": str(second.pk)},
+        )
+        self.assertEqual(added_to_second.status_code, 201)
+        self.assertEqual(added_to_second.json()["data"]["introduced_in_version"], 2)
 
     def test_canvas_version_creation_is_idempotent_and_old_version_remains_editable(self):
         first = self.initialize_canvas()
@@ -344,6 +354,7 @@ class BrainstormApiTests(TestCase):
         self.assertEqual((node.author_id, node.assignee_id), (7, 7))
         self.assertEqual(node.section_id, self.section_a.id)
         self.assertEqual(node.status, BrainstormNodeStatus.ACCEPTED)
+        self.assertEqual(node.introduced_in_version, 1)
         self.assertEqual(node.version, 1)
 
     def test_canvas_and_note_creation_require_and_reuse_idempotency_keys(self):
@@ -611,11 +622,38 @@ class BrainstormApiTests(TestCase):
 
         self.assertEqual(held.status_code, 200)
         self.assertIsNone(held.json()["data"]["section_id"])
+        self.assertEqual(held.json()["data"]["held_from_section_id"], self.section_a.id)
         self.assertFalse(BrainstormConnection.objects.exists())
         self.assertEqual(AuditLog.objects.get().reason, "node_held")
         self.assertEqual(restored.status_code, 200)
-        self.assertEqual(restored.json()["data"]["status"], "default")
+        self.assertEqual(restored.json()["data"]["status"], "accepted")
+        self.assertEqual(restored.json()["data"]["section_id"], self.section_a.id)
+        self.assertIsNone(restored.json()["data"]["held_from_section_id"])
         self.assertFalse(BrainstormConnection.objects.exists())
+
+    def test_hold_restore_falls_back_to_unclassified_when_original_section_is_deleted(self):
+        node = self.create_note(section=self.section_a)
+        held = self.json_request(
+            "patch",
+            "node-status",
+            {"status": "held", "version": 1, "connection_versions": []},
+            node_id=node.pk,
+        )
+        self.assertEqual(held.status_code, 200)
+        self.section_a.is_deleted = True
+        self.section_a.deleted_at = timezone.now()
+        self.section_a.save(update_fields=["is_deleted", "deleted_at"])
+
+        restored = self.json_request(
+            "patch",
+            "node-status",
+            {"status": "default", "version": 2},
+            node_id=node.pk,
+        )
+
+        self.assertEqual(restored.status_code, 200)
+        self.assertEqual(restored.json()["data"]["status"], "default")
+        self.assertIsNone(restored.json()["data"]["section_id"])
 
     def test_hold_rejects_stale_connection_versions_without_partial_changes(self):
         first = self.create_note(section=self.section_a)
@@ -939,10 +977,13 @@ class BrainstormApiTests(TestCase):
 
     def test_change_history_uses_operation_units_and_excludes_audit_log(self):
         canvas = self.initialize_canvas()
-        BrainstormEventPublisher.prd_apply_completed(
+        BrainstormChangeLog.objects.create(
             canvas=canvas,
             actor_user_id=7,
-            application_id="apply-1",
+            action="prd_apply_completed",
+            target_type="canvas",
+            target_id=str(canvas.pk),
+            after_data={"application_id": "apply-1"},
         )
         AuditLog.objects.create(
             canvas=canvas,
@@ -970,3 +1011,64 @@ class BrainstormApiTests(TestCase):
             f'data-api-base="/api/v1/prds/{self.prd.id}/brainstorm/"',
         )
         self.assertContains(response, 'data-polling-interval-ms="3000"')
+
+    def test_canvas_queries_reject_invalid_filter_cursor_limit_and_pagination(self):
+        self.initialize_canvas()
+
+        invalid_filter = self.client.get(self.url("canvas"), {"status": "unknown"})
+        invalid_canvas = self.client.get(self.url("canvas"), {"canvas_id": "bad"})
+        invalid_limit = self.client.get(self.url("events"), {"cursor": 0, "limit": 101})
+        invalid_page = self.client.get(
+            self.url("change-history"),
+            {"page": "bad", "page_size": "bad"},
+        )
+
+        for response in (invalid_filter, invalid_canvas, invalid_limit, invalid_page):
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.json()["error"]["code"], "validation_error")
+
+    def test_canvas_version_creation_rejects_boolean_source_id_and_malformed_json(self):
+        self.initialize_canvas()
+        version_url = self.url("canvas-versions")
+
+        invalid_source = self.json_request(
+            "post",
+            "canvas-versions",
+            {"source_canvas_id": True},
+            headers={"HTTP_IDEMPOTENCY_KEY": "invalid-source"},
+        )
+        malformed = self.client.post(
+            version_url,
+            data="{",
+            content_type="application/json",
+            HTTP_IDEMPOTENCY_KEY="malformed-version",
+        )
+
+        self.assertEqual(invalid_source.status_code, 400)
+        self.assertEqual(malformed.status_code, 400)
+
+    def test_brainstorm_mutations_reject_anonymous_requests(self):
+        node = self.create_note()
+        connection = BrainstormConnection.objects.create(
+            canvas=node.canvas,
+            node_a=node,
+            node_b=self.create_note(content="연결 대상"),
+        )
+        self.client.logout()
+
+        responses = (
+            self.client.get(self.url("canvas-versions")),
+            self.client.delete(
+                self.url("node-delete", node_id=node.pk),
+                data=json.dumps({"version": node.version}),
+                content_type="application/json",
+            ),
+            self.client.delete(
+                self.url("connection-delete", connection_id=connection.pk),
+                data=json.dumps({"version": connection.version}),
+                content_type="application/json",
+            ),
+            self.client.get(self.url("viewport")),
+        )
+
+        self.assertTrue(all(response.status_code == 401 for response in responses))

@@ -73,3 +73,23 @@ body:has(#brainstorm-root) .studio-header{display:none}.studio-main:has(#brainst
 .brain-region-count{font-size:13px;font-weight:700;opacity:.72}
 .brain-tray-title{fill:#697386;font-size:22px;font-weight:850;text-anchor:middle;stroke:none}
 .brain-tray-hint{fill:#a3aab8;font-size:14px;font-weight:600;text-anchor:middle;stroke:none}
+/* App-wide readability pass: controls stay compact, labels remain legible. */
+.brain-project small,.brain-subtitle{font-size:11px}
+.brain-title{font-size:16px}
+.brain-view-tabs button,.brain-top-actions .btn,.brain-add,.brain-tool,.brain-filter button,.brain-auto,.brain-ai-actions button{font-size:12px}
+.brain-counts span,.brain-sync,.brain-canvas-hint{font-size:11px}
+.brain-unclassified-strip strong,.brain-free-zone strong{font-size:14px}
+.brain-unclassified-strip header p,.brain-free-zone span,.brain-free-zone p{font-size:12px}
+.brain-lane header>span{font-size:12px}.brain-lane header strong{font-size:15px}.brain-lane header small,.brain-lane header button{font-size:11px}
+.brain-note-status{font-size:13px}.brain-note p{font-size:18px}.brain-note footer,.brain-note-actions button,.brain-note-actions label{font-size:13px}
+.brain-held header strong{font-size:13px}.brain-held header span,.brain-held button{font-size:11px}
+.brain-ai-head span{font-size:10px}.brain-ai-head h2{font-size:16px}.brain-ai-body,.brain-ai-body p,.brain-ai-body li{font-size:12px}
+.brain-assignee-trigger>b{font-size:8px}.brain-assignee-trigger small{font-size:9px}.brain-assignee-trigger strong{font-size:11px}.brain-assignee-trigger>i{font-size:9px}
+.brain-note-actions .brain-assignee-trigger>b{font-size:11px}.brain-note-actions .brain-assignee-trigger small{font-size:11px}.brain-note-actions .brain-assignee-trigger strong{font-size:13px}.brain-note-actions .brain-assignee-trigger>i{font-size:12px}
+.brain-assignee-menu>header span{font-size:9px}.brain-assignee-menu>p{font-size:11px}
+.brain-assignee-menu>div>button strong{font-size:12px}.brain-assignee-menu>div>button small{font-size:10px}
+.brain-version-sidebar>header span{font-size:10px}.brain-version-sidebar nav button{font-size:12px}.brain-version-sidebar nav button small{font-size:9px}.brain-version-add{font-size:12px}
+.brain-board-column>header strong{font-size:14px}.brain-board-column>header small,.brain-board-column>header button{font-size:11px}
+.brain-board-card>p{font-size:14px}.brain-person small,.brain-card-controls button,.brain-card-controls select,.brain-card-controls label{font-size:11px}
+.brain-list-heading span{font-size:11px}.brain-list-group article p{font-size:13px}.brain-list-group article small,.brain-list-group article button{font-size:11px}
+.brain-editor-author>span{font-size:12px}.brain-editor-author strong{font-size:13px}.brain-editor-author small{font-size:11px}.brain-editor-modal>footer .btn{font-size:12px}

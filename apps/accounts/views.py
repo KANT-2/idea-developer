@@ -173,13 +173,6 @@ def logout_view(request):
 
 
 @require_GET
-def session_home(request):
-    if not request.user.is_authenticated:
-        return redirect(f"{reverse('accounts:login')}?next={reverse('ideas:home')}")
-    return render(request, "accounts/session_home.html")
-
-
-@require_GET
 def user_search(request):
     if not request.user.is_authenticated:
         return api_error(

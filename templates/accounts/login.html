@@ -3,7 +3,7 @@
 
 {% block title %}로그인 | Idea Developer{% endblock %}
 
-{% block extra_head %}<link href="{% static 'accounts/css/auth.css' %}" rel="stylesheet">{% endblock %}
+{% block extra_head %}<link href="{% static 'accounts/css/auth.css' %}?v=20260907-1" rel="stylesheet">{% endblock %}
 
 {% block content %}
   <div class="auth-shell">
@@ -73,7 +73,7 @@
 
 {% block extra_js %}
   <script
-    src="{% static 'accounts/js/login.js' %}"
+    src="{% static 'accounts/js/login.js' %}?v=20260906-1"
     data-request-url="{% url 'accounts_api:request-otp' %}"
     data-verify-url="{% url 'accounts_api:verify-otp' %}"
   ></script>
