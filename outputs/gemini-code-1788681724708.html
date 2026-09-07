@@ -559,14 +559,14 @@
     <div class="content-area">
         <div class="two-column">
             <div>
-                <p style="font-weight: 700; margin-bottom: 15px; color: var(--text-main);">문서의 물리적 완성도(Progress)와 페르소나별 논리적 충족도(Quality) 분리 제공</p>
+                <p style="font-weight: 700; margin-bottom: 15px; color: var(--text-main);">문서의 물리적 완성도(Progress)와 AI 논리적 충족도(Quality) 분리 제공</p>
                 <div class="info-box">
                     <h3 style="color: var(--primary);">정량적 진행도 (Progress)</h3>
                     <p style="margin: 0;">문서 내 유효한(삭제/보류 제외) 질문 항목 대비 작성 완료된 답변의 물리적 비율을 산출합니다.</p>
                 </div>
                 <div class="info-box">
                     <h3 style="color: var(--primary);">AI 충족도 (Quality)</h3>
-                    <p style="margin: 0;">작성된 내용을 PM, 엔지니어, 투자자 3가지 페르소나 관점에서 다각도로 진단하여 문서의 질적 보완점을 제시합니다.</p>
+                    <p style="margin: 0;">PM·엔지니어링·투자자 진단을 각각 수행한 뒤, 별도 AI 작업이 관점별 중요도를 판단해 종합 점수와 섹션별 보완점을 제시합니다. 종합 점수는 단순 평균이 아닙니다.</p>
                 </div>
             </div>
             <div>
@@ -763,7 +763,7 @@
             <div style="padding: 20px;">
                 <h3>LLM API Timeout / 포맷 에러</h3>
                 <p style="font-weight: 700; color: var(--primary);">결과 폐기(Drop)</p>
-                <p>30초 Hard Timeout 및 JSON Schema 검증을 통과한 신뢰성 있는 결과물만 렌더링합니다.</p>
+                <p>기능별 30~60초 Timeout과 JSON Schema·서버 ID 검증을 통과한 결과물만 렌더링합니다.</p>
             </div>
             <div style="padding: 20px;">
                 <h3>기여도 산출 AI 실패</h3>
@@ -773,7 +773,7 @@
             <div style="padding: 20px;">
                 <h3>Slack Webhook 발송 실패</h3>
                 <p style="font-weight: 700; color: var(--primary);">데이터 저장 보장</p>
-                <p>DB 트랜잭션 Commit 완료 후 비동기 발송 처리하며, 지수 백오프 기반 재시도를 수행합니다.</p>
+                <p>DB Commit 이후 부모 공통 함수를 호출하고 지수 백오프로 제한 재시도합니다. 최종 실패도 본 기능 저장은 취소하지 않습니다.</p>
             </div>
         </div>
     </div>
@@ -864,11 +864,11 @@
         
         <div class="tiled-content" style="margin-bottom: 30px;">
             <div class="tile" style="text-align: center; align-items: center; justify-content: center; padding: 20px;">
-                <div style="font-size: 40px; font-weight: 700; color: var(--primary); margin-bottom: 5px;">390</div>
+                <div style="font-size: 40px; font-weight: 700; color: var(--primary); margin-bottom: 5px;">391</div>
                 <p style="margin: 0; font-weight: 700; font-size:16px;">Test Cases</p>
             </div>
             <div class="tile" style="text-align: center; align-items: center; justify-content: center; padding: 20px;">
-                <div style="font-size: 40px; font-weight: 700; color: var(--primary); margin-bottom: 5px;">88.4%</div>
+                <div style="font-size: 40px; font-weight: 700; color: var(--primary); margin-bottom: 5px;">88.1%</div>
                 <p style="margin: 0; font-weight: 700; font-size:16px;">Application Coverage</p>
             </div>
             <div class="tile" style="text-align: center; align-items: center; justify-content: center; padding: 20px;">
@@ -876,7 +876,7 @@
                 <p style="margin: 0; font-weight: 700; font-size:16px;">Managed ORM Models</p>
             </div>
             <div class="tile" style="text-align: center; align-items: center; justify-content: center; padding: 20px;">
-                <div style="font-size: 40px; font-weight: 700; color: var(--primary); margin-bottom: 5px;">49</div>
+                <div style="font-size: 40px; font-weight: 700; color: var(--primary); margin-bottom: 5px;">54</div>
                 <p style="margin: 0; font-weight: 700; font-size:16px;">DB Migrations</p>
             </div>
         </div>
@@ -1224,7 +1224,7 @@
         <div class="tiled-content" style="margin-bottom: 20px; gap: 20px;">
             <div class="tile" style="padding: 15px 20px; text-align: center;">
                 <h3 style="font-size: 16px; margin-bottom: 8px;">Automated Test Cases</h3>
-                <p style="font-size: 28px; font-weight: 700; color: var(--primary); margin: 0;">390</p>
+                <p style="font-size: 28px; font-weight: 700; color: var(--primary); margin: 0;">391</p>
             </div>
             <div class="tile" style="padding: 15px 20px; text-align: center;">
                 <h3 style="font-size: 16px; margin-bottom: 8px;">DB Compatibility</h3>
@@ -1232,7 +1232,7 @@
             </div>
             <div class="tile" style="padding: 15px 20px; text-align: center;">
                 <h3 style="font-size: 16px; margin-bottom: 8px;">Code Coverage</h3>
-                <p style="font-size: 28px; font-weight: 700; color: var(--primary); margin: 0;">88.4%</p>
+                <p style="font-size: 28px; font-weight: 700; color: var(--primary); margin: 0;">88.1%</p>
             </div>
         </div>
 

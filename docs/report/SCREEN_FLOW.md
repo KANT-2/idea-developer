@@ -109,7 +109,8 @@ flowchart TD
     SaveAll[전체 저장]
     Hold[질문 보류]
     Diagnose[AI 진단하기]
-    PerspectiveDraft[선택 관점 전체 초안]
+    Synthesis[세 관점 진단 종합]
+    PerspectiveDraft[세 관점 통합 전체 초안]
     DraftPreview[질문별 미리보기·선택]
     DraftCoach[선택 질문 AI 코치로 이동]
     DraftApply[선택 답변 반영]
@@ -127,6 +128,7 @@ flowchart TD
     Questions --> SaveAll
     Questions --> Hold
     Progress --> Diagnose
+    Diagnose --> Synthesis
     Progress --> PerspectiveDraft
     PerspectiveDraft --> DraftPreview
     DraftPreview --> DraftCoach
@@ -140,8 +142,9 @@ flowchart TD
 저장은 자동 저장으로 오해하지 않도록 버튼 동작과 완료 알림을 표시한다. 성공·실패 알림은 화면
 레이아웃을 밀지 않는 toast 또는 고정 overlay로 표시한다.
 
-`AI 진단하기`는 한 번의 요청으로 세 관점을 진단한다. `AI 초안 작성`은 현재 선택한 한 관점으로
-전체 질문의 초안을 생성하며, 질문별 선택 승인 전에는 기존 답변을 변경하지 않는다.
+`AI 진단하기`는 한 번의 사용자 동작으로 세 관점을 각각 진단하고, 세 결과가 모두 최신이면 관점별
+중요도를 다시 판단하는 종합 job을 실행한다. `AI 초안 작성`은 세 관점을 함께 반영해 전체 질문의
+초안을 생성하며, 질문별 선택 승인 전에는 기존 답변을 변경하지 않는다.
 
 ## 5. 브레인스토밍 화면
 

@@ -14,8 +14,9 @@ Pull Request와 `develop`, `main` push에서는 GitHub Actions가 PostgreSQL 16�
 실행한다. 애플리케이션 코드 커버리지는 85% 미만이면 실패하며 운영 설정의 `check --deploy`도
 통과해야 한다.
 
-2026-09-07 로컬 회귀 기준으로 390개 테스트를 발견해 385개가 통과했고, SQLite에서 지원하지 않는
-PostgreSQL 행 잠금 전용 테스트 5개는 건너뛰었다. `apps` 기준 측정 커버리지는 88.4%다. 건너뛴
+2026-09-07 최신 `develop` 병합 후 로컬 회귀 기준으로 391개 테스트를 발견해 386개가 통과했고,
+SQLite에서 지원하지 않는 PostgreSQL 행 잠금 전용 테스트 5개는 건너뛰었다. `apps` 기준 측정
+커버리지는 88.1%다. 건너뛴
 5개는 PostgreSQL 16 CI 또는 테스트 DB 생성 권한이 있는 로컬 PostgreSQL에서 실행한다.
 
 ## 2. 테스트 범위
@@ -28,7 +29,7 @@ PostgreSQL 행 잠금 전용 테스트 5개는 건너뛰었다. `apps` 기준 �
 | 홈 | 접근 범위, KPI, 과거·회차 없는 PRD, 필터·정렬·날짜 경계, N+1 방지 |
 | 상세 편집 | 역할 권한, 답변·참여자·코멘트 version 충돌, 완료 잠금, 재개 감사 |
 | 브레인스토밍 | 이동·보류·삭제·복원, 연결 무결성, 최신 보드 단독 편집, 순서 변경·최신 승격, polling cursor, batch rollback |
-| AI | schema·ID 검증, prompt 분리, timeout·취소·재시도, 사용량, 코치 동시 append, 승인 전 미저장, 관점별 전체 초안의 선택 반영·version 충돌 |
+| AI | schema·ID 검증, prompt 분리, timeout·취소·재시도, 사용량, 코치 동시 append, 3관점 진단·종합, 승인 전 미저장, 통합 전체 초안의 선택 반영·version 충돌 |
 | 로깅 | request ID·`extra` 필드 보존, 예외 stack, 직렬화 불가능한 값의 안전한 문자열 변환 |
 | 기여도 | lineage 중복 제거, 내용 편집자, PRD 반영 confidence, 50:50 정규화, AI 실패 유지 |
 | 유지보수 | 마감 자동 완료, 30일 TTL, 빈 batch idempotency, 삭제 감사 보존 |
@@ -67,11 +68,13 @@ PostgreSQL 행 잠금 전용 테스트 5개는 건너뛰었다. `apps` 기준 �
 
 ## 6. 최신 통합 기능의 검증 근거
 
-- 관점별 PRD 전체 초안은 `tests/test_ai_perspective_draft.py`에서 persona 검증, 멱등 요청,
-  100초 timeout 전달, 승인 전 미저장, 부분 승인, 다른 사용자 job 차단, 질문 version 409, 결과
+- 세 관점 통합 PRD 전체 초안은 `tests/test_ai_perspective_draft.py`에서 세 persona 입력, 멱등 요청,
+  60초 timeout 전달, 승인 전 미저장, 부분 승인, 다른 사용자 job 차단, 질문 version 409, 결과
   질문 ID 누락·중복·범위 이탈, 활성 질문 없음, viewer·완료 잠금, 중복 반영과 batch rollback을
   검증한다. 비로그인과 부모 연동 장애도 HTML 오류 화면이 아닌 401·503 JSON인지 확인한다.
   테스트 provider만 사용하므로 Gemini API를 호출하거나 토큰을 소비하지 않는다.
+- 진단 종합은 `tests/test_ai_prd_evaluation.py`에서 세 관점 완료 전 요청 거절, 멱등 job 생성,
+  worker 결과 처리, 최신 종합 결과 복원을 검증한다.
 - 구조화 로그의 `extra` 보존과 직렬화 실패 방지는 `tests/test_logging.py`에서 검증한다.
 - `tests/test_ui_navigation.py`는 로그인 전후 진입 경로, 보호 화면의 안전한 `next`, 홈·새 PRD
   렌더링, 일반 화면 HTML 404/API JSON 404 분리, `DEBUG=True` 기술 404 차단, 모든 주요 fetch
