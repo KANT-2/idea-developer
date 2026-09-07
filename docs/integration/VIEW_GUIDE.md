@@ -21,7 +21,7 @@ AX2 통합 플랫폼의 팀 간 데이터 연계를 위해 공통적으로 사�
 |---|---|
 | Database | `ax_evaluation` |
 | User | `ax_evaluation` |
-| Host | `10.2.16.91` |
+| Host | `10.2.16.73` |
 | Port | `5432` |
 | Password | 별도 전달 |
 
@@ -30,7 +30,7 @@ AX2 통합 플랫폼의 팀 간 데이터 연계를 위해 공통적으로 사�
 PostgreSQL 접속 예시:
 
 ```bash
-psql -h 10.2.16.91 -p 5432 -U ax_evaluation -d ax_evaluation
+psql -h 10.2.16.73 -p 5432 -U ax_evaluation -d ax_evaluation
 ```
 
 ---

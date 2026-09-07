@@ -30,6 +30,20 @@ API는 `/api/v1/` 아래에 있으며 헬스체크를 제외하고 Django sessio
 | PRD AI | `/api/v1/prds/<prd_id>/ai/` | 코치, 3관점 진단, 질문 초안, 관점별 전체 초안, 작업 상태·취소·재시도 |
 | 브레인스토밍 | `/api/v1/prds/<prd_id>/brainstorm/` | 보드, 노드, 연결선, viewport, polling, PRD 반영 |
 
+### 브레인스토밍 보드 버전
+
+| Method·경로 | 주요 입력 | 결과·검증 |
+|---|---|---|
+| `GET /canvas/` | 선택 시 `X-Brainstorm-Canvas-Id` 또는 `canvas_id` | 선택 보드 전체 상태와 활성 버전 목록을 반환한다. 미지정 시 `display_order` 첫 최신 보드를 연다. |
+| `GET /boards/` | 없음 | 삭제되지 않은 보드를 최신 순서대로 반환한다. |
+| `POST /boards/` | `source_canvas_id`, `Idempotency-Key` | 선택 보드를 복제하고 새 보드를 최신 순서 맨 앞에 둔다. |
+| `PATCH /boards/order/` | `canvas_ids`: 활성 보드 ID 전체 | 정확한 ID 집합을 검증하고 첫 ID를 최신으로 지정한다. 부분 목록·중복·타 PRD ID는 거절한다. |
+| `DELETE /boards/<canvas_id>/` | 최신 보드 ID | 최신 보드를 소프트 삭제하고 다음 보드를 승격한다. 이전 보드와 마지막 활성 보드는 삭제할 수 없다. |
+
+노드·연결선·자동 정렬·AI PRD 반영 mutation은 선택한 캔버스가 현재 최신인지 서버에서 다시
+검증한다. 순서 변경과 삭제는 모든 활성 보드에 change event를 남겨 polling 중인 화면이 최신
+지정을 다시 읽게 한다.
+
 ## 공개 범위가 제한된 API
 
 - 기여도 결과와 동일 입력 재평가는 staff/superuser 관리자만 사용할 수 있다.

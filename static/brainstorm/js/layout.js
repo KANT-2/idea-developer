@@ -162,17 +162,21 @@
   }
   // 곡선 안에 점이 들어있는지는 브라우저의 Path2D 판정을 그대로 쓴다.
   var hitContext = document.createElement("canvas").getContext("2d");
-  // 도화지가 화면에 통째로 들어오도록 배율과 위치를 계산한다.
-  function fitBoardView() {
+  // 도화지를 화면에 맞추되, 첫 진입에서는 메모를 읽을 수 있는 최소 배율을 받을 수 있다.
+  function fitBoardView(minZoom, fixedZoom) {
     var stage = document.querySelector(".brain-stage");
     var width = stage ? stage.clientWidth : window.innerWidth;
     var height = stage ? stage.clientHeight : window.innerHeight - 220;
     var margin = 28;
     var content = canvasContentSize();
-    var zoom = Math.max(.2, Math.min(1.4, Math.min(
+    var minimum = typeof minZoom === "number" ? minZoom : .2;
+    var fittedZoom = Math.max(minimum, Math.min(1.4, Math.min(
       (width - margin * 2) / content.w,
       (height - margin * 2) / content.h
     )));
+    var zoom = typeof fixedZoom === "number"
+      ? Math.max(.3, Math.min(1.4, fixedZoom))
+      : fittedZoom;
     return {
       x: (width - content.w * zoom) / 2,
       y: margin / 2,

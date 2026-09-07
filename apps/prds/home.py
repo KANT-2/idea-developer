@@ -23,7 +23,6 @@ from django.db.models.functions import RowNumber, TruncDate
 from django.utils import timezone
 
 from apps.accounts.permissions import ParticipantAction, role_permission_policy
-from apps.ai.models import AiActionType, AiFeatureType, AiUsageLog, AiUsageStatus
 from apps.integration.context import IntegrationContext, is_admin_context, is_tutor_context
 from apps.integration.repository import IntegrationRepository
 
@@ -46,7 +45,8 @@ HOME_SORTS = {
     "deadline_asc",
     "completion_desc",
     "updated_desc",
-    "ai_coaching_desc",
+    "created_desc",
+    "created_asc",
 }
 
 
@@ -510,16 +510,9 @@ class HomeQueryService:
             if average is not None
             else 0
         )
-        ai_coaching_count = AiUsageLog.objects.filter(
-            prd_id__in=base.values("id"),
-            feature_type=AiFeatureType.COACHING,
-            action_type=AiActionType.CHAT,
-            status=AiUsageStatus.SUCCESS,
-        ).count()
         return {
             **counts,
             "average_completion_rate": average_completion_rate,
-            "ai_coaching_count": ai_coaching_count,
         }
 
     @staticmethod
@@ -602,8 +595,10 @@ class HomeQueryService:
             return queryset.order_by("-completion_rate", "-updated_at", "-id")
         if sort == "updated_desc":
             return queryset.order_by("-updated_at", "-id")
-        if sort == "ai_coaching_desc":
-            return queryset.order_by("-ai_coaching_count", "-updated_at", "-id")
+        if sort == "created_desc":
+            return queryset.order_by("-created_at", "-id")
+        if sort == "created_asc":
+            return queryset.order_by("created_at", "id")
         status_order = Case(
             When(status=PrdStatus.IN_PROGRESS, then=Value(0)),
             When(status=PrdStatus.COMPLETED, then=Value(1)),
@@ -689,6 +684,7 @@ class HomeQueryService:
             "prd_type": prd.prd_type,
             "status": prd.status,
             "show_new_badge": timezone.now() < prd.created_at + timedelta(hours=72),
+            "created_at": prd.created_at.isoformat(),
             "completion_rate": prd.completion_rate,
             "deadline": prd.deadline.isoformat() if prd.deadline else None,
             "d_day": HomeQueryService._format_d_day(prd.deadline, today),
@@ -696,12 +692,12 @@ class HomeQueryService:
             "participants": participants,
             "participant_count": prd.participant_count,
             "my_role": prd.my_role,
+            "is_creator": prd.creator_user_id == context.user_id,
             "can_edit": can_edit,
             "can_delete": bool(
                 not tutor_mode
                 and (prd.my_role == PrdParticipantRole.OWNER or is_admin_context(context))
             ),
-            "ai_coaching_count": prd.ai_coaching_count,
             "round_id": prd.round_id,
             "team_id": prd.team_id,
             "project_scope": HomeQueryService._project_scope(prd),

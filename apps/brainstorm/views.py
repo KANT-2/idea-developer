@@ -108,6 +108,7 @@ def _access(request, prd_id, *, create_canvas=False):
                 canvas = BrainstormCanvas.objects.select_related("prd").get(
                     pk=canvas_id,
                     prd=access.prd,
+                    is_deleted=False,
                 )
             except BrainstormCanvas.DoesNotExist as exc:
                 raise ValidationError({"canvas_id": "현재 PRD의 캔버스가 아닙니다."}) from exc
@@ -115,7 +116,9 @@ def _access(request, prd_id, *, create_canvas=False):
         canvas.validate_context(context)
         return context, access, canvas, created
     try:
-        canvases = BrainstormCanvas.objects.select_related("prd").filter(prd=access.prd)
+        canvases = BrainstormCanvas.objects.select_related("prd").filter(
+            prd=access.prd, is_deleted=False
+        )
         canvas = canvases.get(pk=canvas_id) if canvas_id is not None else canvases.first()
         if canvas is None:
             raise BrainstormCanvas.DoesNotExist
@@ -125,7 +128,7 @@ def _access(request, prd_id, *, create_canvas=False):
     return context, access, canvas
 
 
-def _serialize_canvas_version(canvas_row):
+def _serialize_canvas_version(canvas_row, *, latest_canvas_id=None):
     return {
         "id": canvas_row.pk,
         "version_number": canvas_row.version_number,
@@ -133,6 +136,8 @@ def _serialize_canvas_version(canvas_row):
         "created_by_user_id": canvas_row.created_by_user_id,
         "created_at": canvas_row.created_at.isoformat(),
         "updated_at": canvas_row.updated_at.isoformat(),
+        "display_order": canvas_row.display_order,
+        "is_latest": canvas_row.pk == latest_canvas_id,
     }
 
 
@@ -194,9 +199,11 @@ def _serialize_node(node, *, include_deleted=False):
         "x": float(node.position_x),
         "y": float(node.position_y),
         "section_id": node.section_id,
+        "held_from_section_id": node.held_from_section_id,
         "author_id": node.author_id,
         "assignee_id": node.assignee_id,
         "status": node.status,
+        "introduced_in_version": node.introduced_in_version,
         "version": node.version,
         "updated_at": node.updated_at.isoformat(),
     }
@@ -230,9 +237,9 @@ def _serialize_viewport(viewport):
     }
 
 
-def _serialize_permissions(access):
+def _serialize_permissions(access, canvas_row):
     permissions = PrdPermissionPresenter().describe(access)
-    permissions["can_edit"] = bool(
+    base_can_edit = bool(
         access.role
         and role_permission_policy.allows(
             access.role,
@@ -240,7 +247,17 @@ def _serialize_permissions(access):
             is_completed=access.prd.status == "completed",
         )
     )
-    permissions["can_create_note"] = bool(
+    latest_canvas_id = (
+        BrainstormCanvas.objects.filter(prd=access.prd, is_deleted=False)
+        .order_by("display_order", "-version_number", "-id")
+        .values_list("id", flat=True)
+        .first()
+    )
+    is_latest = not canvas_row.is_deleted and canvas_row.pk == latest_canvas_id
+    permissions["can_manage_versions"] = base_can_edit
+    permissions["is_latest_canvas"] = is_latest
+    permissions["can_edit"] = base_can_edit and is_latest
+    permissions["can_create_note"] = is_latest and bool(
         access.role
         and role_permission_policy.allows(
             access.role,
@@ -346,18 +363,22 @@ def canvas(request, prd_id):
         if viewport_row is None:
             viewport_row = UserCanvasViewport(canvas=canvas_row, user_id=context.user_id)
         sections = access.prd.sections.filter(is_deleted=False).order_by("position", "id")
+        version_rows = list(
+            BrainstormCanvas.objects.filter(prd=access.prd, is_deleted=False).order_by(
+                "display_order", "-version_number", "-id"
+            )
+        )
+        latest_canvas_id = version_rows[0].pk
         return api_success(
             {
                 "canvas": {
-                    **_serialize_canvas_version(canvas_row),
+                    **_serialize_canvas_version(canvas_row, latest_canvas_id=latest_canvas_id),
                     "prd_id": access.prd.id,
                     "created": created,
                 },
                 "versions": [
-                    _serialize_canvas_version(row)
-                    for row in BrainstormCanvas.objects.filter(prd=access.prd).order_by(
-                        "version_number", "id"
-                    )
+                    _serialize_canvas_version(row, latest_canvas_id=latest_canvas_id)
+                    for row in version_rows
                 ],
                 "current_user_id": context.user_id,
                 "sections": [
@@ -372,7 +393,7 @@ def canvas(request, prd_id):
                 "filter": state_filter,
                 "cursor": cursor,
                 "viewport": _serialize_viewport(viewport_row),
-                "permissions": _serialize_permissions(access),
+                "permissions": _serialize_permissions(access, canvas_row),
             },
             request_id=_request_id(request),
         )
@@ -387,9 +408,17 @@ def canvas_versions(request, prd_id):
     try:
         if request.method == "GET":
             _, access, _, _ = _access(request, prd_id, create_canvas=True)
-            rows = BrainstormCanvas.objects.filter(prd=access.prd).order_by("version_number", "id")
+            rows = list(
+                BrainstormCanvas.objects.filter(prd=access.prd, is_deleted=False).order_by(
+                    "display_order", "-version_number", "-id"
+                )
+            )
             return api_success(
-                {"items": [_serialize_canvas_version(row) for row in rows]},
+                {
+                    "items": [
+                        _serialize_canvas_version(row, latest_canvas_id=rows[0].pk) for row in rows
+                    ]
+                },
                 request_id=_request_id(request),
             )
 
@@ -411,8 +440,59 @@ def canvas_versions(request, prd_id):
             idempotency_key=request.headers.get("Idempotency-Key", ""),
         )
         return api_success(
-            {**_serialize_canvas_version(canvas_row), "created": created},
+            {
+                **_serialize_canvas_version(canvas_row, latest_canvas_id=canvas_row.pk),
+                "created": created,
+            },
             status=201 if created else 200,
+            request_id=_request_id(request),
+        )
+    except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
+        return _error(request, exc)
+
+
+@require_http_methods(["PATCH"])
+def canvas_version_order(request, prd_id):
+    if response := _authentication_error(request):
+        return response
+    try:
+        context = _resolve_context(request)
+        access = BrainstormAccessService().get(prd_id=prd_id, context=context)
+        rows = BrainstormAccessService().reorder_versions(
+            access=access,
+            context=context,
+            canvas_ids=_parse_json(request).get("canvas_ids"),
+        )
+        return api_success(
+            {
+                "items": [
+                    _serialize_canvas_version(row, latest_canvas_id=rows[0].pk) for row in rows
+                ],
+                "latest_canvas_id": rows[0].pk,
+            },
+            request_id=_request_id(request),
+        )
+    except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:
+        return _error(request, exc)
+
+
+@require_http_methods(["DELETE"])
+def canvas_version_delete(request, prd_id, canvas_id):
+    if response := _authentication_error(request):
+        return response
+    try:
+        context = _resolve_context(request)
+        access = BrainstormAccessService().get(prd_id=prd_id, context=context)
+        promoted = BrainstormAccessService().delete_latest_version(
+            access=access,
+            context=context,
+            canvas_id=canvas_id,
+        )
+        return api_success(
+            {
+                "deleted_canvas_id": canvas_id,
+                "latest_canvas_id": promoted.pk,
+            },
             request_id=_request_id(request),
         )
     except (PrdNotFound, PermissionDenied, IntegrationError, ValidationError) as exc:

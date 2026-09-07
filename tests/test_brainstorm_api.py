@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.accounts.models import LocalUserMapping
 from apps.brainstorm.models import (
@@ -231,6 +232,7 @@ class BrainstormApiTests(TestCase):
         cloned = second.nodes.get(lineage_id=first_note.lineage_id)
         self.assertEqual(cloned.content, first_note.content)
         self.assertEqual(cloned.lineage_id, first_note.lineage_id)
+        self.assertEqual(cloned.introduced_in_version, 1)
         self.assertNotEqual(cloned.pk, first_note.pk)
         self.assertEqual(second.source_canvas, first)
         self.assertEqual(second.created_by_user_id, 7)
@@ -245,9 +247,19 @@ class BrainstormApiTests(TestCase):
         response = self.client.get(self.url("canvas"))
         data = response.json()["data"]
         self.assertEqual(data["canvas"]["id"], second.pk)
-        self.assertEqual([row["version_number"] for row in data["versions"]], [1, 2])
+        self.assertEqual([row["version_number"] for row in data["versions"]], [2, 1])
+        self.assertTrue(data["versions"][0]["is_latest"])
 
-    def test_canvas_version_creation_is_idempotent_and_old_version_remains_editable(self):
+        added_to_second = self.json_request(
+            "post",
+            "node-create",
+            {"content": "두 번째 보드에서 추가", "color": "blue", "x": 50, "y": 60},
+            headers={"HTTP_X_BRAINSTORM_CANVAS_ID": str(second.pk)},
+        )
+        self.assertEqual(added_to_second.status_code, 201)
+        self.assertEqual(added_to_second.json()["data"]["introduced_in_version"], 2)
+
+    def test_canvas_version_creation_is_idempotent_and_old_version_becomes_read_only(self):
         first = self.initialize_canvas()
         note = self.create_note(canvas=first)
         headers = {"HTTP_IDEMPOTENCY_KEY": "same-board-request"}
@@ -270,13 +282,89 @@ class BrainstormApiTests(TestCase):
         edited = self.json_request(
             "patch",
             "node-content",
-            {"content": "이전 버전도 편집", "version": note.version},
+            {"content": "이전 버전 편집 시도", "version": note.version},
+            headers={"HTTP_X_BRAINSTORM_CANVAS_ID": str(first.pk)},
+            node_id=note.pk,
+        )
+        self.assertEqual(edited.status_code, 403)
+        note.refresh_from_db()
+        self.assertEqual(note.content, "기본 메모")
+
+        old_state = self.client.get(
+            self.url("canvas"),
+            HTTP_X_BRAINSTORM_CANVAS_ID=str(first.pk),
+        ).json()["data"]
+        self.assertFalse(old_state["permissions"]["can_edit"])
+        self.assertFalse(old_state["permissions"]["can_create_note"])
+        self.assertTrue(old_state["permissions"]["can_manage_versions"])
+
+    def test_reordering_designates_top_board_as_latest_and_unlocks_only_it(self):
+        first = self.initialize_canvas()
+        note = self.create_note(canvas=first)
+        created = self.json_request(
+            "post",
+            "canvas-versions",
+            {"source_canvas_id": first.pk},
+            headers={"HTTP_IDEMPOTENCY_KEY": "reorder-version-2"},
+        )
+        second_id = created.json()["data"]["id"]
+
+        reordered = self.json_request(
+            "patch",
+            "canvas-version-order",
+            {"canvas_ids": [first.pk, second_id]},
+        )
+
+        self.assertEqual(reordered.status_code, 200)
+        self.assertEqual(reordered.json()["data"]["latest_canvas_id"], first.pk)
+        self.assertEqual(
+            [row["id"] for row in reordered.json()["data"]["items"]],
+            [first.pk, second_id],
+        )
+        edited = self.json_request(
+            "patch",
+            "node-content",
+            {"content": "다시 최신이 된 보드", "version": note.version},
             headers={"HTTP_X_BRAINSTORM_CANVAS_ID": str(first.pk)},
             node_id=note.pk,
         )
         self.assertEqual(edited.status_code, 200)
-        note.refresh_from_db()
-        self.assertEqual(note.content, "이전 버전도 편집")
+
+    def test_deleting_latest_promotes_previous_board_and_last_board_cannot_be_deleted(self):
+        first = self.initialize_canvas()
+        note = self.create_note(canvas=first)
+        created = self.json_request(
+            "post",
+            "canvas-versions",
+            {"source_canvas_id": first.pk},
+            headers={"HTTP_IDEMPOTENCY_KEY": "delete-version-2"},
+        )
+        second_id = created.json()["data"]["id"]
+
+        deleted = self.json_request(
+            "delete",
+            "canvas-version-delete",
+            canvas_id=second_id,
+        )
+
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(deleted.json()["data"]["latest_canvas_id"], first.pk)
+        self.assertTrue(BrainstormCanvas.objects.get(pk=second_id).is_deleted)
+        edited = self.json_request(
+            "patch",
+            "node-content",
+            {"content": "자동 승격 후 편집", "version": note.version},
+            headers={"HTTP_X_BRAINSTORM_CANVAS_ID": str(first.pk)},
+            node_id=note.pk,
+        )
+        self.assertEqual(edited.status_code, 200)
+
+        rejected = self.json_request(
+            "delete",
+            "canvas-version-delete",
+            canvas_id=first.pk,
+        )
+        self.assertEqual(rejected.status_code, 400)
 
     def test_context_round_team_and_prd_role_are_checked_on_every_request(self):
         self.initialize_canvas()
@@ -343,6 +431,7 @@ class BrainstormApiTests(TestCase):
         self.assertEqual((node.author_id, node.assignee_id), (7, 7))
         self.assertEqual(node.section_id, self.section_a.id)
         self.assertEqual(node.status, BrainstormNodeStatus.ACCEPTED)
+        self.assertEqual(node.introduced_in_version, 1)
         self.assertEqual(node.version, 1)
 
     def test_canvas_and_note_creation_require_and_reuse_idempotency_keys(self):
@@ -610,11 +699,38 @@ class BrainstormApiTests(TestCase):
 
         self.assertEqual(held.status_code, 200)
         self.assertIsNone(held.json()["data"]["section_id"])
+        self.assertEqual(held.json()["data"]["held_from_section_id"], self.section_a.id)
         self.assertFalse(BrainstormConnection.objects.exists())
         self.assertEqual(AuditLog.objects.get().reason, "node_held")
         self.assertEqual(restored.status_code, 200)
-        self.assertEqual(restored.json()["data"]["status"], "default")
+        self.assertEqual(restored.json()["data"]["status"], "accepted")
+        self.assertEqual(restored.json()["data"]["section_id"], self.section_a.id)
+        self.assertIsNone(restored.json()["data"]["held_from_section_id"])
         self.assertFalse(BrainstormConnection.objects.exists())
+
+    def test_hold_restore_falls_back_to_unclassified_when_original_section_is_deleted(self):
+        node = self.create_note(section=self.section_a)
+        held = self.json_request(
+            "patch",
+            "node-status",
+            {"status": "held", "version": 1, "connection_versions": []},
+            node_id=node.pk,
+        )
+        self.assertEqual(held.status_code, 200)
+        self.section_a.is_deleted = True
+        self.section_a.deleted_at = timezone.now()
+        self.section_a.save(update_fields=["is_deleted", "deleted_at"])
+
+        restored = self.json_request(
+            "patch",
+            "node-status",
+            {"status": "default", "version": 2},
+            node_id=node.pk,
+        )
+
+        self.assertEqual(restored.status_code, 200)
+        self.assertEqual(restored.json()["data"]["status"], "default")
+        self.assertIsNone(restored.json()["data"]["section_id"])
 
     def test_hold_rejects_stale_connection_versions_without_partial_changes(self):
         first = self.create_note(section=self.section_a)

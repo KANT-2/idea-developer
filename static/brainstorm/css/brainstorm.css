@@ -49,6 +49,20 @@ body:has(#brainstorm-root) .studio-header{display:none}.studio-main:has(#brainst
 
 /* Deterministic server-side classification summary. */
 .brain-result-counts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0}.brain-result-counts span{display:flex;flex-direction:column;gap:4px;padding:10px;border:1px solid #e8eaf0;border-radius:10px;color:#667085;background:#fafbfc}.brain-result-counts strong{color:#344054;font-size:16px}.brain-ai-body>div>ul{padding:0;list-style:none}.brain-ai-body>div>ul li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 10px;border-bottom:1px solid #eef0f4}.brain-ai-body>div>ul li strong{color:#4f46e5;white-space:nowrap}
+/* PRD 반영 미리보기: 큰 주제만 먼저 보이고, 펼쳐야 그 안의 질문이 나온다.
+   글자 크기 앞에 .brain-ai-body 를 붙여, 넓은 화면에서 덮어쓰는 반응형 규칙보다 우선하게 한다. */
+.brain-ai-body .brain-ai-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px;color:#7b8494;font-size:9.5px;font-weight:750}.brain-ai-body .brain-ai-preview-toolbar button{padding:5px 9px;border:1px solid #e0e3ea;border-radius:99px;color:#4f46e5;background:#fff;font-size:9.5px;font-weight:800}.brain-ai-body .brain-ai-preview-toolbar button:hover{border-color:#a5b4fc;background:#f5f5ff}
+.brain-ai-body article.brain-ai-section{margin-bottom:8px;padding:0;overflow:hidden;border:1px solid #e6e8ee;border-radius:11px;background:#fff}
+.brain-ai-body .brain-ai-section-head{display:flex;width:100%;align-items:center;gap:9px;padding:12px;border:0;background:transparent;text-align:left}.brain-ai-body .brain-ai-section-head:hover{background:#f7f8fc}
+.brain-ai-body .brain-ai-section-index{display:grid;width:21px;height:21px;flex:0 0 auto;place-items:center;border-radius:6px;color:#6b7280;background:#f1f3f6;font-size:9.5px;font-weight:850}
+.brain-ai-body .brain-ai-section.open .brain-ai-section-index{color:#fff;background:#4f46e5}
+.brain-ai-body .brain-ai-section-head strong{flex:1;min-width:0;color:#2f3a4c;font-size:13.5px;line-height:1.4}
+.brain-ai-body .brain-ai-section-count{flex:0 0 auto;padding:3px 8px;border-radius:99px;color:#5b6474;background:#f2f4f7;font-size:8.5px;font-weight:800;white-space:nowrap}
+.brain-ai-body .brain-ai-section-head i{flex:0 0 auto;color:#98a2b3;font-size:10.5px;transition:transform .18s ease}.brain-ai-body .brain-ai-section.open .brain-ai-section-head i{transform:rotate(180deg)}
+.brain-ai-body .brain-ai-section-body{padding:0 12px 4px;border-top:1px solid #eef0f4}
+.brain-ai-body .brain-ai-answer-row{padding:11px 0;border-bottom:1px solid #f2f4f7}.brain-ai-body .brain-ai-answer-row:last-child{border-bottom:0}
+.brain-ai-body .brain-ai-answer-row strong{display:block;color:#333d4f;font-size:12.5px;line-height:1.45}
+.brain-ai-body .brain-ai-answer-row p{margin:6px 0 0;color:#4b5565;font-size:12.5px;line-height:1.65;white-space:pre-wrap}
 .brain-connection.pending{stroke:#6366f1;stroke-width:2.2;stroke-dasharray:8 5;opacity:.95}
 
 /* Keep the selected-note actions compact: hold and assignee share one row. */
@@ -61,6 +75,9 @@ body:has(#brainstorm-root) .studio-header{display:none}.studio-main:has(#brainst
 .brain-workspace{display:flex;min-height:0;flex:1;overflow:hidden}.brain-version-content{position:relative;display:flex;min-width:0;flex:1;flex-direction:column;overflow:hidden}.brain-version-sidebar{z-index:27;display:flex;width:132px;flex:0 0 132px;flex-direction:column;gap:9px;padding:12px 10px;border-right:1px solid #e3e6ed;background:linear-gradient(180deg,#fff,#f8f9fc);box-shadow:3px 0 14px rgba(23,32,51,.035);transition:width .18s ease,flex-basis .18s ease}.brain-version-sidebar.collapsed{width:42px;flex-basis:42px;padding-inline:6px}.brain-version-sidebar>header{display:flex;min-height:28px;align-items:center;justify-content:space-between;gap:5px}.brain-version-sidebar>header span{color:#98a2b3;font-size:8px;font-weight:850;letter-spacing:.12em;white-space:nowrap}.brain-version-sidebar>header button{display:grid;width:27px;height:27px;flex:0 0 auto;place-items:center;border:1px solid #e4e7ec;border-radius:8px;color:#667085;background:#fff;font-size:11px}.brain-version-sidebar.collapsed>header{justify-content:center}.brain-version-sidebar nav{display:flex;min-height:0;flex-direction:column;gap:6px;overflow-y:auto}.brain-version-sidebar nav button{display:flex;min-height:42px;align-items:center;justify-content:space-between;padding:8px 9px;border:1px solid #e5e7eb;border-radius:10px;color:#5f697c;background:#fff;font-size:11px;font-weight:800;text-align:left;transition:border-color .15s,background .15s,transform .15s}.brain-version-sidebar nav button:hover{border-color:#c7d2fe;background:#f7f7ff;transform:translateX(1px)}.brain-version-sidebar nav button.active{border-color:#818cf8;color:#4338ca;background:#eef2ff;box-shadow:0 4px 12px rgba(79,70,229,.12)}.brain-version-sidebar nav button small{padding:2px 5px;border-radius:99px;color:#047857;background:#d1fae5;font-size:7px;font-weight:850}.brain-version-add{display:flex;min-height:40px;align-items:center;justify-content:center;gap:6px;border:1.5px dashed #a5b4fc;border-radius:10px;color:#4f46e5;background:#f8f7ff;font-size:10px;font-weight:800}.brain-version-add:hover{border-color:#6366f1;background:#eef2ff}.brain-version-add i{font-size:13px}
 @media(max-width:620px){.brain-version-sidebar{width:104px;flex-basis:104px;padding-inline:7px}.brain-version-sidebar.collapsed{width:38px;flex-basis:38px}.brain-version-sidebar>header span{font-size:7px}.brain-version-sidebar nav button{min-height:38px;padding:7px;font-size:10px}.brain-version-sidebar nav button small{display:none}}
 .brain-version-sidebar nav{min-height:auto;flex:0 0 auto;overflow:visible}
+.brain-version-row{overflow:hidden;border:1px solid #e5e7eb;border-radius:10px;background:#fff;transition:border-color .15s,background .15s}.brain-version-row:hover{border-color:#c7d2fe;background:#f7f7ff}.brain-version-row.active{border-color:#818cf8;background:#eef2ff;box-shadow:0 4px 12px rgba(79,70,229,.12)}.brain-version-select{display:flex!important;width:100%;min-height:38px!important;align-items:center;justify-content:space-between;padding:7px 9px!important;border:0!important;border-radius:0!important;color:#5f697c;background:transparent!important;font-size:11px;font-weight:800;text-align:left;box-shadow:none!important;transform:none!important}.brain-version-row.active .brain-version-select{color:#4338ca}.brain-version-select small{padding:2px 5px;border-radius:99px;color:#047857;background:#d1fae5;font-size:7px;font-weight:850}.brain-version-controls{display:flex;align-items:center;justify-content:flex-end;gap:2px;padding:0 5px 5px}.brain-version-controls button{display:grid!important;width:22px!important;height:22px;min-height:22px!important;padding:0!important;place-items:center;border:0!important;border-radius:6px!important;color:#667085;background:#f2f4f7!important;font-size:9px;transform:none!important}.brain-version-controls button:hover{color:#4338ca;background:#e0e7ff!important}.brain-version-controls button.danger:hover{color:#b42318;background:#fee4e2!important}.brain-readonly-banner{display:flex;align-items:center;justify-content:center;gap:7px;padding:7px 12px;border-bottom:1px solid #fde68a;color:#854d0e;background:#fffbeb;font-size:12px;font-weight:750}
+.brain-note>p,.brain-held article p,.brain-board-card>p{overflow:hidden;text-overflow:ellipsis}.brain-board-card>p{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4}.brain-list-group article p{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.brain-stage.dragging-note{z-index:30;overflow:visible}.brain-stage.dragging-note .brain-note.selected{z-index:31;cursor:grabbing}
 /* 곡선으로 나눈 영역. 포스트잇과 연결선 아래에 깔린다. */
 .brain-regions{position:absolute;z-index:1;top:0;left:0;pointer-events:none}
 .brain-region-labels{position:absolute;z-index:5;top:0;left:0;pointer-events:none}
@@ -73,3 +90,23 @@ body:has(#brainstorm-root) .studio-header{display:none}.studio-main:has(#brainst
 .brain-region-count{font-size:13px;font-weight:700;opacity:.72}
 .brain-tray-title{fill:#697386;font-size:22px;font-weight:850;text-anchor:middle;stroke:none}
 .brain-tray-hint{fill:#a3aab8;font-size:14px;font-weight:600;text-anchor:middle;stroke:none}
+/* App-wide readability pass: controls stay compact, labels remain legible. */
+.brain-project small,.brain-subtitle{font-size:11px}
+.brain-title{font-size:16px}
+.brain-view-tabs button,.brain-top-actions .btn,.brain-add,.brain-tool,.brain-filter button,.brain-auto,.brain-ai-actions button{font-size:12px}
+.brain-counts span,.brain-sync,.brain-canvas-hint{font-size:11px}
+.brain-unclassified-strip strong,.brain-free-zone strong{font-size:14px}
+.brain-unclassified-strip header p,.brain-free-zone span,.brain-free-zone p{font-size:12px}
+.brain-lane header>span{font-size:12px}.brain-lane header strong{font-size:15px}.brain-lane header small,.brain-lane header button{font-size:11px}
+.brain-note-status{font-size:13px}.brain-note p{font-size:18px}.brain-note footer,.brain-note-actions button,.brain-note-actions label{font-size:13px}
+.brain-held header strong{font-size:13px}.brain-held header span,.brain-held button{font-size:11px}
+.brain-ai-head span{font-size:10px}.brain-ai-head h2{font-size:16px}.brain-ai-body,.brain-ai-body p,.brain-ai-body li{font-size:12px}
+.brain-assignee-trigger>b{font-size:8px}.brain-assignee-trigger small{font-size:9px}.brain-assignee-trigger strong{font-size:11px}.brain-assignee-trigger>i{font-size:9px}
+.brain-note-actions .brain-assignee-trigger>b{font-size:11px}.brain-note-actions .brain-assignee-trigger small{font-size:11px}.brain-note-actions .brain-assignee-trigger strong{font-size:13px}.brain-note-actions .brain-assignee-trigger>i{font-size:12px}
+.brain-assignee-menu>header span{font-size:9px}.brain-assignee-menu>p{font-size:11px}
+.brain-assignee-menu>div>button strong{font-size:12px}.brain-assignee-menu>div>button small{font-size:10px}
+.brain-version-sidebar>header span{font-size:10px}.brain-version-sidebar nav button{font-size:12px}.brain-version-sidebar nav button small{font-size:9px}.brain-version-add{font-size:12px}
+.brain-board-column>header strong{font-size:14px}.brain-board-column>header small,.brain-board-column>header button{font-size:11px}
+.brain-board-card>p{font-size:14px}.brain-person small,.brain-card-controls button,.brain-card-controls select,.brain-card-controls label{font-size:11px}
+.brain-list-heading span{font-size:11px}.brain-list-group article p{font-size:13px}.brain-list-group article small,.brain-list-group article button{font-size:11px}
+.brain-editor-author>span{font-size:12px}.brain-editor-author strong{font-size:13px}.brain-editor-author small{font-size:11px}.brain-editor-modal>footer .btn{font-size:12px}

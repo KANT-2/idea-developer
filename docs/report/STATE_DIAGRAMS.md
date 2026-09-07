@@ -50,7 +50,8 @@ stateDiagram-v2
     accepted --> accepted: 다른 섹션·같은 섹션 이동
     default --> held: 보류
     accepted --> held: 보류
-    held --> default: 복원·보류 해제
+    held --> accepted: 보류 직전 섹션이 유효
+    held --> default: 직전 섹션 없음·삭제됨
     default --> soft_deleted: 사용자 삭제
     accepted --> soft_deleted: 사용자 삭제
     held --> soft_deleted: 사용자 삭제
@@ -60,9 +61,30 @@ stateDiagram-v2
 
 - `title` 노드는 일반 메모 상태·작성자·담당자 규칙의 대상이 아니다.
 - held 전환은 section을 비우고 모든 연결선을 영구 삭제한다.
+- 보류 직전 섹션은 `held_from_section_id`에 기억하고, 해제 시 유효한 경우 그 섹션으로 돌아간다.
 - 단순 섹션 이동과 담당자 변경은 내용 기여자로 계산하지 않는다.
 
-## 4. AI 작업 상태
+## 4. 브레인스토밍 보드 상태
+
+```mermaid
+stateDiagram-v2
+    [*] --> latest: 최초 보드·새 버전·순서 첫 항목
+    latest --> readonly: 다른 보드를 순서 첫 항목으로 지정
+    readonly --> latest: 순서 첫 항목으로 이동
+    latest --> soft_deleted: 최신 보드 삭제
+    soft_deleted --> [*]
+    note right of latest
+      메모·연결선·자동 정렬·PRD 반영 가능
+    end note
+    note right of readonly
+      조회만 가능
+    end note
+```
+
+최신 삭제는 활성 보드가 두 개 이상일 때만 가능하며 다음 순서 보드를 같은 transaction에서 최신으로
+승격한다. `latest`는 별도 boolean이 아니라 활성 보드의 `display_order` 정렬 결과로 계산한다.
+
+## 5. AI 작업 상태
 
 ```mermaid
 stateDiagram-v2
@@ -86,7 +108,7 @@ stateDiagram-v2
 
 완료된 작업을 다시 취소하거나 재시도하면 `409 invalid_job_state`를 반환한다.
 
-## 5. 기여도 계산 상태
+## 6. 기여도 계산 상태
 
 ```mermaid
 stateDiagram-v2
@@ -100,7 +122,7 @@ stateDiagram-v2
 
 새 완료 주기는 기존 결과를 덮어쓰지 않고 새로운 `calculation_version`을 만든다.
 
-## 6. PRD 삭제 수명주기
+## 7. PRD 삭제 수명주기
 
 ```mermaid
 stateDiagram-v2

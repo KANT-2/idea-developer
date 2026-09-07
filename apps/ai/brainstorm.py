@@ -20,7 +20,7 @@ from apps.brainstorm.models import (
 )
 from apps.brainstorm.services import BrainstormAccessService
 from apps.prds.detail import PrdAccess
-from apps.prds.models import PrdSection
+from apps.prds.models import Prd, PrdSection
 
 from .coaching import sanitize_ai_markdown
 from .exceptions import AiOutputValidationError
@@ -475,7 +475,9 @@ class BrainstormClassificationApplyService:
                 pk__in=[row.get("section_id") for row in selections],
             )
         }
+        Prd.objects.select_for_update().get(pk=canvas.prd_id)
         canvas = BrainstormCanvas.objects.select_for_update().get(pk=canvas.pk)
+        BrainstormAccessService.enforce_latest_canvas(canvas)
         nodes = list(
             BrainstormNode.objects.select_for_update()
             .filter(canvas=canvas, pk__in=selected_ids)

@@ -255,7 +255,7 @@ def prd_detail(request, prd_id):
     if response := _require_authentication(request):
         return response
     try:
-        _, access = _get_access(request, prd_id)
+        context, access = _get_access(request, prd_id)
         sections = list(
             PrdSection.objects.filter(prd=access.prd, is_deleted=False)
             .prefetch_related(
@@ -277,6 +277,9 @@ def prd_detail(request, prd_id):
             .values_list("reason", flat=True)
             .first()
         )
+
+    permissions = PrdPermissionPresenter().describe(access)
+    permissions["is_creator"] = access.prd.creator_user_id == context.user_id
 
     return api_success(
         {
@@ -303,7 +306,7 @@ def prd_detail(request, prd_id):
                 "updated_at": access.prd.updated_at.isoformat(),
             },
             "sections": [_serialize_section(section) for section in sections],
-            "permissions": PrdPermissionPresenter().describe(access),
+            "permissions": permissions,
         },
         request_id=_request_id(request),
     )
