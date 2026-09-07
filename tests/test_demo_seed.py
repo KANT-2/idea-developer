@@ -74,6 +74,12 @@ class DemoWorkspaceSeedTests(TestCase):
             sorted(progress_prds.values_list("completion_rate", flat=True)),
             [24, 32, 46, 54, 66, 73, 85, 93],
         )
+        self.assertFalse(
+            PrdAnswer.objects.filter(
+                question__section__prd__in=progress_prds,
+                content__startswith="검토 완료 항목",
+            ).exists()
+        )
         messi_roles = set(
             PrdParticipant.objects.filter(
                 prd__in=progress_prds,

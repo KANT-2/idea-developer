@@ -159,6 +159,7 @@
     try {
       response = await fetch(url, {
         credentials: "same-origin",
+        cache: "no-store",
         ...options,
         headers: {
           "Content-Type": "application/json",

@@ -1,0 +1,1262 @@
+<!DOCTYPE html><html lang="ko"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Idea Developer - Final Presentation</title>
+    <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        /* 1. THE SETUP & VARIABLES */
+        :root {
+            --bg-color: #f8fafc;
+            --surface-color: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #475569;
+            --primary: #4f46e5;
+            --primary-light: #e0e7ff;
+            --border: #e2e8f0;
+            --accent: #8b5cf6;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        p {
+            margin: 0;
+            margin-bottom: 10px;
+        }
+
+        body {
+            background-color: #e2e8f0;
+            background-image: radial-gradient(circle at top right, #e2e8f0 0%, #cbd5e1 100%);
+            display: grid;
+            gap: 40px;
+            grid-template-columns: 1fr;
+            margin: 0;
+            min-height: 100vh;
+            padding: 40px 0;
+            place-items: center;
+        }
+
+        /* Fixed 1280x720 Canvas */
+        .slide-container {
+            align-items: center;
+            background-color: var(--surface-color);
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
+            display: flex;
+            flex-direction: column;
+            font-family: 'Pretendard', sans-serif;
+            height: 720px;
+            justify-content: center;
+            overflow: hidden; /* Content outside this will be cut off */
+            padding: 40px 60px; /* Reduced vertical padding */
+            position: relative;
+            width: 1280px;
+        }
+
+        /* Subtle background decoration */
+        .slide-container::before {
+            content: '';
+            position: absolute;
+            top: -150px;
+            right: -150px;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, var(--primary-light) 0%, transparent 70%);
+            opacity: 0.5;
+            border-radius: 50%;
+            z-index: 0;
+        }
+
+        .slide-container > * {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+        }
+
+        /* 2. CONSISTENT TYPOGRAPHY */
+        .slide-container h1,
+        .slide-container h2,
+        .slide-container h3 {
+            color: var(--text-main);
+            font-weight: 700;
+            margin: 0;
+            line-height: 1.3;
+        }
+
+        .slide-container p,
+        .slide-container li,
+        .slide-container .subtitle,
+        .slide-container .number-label,
+        .slide-container th,
+        .slide-container td {
+            color: var(--text-muted);
+        }
+
+        .slide-container h1 {
+            font-size: 64px; /* Scaled down slightly */
+            letter-spacing: -0.02em;
+        }
+
+        .slide-container .slide-title {
+            font-size: 36px; /* Scaled down to prevent wrapping */
+            font-weight: 700;
+            margin-bottom: 20px; /* Reduced margin */
+            text-align: left;
+            width: 100%;
+            letter-spacing: -0.01em;
+            flex-shrink: 0;
+        }
+
+        .slide-container .slide-title span {
+            color: var(--primary);
+        }
+
+        .slide-container h3 {
+            font-size: 22px; /* Scaled down */
+            margin-bottom: 10px;
+        }
+
+        .slide-container p,
+        .slide-container li,
+        .slide-container .subtitle,
+        .slide-container .bleed-text-side p {
+            font-size: 17px; /* Default body text scaled down for dense content */
+            line-height: 1.5;
+        }
+
+        .slide-container .subtitle {
+            font-weight: 400;
+            margin: 15px auto;
+        }
+
+        .slide-container .content-area {
+            align-items: center;
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            justify-content: flex-start; /* Prevent vertical centering overflow */
+            width: 100%;
+            height: 100%;
+        }
+
+        /* 3. LAYOUT DEFINITIONS */
+        
+        .title-layout {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            height: 100%;
+        }
+        .title-layout h1 {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 20px;
+        }
+
+        .section-title-layout {
+            align-items: center;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            justify-content: center;
+            text-align: center;
+            width: 100%;
+        }
+        .section-title-layout h2 {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+
+        .two-column {
+            align-items: flex-start;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px; /* Reduced gap */
+            width: 100%;
+        }
+
+        .two-column.tiled {
+            align-items: stretch;
+            height: 100%;
+        }
+
+        .two-column.tiled > div {
+            background-color: var(--bg-color);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            padding: 30px 25px; /* Reduced padding */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .two-column ul {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        .two-column li {
+            margin-bottom: 12px;
+            padding-left: 24px;
+            position: relative;
+        }
+
+        .two-column li::before {
+            content: '\f00c';
+            font-family: 'Font Awesome 6 Free';
+            font-weight: 900;
+            color: var(--primary);
+            position: absolute;
+            left: 0;
+            top: 2px;
+            font-size: 14px;
+        }
+
+        .image-wrapper {
+            border-radius: 12px;
+            max-height: 360px; /* Reduced to fit with titles */
+            max-width: 100%;
+            overflow: hidden;
+            width: 100%;
+            box-shadow: 0 4px 20px -5px rgba(0,0,0,0.1);
+        }
+
+        .two-column .image-wrapper img {
+            height: 100%;
+            max-width: 100%;
+            object-fit: contain; /* Changed from cover to contain for full screenshot view */
+            object-position: center;
+            width: 100%;
+            background-color: var(--bg-color);
+        }
+
+        .tiled-content {
+            align-items: stretch;
+            display: flex;
+            gap: 20px; /* Reduced gap */
+            justify-content: center;
+            width: 100%;
+        }
+
+        .tile {
+            align-items: flex-start;
+            background-color: var(--bg-color);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            justify-content: flex-start;
+            padding: 25px 20px; /* Reduced padding */
+            text-align: left;
+        }
+
+        .tile .icon {
+            color: var(--primary);
+            font-size: 32px; /* Smaller icon */
+            margin-bottom: 15px;
+            background: var(--surface-color);
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px -1px rgba(0,0,0,0.05);
+        }
+
+        /* Timeline Layout */
+        .timeline-layout {
+            align-items: stretch;
+            display: flex;
+            justify-content: space-between;
+            position: relative;
+            width: 100%;
+            margin-top: 50px;
+            height: 120px; /* Fixed height for timeline */
+        }
+
+        .timeline-layout .timeline-line {
+            background-color: var(--border);
+            height: 4px;
+            left: 0;
+            position: absolute;
+            top: 50%;
+            transform: translateY(-2px);
+            width: 100%;
+            z-index: 0;
+        }
+
+        .timeline-item {
+            position: relative;
+            text-align: center;
+            width: 23%;
+        }
+
+        .timeline-item::after {
+            background-color: var(--surface-color);
+            border-radius: 50%;
+            border: 4px solid var(--primary);
+            content: '';
+            height: 20px;
+            left: 50%;
+            position: absolute;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px;
+            z-index: 1;
+        }
+
+        .timeline-item .content-wrapper {
+            left: 0;
+            position: absolute;
+            width: 100%;
+        }
+
+        .timeline-item:nth-child(odd) .content-wrapper {
+            bottom: 50%;
+            margin-bottom: 25px;
+        }
+
+        .timeline-item:nth-child(even) .content-wrapper {
+            margin-top: 25px;
+            top: 50%;
+        }
+
+        .timeline-item h3 {
+            color: var(--primary);
+            font-size: 20px;
+        }
+
+        /* Table Layout */
+        .table-layout {
+            width: 100%;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        .table-layout table {
+            border-collapse: collapse;
+            width: 100%;
+            background-color: var(--surface-color);
+        }
+
+        .table-layout th,
+        .table-layout td {
+            border-bottom: 1px solid var(--border);
+            padding: 10px 15px; /* Compact padding */
+            text-align: left;
+            font-size: 15px; /* Smaller font for dense tables */
+        }
+
+        .table-layout th {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-weight: 700;
+        }
+
+        .table-layout tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Tiled Image layout */
+        .tiled-image-content {
+            display: flex;
+            gap: 20px;
+            width: 100%;
+            height: 320px; /* Reduced to prevent pushing text */
+        }
+        .tiled-image-content .image-tile {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .tiled-image-content .image-wrapper {
+            height: 100%;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            box-shadow: 0 4px 15px -5px rgba(0,0,0,0.1);
+        }
+        .tiled-image-content img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain; /* Changed to contain */
+            object-position: center;
+            background-color: var(--bg-color);
+        }
+        .tiled-image-content h3 {
+            margin-top: 10px;
+            font-size: 18px;
+            color: var(--primary);
+            text-align: center;
+        }
+
+        /* Utility classes for dense slides */
+        .dense-text p, .dense-text li {
+            font-size: 15px;
+            line-height: 1.4;
+            margin-bottom: 8px;
+        }
+        .dense-text h3 {
+            font-size: 18px;
+            margin-bottom: 8px;
+        }
+        .info-box {
+            width: 100%; 
+            background: var(--bg-color); 
+            padding: 15px 20px; 
+            border-radius: 10px; 
+            border: 1px solid var(--border); 
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Slide 1: Title -->
+<div class="slide-container" id="slide1">
+    <div class="title-layout">
+        <p class="subtitle" style="font-size: 20px; font-weight: 700; color: var(--text-main); margin-bottom: 20px;">KANT 2 · 3조</p>
+        <h1>Idea Developer</h1>
+        <p class="subtitle" style="font-size: 24px; font-weight: 500; color: var(--text-main);">PRD(제품 요구사항 정의서) 작성 <span>최적화 협업 툴</span></p>
+        <p class="subtitle" style="margin-top: 30px;">비정형 아이디어의<br>구조화 및 문서화 파이프라인</p>
+        <p class="subtitle" style="margin-top: 30px; color: var(--primary); font-weight: 700;">Final Presentation</p>
+    </div>
+</div>
+
+<!-- Slide 2: Problem Definition -->
+<div class="slide-container" id="slide2">
+    <h2 class="slide-title">기존 PRD 작성 프로세스의 <span>구조적 한계</span></h2>
+    <div class="content-area">
+        <p style="text-align: left; width: 100%; margin-bottom: 20px; font-weight: 500;">데이터 파편화 및 히스토리 단절로 인한 커뮤니케이션 리소스 낭비</p>
+        <div class="tiled-content">
+            <div class="tile">
+                <div class="icon">01</div>
+                <h3>분산된 커뮤니케이션</h3>
+                <p>회의록, 슬랙, 개인 노트 등 여러 채널에 정보가 산재되어 프로젝트의 핵심 맥락이 유실됩니다.</p>
+            </div>
+            <div class="tile">
+                <div class="icon">02</div>
+                <h3>문서화 진입 장벽</h3>
+                <p>백지상태에서 문서의 구조를 잡고 내용을 채워 넣는 초기 단계의 리소스 소모가 큽니다.</p>
+            </div>
+            <div class="tile">
+                <div class="icon">03</div>
+                <h3>기여도 추적 불가</h3>
+                <p>문서가 업데이트되고 담당자가 변경되는 과정에서 팀원 개개인의 실질적인 기여 이력을 파악하기 어렵습니다.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 3: Flow Timeline -->
+<div class="slide-container" id="slide3">
+    <h2 class="slide-title">문서화 파이프라인 <span>통합 (Unified Workflow)</span></h2>
+    <div class="content-area">
+        <p style="text-align: center; width: 100%; font-size: 20px; font-weight: 500; color: var(--text-main);">
+            아이디어 수집, 구조화, 리뷰, 승인 단계를 단일 시스템으로 통합했습니다.
+        </p>
+        <div class="timeline-layout">
+            <div class="timeline-line"></div>
+            <div class="timeline-item">
+                <div class="content-wrapper">
+                    <h3>1. 기록</h3>
+                    <p>화이트보드 기반의<br>자유로운 브레인스토밍</p>
+                </div>
+            </div>
+            <div class="timeline-item">
+                <div class="content-wrapper">
+                    <h3>2. 구조화</h3>
+                    <p>PRD 템플릿 기반<br>섹션별 아이디어 매핑</p>
+                </div>
+            </div>
+            <div class="timeline-item">
+                <div class="content-wrapper">
+                    <h3>3. 검토</h3>
+                    <p>다각도 AI 진단을 통한<br>문서 품질 검증</p>
+                </div>
+            </div>
+            <div class="timeline-item">
+                <div class="content-wrapper">
+                    <h3>4. 완성</h3>
+                    <p>최종 승인 내용 반영 및<br>버전/기여도 이력 저장</p>
+                </div>
+            </div>
+        </div>
+        <div class="info-box" style="margin-top: 30px; text-align: center;">
+            <p style="font-weight: 700; color: var(--primary); margin-bottom: 5px;">핵심 원칙</p>
+            <p style="margin: 0;">AI의 자동화 및 모든 협업 과정은 사용자의 명시적 승인(Approval)을 거쳐 최종 문서에 반영됩니다.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 4: Home Dashboard -->
+<div class="slide-container" id="slide4">
+    <h2 class="slide-title">역할 기반 <span>맞춤형 워크스페이스</span></h2>
+    <div class="content-area">
+        <div style="text-align: left; width: 100%; margin-bottom: 15px;">
+            <p style="font-weight: 700; color: var(--text-main); margin-bottom: 5px;">수강생(작업자) 및 튜터(관리자) 권한에 따른 프로젝트 모니터링 환경 제공</p>
+        </div>
+        
+        <div class="tiled-image-content">
+            <div class="image-tile">
+                <div class="image-wrapper">
+                    <img src="01_home_student.png" alt="수강생용 홈 대시보드 화면">
+                </div>
+                <h3>수강생 뷰 (작업 중심)</h3>
+            </div>
+            <div class="image-tile">
+                <div class="image-wrapper">
+                    <img src="02_home_tutor.png" alt="튜터용 홈 대시보드 화면">
+                </div>
+                <h3>튜터 뷰 (모니터링 중심)</h3>
+            </div>
+        </div>
+        
+        <ul style="display: flex; gap: 30px; list-style: none; padding: 0; margin-top: 20px; width: 100%; justify-content: center; font-size: 16px;">
+            <li style="margin: 0;"><i class="fa-solid fa-check" style="color: var(--primary); margin-right: 8px;"></i>참여 프로젝트 상태 및 마감일 통합 관리</li>
+            <li style="margin: 0;"><i class="fa-solid fa-check" style="color: var(--primary); margin-right: 8px;"></i>권한(접근성) 기반 KPI 통계 제공</li>
+            <li style="margin: 0;"><i class="fa-solid fa-check" style="color: var(--primary); margin-right: 8px;"></i>팀별 최근 활동 내역 및 알림 트래킹</li>
+        </ul>
+    </div>
+</div>
+
+<!-- Slide 5: PRD Creation -->
+<div class="slide-container" id="slide5">
+    <h2 class="slide-title">문서화 진입 장벽을 낮추는 <span>템플릿 자동화</span></h2>
+    <div class="content-area">
+        <div class="two-column">
+            <div>
+                <p style="font-weight: 700; margin-bottom: 15px; color: var(--text-main);">프로젝트 목적(신규/개선 등)에 맞는 표준화된 요구사항 정의 프레임워크 제공</p>
+                <div class="info-box">
+                    <p style="font-weight: 700; color: var(--primary); margin-bottom: 10px;">세 가지 핵심 템플릿</p>
+                    <ul style="margin-bottom: 0;">
+                        <li><strong>신규 프로젝트:</strong> 비전 및 문제 정의 중심</li>
+                        <li><strong>신규 기능:</strong> 사용자 가치 및 요구사항 중심</li>
+                        <li><strong>기존 개선:</strong> 현상 분석 및 개선 효과 중심</li>
+                    </ul>
+                </div>
+                <p>생성 즉시 팀원 간 협업 관계가 매핑되며, 백지상태의 막막함 없이 핵심 논의에 빠르게 진입할 수 있도록 문서의 뼈대를 제공합니다.</p>
+            </div>
+            <div>
+                <div class="image-wrapper" style="height: 380px;">
+                    <img src="02_new_prd.png" alt="새 PRD 만들기 유형 선택 화면">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 6: Progress vs Quality -->
+<div class="slide-container" id="slide6">
+    <h2 class="slide-title">정량적 진행도와 정성적 품질의 <span>분리 측정</span></h2>
+    <div class="content-area">
+        <div class="two-column">
+            <div>
+                <p style="font-weight: 700; margin-bottom: 15px; color: var(--text-main);">문서의 물리적 완성도(Progress)와 페르소나별 논리적 충족도(Quality) 분리 제공</p>
+                <div class="info-box">
+                    <h3 style="color: var(--primary);">정량적 진행도 (Progress)</h3>
+                    <p style="margin: 0;">문서 내 유효한(삭제/보류 제외) 질문 항목 대비 작성 완료된 답변의 물리적 비율을 산출합니다.</p>
+                </div>
+                <div class="info-box">
+                    <h3 style="color: var(--primary);">AI 충족도 (Quality)</h3>
+                    <p style="margin: 0;">작성된 내용을 PM, 엔지니어, 투자자 3가지 페르소나 관점에서 다각도로 진단하여 문서의 질적 보완점을 제시합니다.</p>
+                </div>
+            </div>
+            <div>
+                <div class="image-wrapper" style="height: 380px;">
+                    <img src="03_prd_editor.png" alt="PRD 작성 및 AI 피드백 화면">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 7: Idea Map Brainstorming -->
+<div class="slide-container" id="slide7">
+    <h2 class="slide-title">브레인스토밍 캔버스와 <span>PRD 구조의 연동</span></h2>
+    <div class="content-area">
+        <div class="two-column">
+            <div>
+                <p style="font-weight: 700; margin-bottom: 20px; color: var(--text-main);">비정형 메모 노드의 구조화 및 문서 섹션 간 실시간 데이터 매핑</p>
+                <ul>
+                    <li>제약 없는 캔버스 기반 메모 배치</li>
+                    <li>PRD 섹션(목차)과의 직접적인 매핑</li>
+                    <li>메모별 담당자 할당 및 연결선(Relation) 지원</li>
+                    <li>채택되지 않은 아이디어를 위한 보류 구역 관리</li>
+                </ul>
+            </div>
+            <div>
+                <div class="image-wrapper" style="height: 380px;">
+                    <img src="04_brainstorm.png" alt="브레인스토밍 캔버스 맵 화면">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 8: Contribution Tracking -->
+<div class="slide-container" id="slide8">
+    <h2 class="slide-title">데이터 계보(Data Lineage) 기반 <span>리비전 추적</span></h2>
+    <div class="content-area">
+        <p style="text-align: left; width: 100%; margin-bottom: 20px; font-weight: 700; color: var(--text-main);">단순 문서 복사가 아닌, 아이디어 노드 단위의 연속적인 변경 이력 기록</p>
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 20px;" class="info-box">
+            <div style="text-align: center; flex: 1;">
+                <p style="font-weight: 700; color: var(--primary); margin-bottom: 5px;">Ver.1</p>
+                <p style="font-weight: 500; color: var(--text-main); margin-bottom: 5px;">문제 정의 (초안)</p>
+                <p style="font-size: 15px; margin:0;">작성자: 민준</p>
+            </div>
+            <div style="color: var(--primary);"><i class="fa-solid fa-arrow-right"></i></div>
+            <div style="text-align: center; flex: 1;">
+                <p style="font-weight: 700; color: var(--primary); margin-bottom: 5px;">Ver.2</p>
+                <p style="font-weight: 500; color: var(--text-main); margin-bottom: 5px;">해결안 구체화</p>
+                <p style="font-size: 15px; margin:0;">편집자: 서연</p>
+            </div>
+            <div style="color: var(--primary);"><i class="fa-solid fa-arrow-right"></i></div>
+            <div style="text-align: center; flex: 1;">
+                <p style="font-weight: 700; color: var(--primary); margin-bottom: 5px;">Ver.3</p>
+                <p style="font-weight: 500; color: var(--text-main); margin-bottom: 5px;">최종 채택 및 반영</p>
+                <p style="font-size: 15px; margin:0;">편집자: 서연</p>
+            </div>
+        </div>
+
+        <ul style="list-style: none; padding: 0; width: 100%;">
+            <li style="margin-bottom: 10px; position: relative; padding-left: 20px;"><i class="fa-solid fa-circle" style="font-size: 6px; color: var(--primary); position: absolute; left: 0; top: 10px;"></i>단순 섹션 이동이나 담당자 변경은 새로운 아이디어 트리거로 간주하지 않습니다.</li>
+            <li style="margin-bottom: 10px; position: relative; padding-left: 20px;"><i class="fa-solid fa-circle" style="font-size: 6px; color: var(--primary); position: absolute; left: 0; top: 10px;"></i>실제 텍스트가 변경 발전한 Lineage(계보)를 기반으로 이전 작성자와 후속 편집자의 기여도를 누적 인정합니다.</li>
+            <li style="position: relative; padding-left: 20px;"><i class="fa-solid fa-circle" style="font-size: 6px; color: var(--primary); position: absolute; left: 0; top: 10px;"></i>목록의 가장 위 보드를 최신 버전으로 열고 과거 버전은 조회 전용으로 제공합니다. 최신 보드를 삭제하면 직전 보드가 즉시 활성화됩니다.</li>
+        </ul>
+    </div>
+</div>
+
+<!-- Slide 9: AI Coach -->
+<div class="slide-container dense-text" id="slide9">
+    <h2 class="slide-title">사용자 승인(Approval) 프로세스 기반 <span>AI 어시스턴트</span></h2>
+    <div class="content-area">
+        <p style="text-align: left; width: 100%; margin-bottom: 15px; font-weight: 700; color: var(--text-main);">AI의 자의적 데이터 수정을 방지하고 제안-검토-병합(Merge) 단계를 분리</p>
+        
+        <div class="tiled-content" style="margin-bottom: 15px;">
+            <div class="tile">
+                <div class="icon" style="font-size: 20px; width: 40px; height: 40px; margin-bottom:10px;">01</div>
+                <h3>맥락 수집</h3>
+                <p>문서 메타데이터 및 답변 컨텍스트 수집</p>
+            </div>
+            <div class="tile">
+                <div class="icon" style="font-size: 20px; width: 40px; height: 40px; margin-bottom:10px;">02</div>
+                <h3>초안 생성(Drafting)</h3>
+                <p>선택된 메모 기반 초안 제안</p>
+            </div>
+            <div class="tile">
+                <div class="icon" style="font-size: 20px; width: 40px; height: 40px; margin-bottom:10px;">03</div>
+                <h3>Diff 미리보기</h3>
+                <p>AI 제안 결과물 변경점 시각화/비교</p>
+            </div>
+            <div class="tile">
+                <div class="icon" style="font-size: 20px; width: 40px; height: 40px; margin-bottom:10px;">04</div>
+                <h3>명시적 승인(Approve)</h3>
+                <p>사용자가 승인한 항목만 DB에 Commit</p>
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 20px; width: 100%;">
+            <div class="info-box" style="flex:1;">
+                <p style="font-weight: 700; color: var(--primary); margin-bottom: 5px;">프롬프트 컨텍스트 관리</p>
+                <p style="margin: 0;">모델 부하 및 할루시네이션 방지를 위해 LLM에 최근 3턴의 대화 기록만 전달하여 맥락 윈도우를 제어합니다.</p>
+            </div>
+            <div class="info-box" style="flex:1;">
+                <p style="font-weight: 700; color: var(--primary); margin-bottom: 5px;">비동기 작업 큐 (Worker Queue)</p>
+                <p style="margin: 0;">Gemini API 호출의 병목을 방지하기 위해 PostgreSQL 기반의 자체 작업 테이블과 Worker로 분리 처리합니다.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 10: Technical - Concurrency -->
+<div class="slide-container dense-text" id="slide10">
+    <h2 class="slide-title">낙관적 락(Optimistic Lock) 기반 <span>동시성 제어</span></h2>
+    <div class="content-area">
+        <p style="text-align: left; width: 100%; margin-bottom: 20px; font-weight: 700; color: var(--text-main);">다중 사용자 환경에서의 데이터 정합성 보장 및 버전 충돌(Conflict) 방지</p>
+        
+        <div class="tiled-content" style="margin-bottom: 20px;">
+            <div class="tile">
+                <div class="icon" style="font-size: 20px; width: 40px; height: 40px; margin-bottom:10px;">1</div>
+                <h3>증분 Polling 최적화</h3>
+                <p>2~5초 주기의 가벼운 HTTP Polling</p>
+                <p>마지막 Cursor 값 이후 신규 이벤트만 Fetch</p>
+            </div>
+            <div class="tile">
+                <div class="icon" style="font-size: 20px; width: 40px; height: 40px; margin-bottom:10px;">2</div>
+                <h3>버전 충돌 감지(Conflict)</h3>
+                <p>모든 Update 요청에 리소스 Version 검증</p>
+                <p>버전 불일치 시 HTTP 409 응답 및 덮어쓰기 방지</p>
+            </div>
+            <div class="tile">
+                <div class="icon" style="font-size: 20px; width: 40px; height: 40px; margin-bottom:10px;">3</div>
+                <h3>멱등성(Idempotency) 보장</h3>
+                <p>작성/수정 요청 시 Idempotency Key 발급</p>
+                <p>네트워크 단절 재시도 시에도 중복 처리 방지</p>
+            </div>
+        </div>
+
+        <div class="info-box" style="background: var(--primary-light);">
+            <p style="margin-bottom: 5px; color: var(--text-main); font-weight: 700;">상태 복구 및 부하 제어 전략</p>
+            <p style="margin: 0; color: var(--text-main);">네트워크 불안정으로 Cursor 유효성이 상실되면 Snapshot 단위의 Full Sync를 수행하여 정합성을 맞춥니다. 드래그 앤 드롭 등 연속 이벤트는 최종 Drop 좌표만 DB에 Commit하여 트랜잭션 부하를 최소화합니다.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 11: Technical - Exception Handling 1 -->
+<div class="slide-container" id="slide11">
+    <h2 class="slide-title">오류 제어 전략 ① <span>데이터 무결성 보장</span></h2>
+    <div class="content-area">
+        <p style="text-align: left; width: 100%; margin-bottom: 20px; font-weight: 700; color: var(--text-main);">경합 조건(Race Condition) 발생 시 서버 방어 로직 및 트랜잭션 관리</p>
+        
+        <div class="table-layout">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 25%;">예외 시나리오</th>
+                        <th style="width: 40%;">서버 방어 로직</th>
+                        <th style="width: 35%;">클라이언트(사용자) 경험</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>동시 편집 경합</strong></td>
+                        <td>A 사용자 Commit 이후, B 사용자가 구버전으로 Update 시도 시 <br><span style="color: var(--primary); font-weight: 700;">409 Conflict 발생 및 최신 리소스 응답</span></td>
+                        <td>조용히 덮어쓰지 않고, 사용자에게 충돌 사실 알림 및 최신 데이터로 병합 유도</td>
+                    </tr>
+                    <tr>
+                        <td><strong>네트워크 재시도 중복</strong></td>
+                        <td>동일한 CUD 요청이 중복 유입 시 <br><span style="color: var(--primary); font-weight: 700;">Idempotency Key 검증을 통해 캐싱된 기존 결과 반환</span></td>
+                        <td>중복 레코드(Row) 생성 방지 및 일관된 응답 결과 수신</td>
+                    </tr>
+                    <tr>
+                        <td><strong>연속 작업 부분 실패</strong></td>
+                        <td>(상태 변경+섹션 이동+연결선 수정) 중 일부 쿼리 실패 시 <br><span style="color: var(--primary); font-weight: 700;">단일 트랜잭션(Transaction) Rollback 처리</span></td>
+                        <td>데이터 정합성이 깨진 '반쪽짜리' 캔버스 상태 노출 방지</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 12: Technical - Exception Handling 2 -->
+<div class="slide-container dense-text" id="slide12">
+    <h2 class="slide-title">오류 제어 전략 ② <span>외부 종속성 장애 격리</span></h2>
+    <div class="content-area">
+        <p style="text-align: left; width: 100%; margin-bottom: 20px; font-weight: 700; color: var(--text-main);">서드파티 API 및 부모 DB 연결 장애 시 시스템 코어 로직 보호 (Fail-safe)</p>
+        
+        <div class="two-column tiled" style="gap: 20px;">
+            <div style="padding: 20px;">
+                <h3>부모 VIEW 동기화 장애</h3>
+                <p style="font-weight: 700; color: var(--primary);">원천 차단(Fail-Safe)</p>
+                <p>외부 인증 스키마(회차, 팀) 조회가 불가한 경우, 무결성을 위해 쓰기 요청을 안전하게 거절합니다.</p>
+            </div>
+            <div style="padding: 20px;">
+                <h3>LLM API Timeout / 포맷 에러</h3>
+                <p style="font-weight: 700; color: var(--primary);">결과 폐기(Drop)</p>
+                <p>30초 Hard Timeout 및 JSON Schema 검증을 통과한 신뢰성 있는 결과물만 렌더링합니다.</p>
+            </div>
+            <div style="padding: 20px;">
+                <h3>기여도 산출 AI 실패</h3>
+                <p style="font-weight: 700; color: var(--primary);">백그라운드 재처리(Retry)</p>
+                <p>PRD '완료' 상태는 우선 Commit하고, 실패한 평가는 `failed` 마킹 후 배치에서 재평가합니다.</p>
+            </div>
+            <div style="padding: 20px;">
+                <h3>Slack Webhook 발송 실패</h3>
+                <p style="font-weight: 700; color: var(--primary);">데이터 저장 보장</p>
+                <p>DB 트랜잭션 Commit 완료 후 비동기 발송 처리하며, 지수 백오프 기반 재시도를 수행합니다.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 13: Contribution Scoring -->
+<div class="slide-container dense-text" id="slide13">
+    <h2 class="slide-title">Lineage 기반 <span>기여도(Contribution) 산출 모델</span></h2>
+    <div class="content-area">
+        <p style="text-align: left; width: 100%; margin-bottom: 15px; font-weight: 700; color: var(--text-main);">노드 히스토리 및 리뷰 참여 데이터를 정규화한 정량적 평가 알고리즘</p>
+        
+        <div style="display: flex; gap: 20px; width: 100%; align-items: stretch; margin-bottom: 20px;">
+            <div class="info-box" style="flex: 1; position: relative;">
+                <h3 style="color: var(--primary);">메모 기여 지수</h3>
+                <p>문서에 채택 반영된 메모<br>버전 계보 이전 작성자 누적<br>보류/삭제 데이터 제외</p>
+                <div style="position: absolute; bottom: 15px; right: 20px; font-size: 24px; font-weight: 700; color: var(--primary);">50% 가중치</div>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: center; font-size: 24px; color: var(--text-muted);"><i class="fa-solid fa-plus"></i></div>
+            <div class="info-box" style="flex: 1; position: relative;">
+                <h3 style="color: var(--primary);">코멘트 리뷰 지수</h3>
+                <p>PRD 내용 발전에 기여한 코멘트<br>단순 피드백 제외(내용 보강 측정)<br>강사(Tutor) 피드백 제외</p>
+                <div style="position: absolute; bottom: 15px; right: 20px; font-size: 24px; font-weight: 700; color: var(--primary);">50% 가중치</div>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: center; font-size: 24px; color: var(--text-muted);"><i class="fa-solid fa-equals"></i></div>
+            <div class="info-box" style="flex: 0.8; background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%); color: white;">
+                <h3 style="color: white; margin-bottom: 5px;">종합 Score</h3>
+                <div style="font-size: 32px; font-weight: 700; line-height: 1;">100 Scale</div>
+                <p style="color: rgba(255,255,255,0.8); margin: 0; margin-top: 5px;">User-Level Aggregation</p>
+            </div>
+        </div>
+
+        <ul style="list-style: none; padding: 0; width: 100%; margin-bottom: 15px;">
+            <li style="margin-bottom: 8px; position: relative; padding-left: 15px;"><i class="fa-solid fa-circle" style="font-size: 5px; color: var(--primary); position: absolute; left: 0; top: 8px;"></i>메모와 코멘트 원점수를 각각 사용자별 합계 100으로 비례 정규화한 뒤 고정 가중치 50:50으로 합산합니다.</li>
+            <li style="position: relative; padding-left: 15px;"><i class="fa-solid fa-circle" style="font-size: 5px; color: var(--primary); position: absolute; left: 0; top: 8px;"></i>문서가 '재개(Re-open)' 후 다시 완료될 경우, 이전 평가 데이터를 덮어쓰지 않고 새로운 평가 버전을 Append 합니다.</li>
+        </ul>
+        <div style="width: 100%; background: #fee2e2; padding: 10px 15px; border-radius: 8px; border-left: 4px solid #ef4444; font-size:14px;">
+            <p style="margin: 0; color: #991b1b;"><strong style="margin-right: 10px;">Data Access Policy</strong>평가 결과와 산출 근거는 staff/superuser 운영 관리자에게만 공개하며, 튜터를 포함한 일반 참여자에게는 노출하지 않습니다.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 14: Architecture -->
+<div class="slide-container dense-text" id="slide14">
+    <h2 class="slide-title">모놀리식(Monolithic) 통합을 고려한 <span>시스템 아키텍처</span></h2>
+    <div class="content-area">
+        <p style="text-align: left; width: 100%; margin-bottom: 20px; font-weight: 700; color: var(--text-main);">PostgreSQL 중심의 운영 최적화 및 외부 시스템 연동 경계(Boundary) 분리</p>
+        
+        <div class="tiled-content" style="margin-bottom: 20px;">
+            <div class="tile" style="padding: 20px;">
+                <h3>Presentation Layer</h3>
+                <p>Django Template (SSR)</p>
+                <div style="margin: 10px 0; border-top: 1px dashed var(--border);"></div>
+                <h3>Client-side Logic</h3>
+                <p>React CDN (캔버스 한정 적용)</p>
+            </div>
+            <div class="tile" style="padding: 20px;">
+                <h3>Business Layer</h3>
+                <p>Django REST API, 권한 검증</p>
+                <div style="margin: 10px 0; border-top: 1px dashed var(--border);"></div>
+                <h3>Persistence Layer</h3>
+                <p>PostgreSQL (Core DB + Job Queue)</p>
+            </div>
+            <div class="tile" style="padding: 20px;">
+                <h3>Background Processes</h3>
+                <p>AI Job Worker · Gemini API</p>
+                <p>자정 유지보수 · 자동 완료</p>
+                <p>30일 TTL 데이터 정리</p>
+            </div>
+            <div class="tile" style="padding: 20px; border-color: var(--primary); background: var(--primary-light);">
+                <h3 style="color: var(--primary);">Integration Boundary</h3>
+                <p><strong>Read DB:</strong> 계정, 회차 VIEW 참조</p>
+                <p><strong>Write DB:</strong> 외부 FK ID 제한적 저장</p>
+                <p><strong>Notify:</strong> Slack 모듈 인터페이스 호출</p>
+            </div>
+        </div>
+
+        <div class="info-box">
+            <p style="font-weight: 700; color: var(--primary); margin-bottom: 5px;">인프라 선택의 의사결정: Redis, Celery 배제</p>
+            <p style="margin: 0;">예상 트래픽 및 리소스 풀을 고려하여, 별도의 Message Broker(Redis) 인프라 추가는 운영 복잡도를 증가시킨다고 판단했습니다. 이에 PostgreSQL 기반의 자체 Task Table과 단순 Worker 구조로 비동기 처리를 구현했습니다.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 15: QA & Conclusion -->
+<div class="slide-container" id="slide15">
+    <h2 class="slide-title">안정적인 프로덕션 운영을 위한 <span>품질 보증(QA)</span></h2>
+    <div class="content-area">
+        
+        <div class="tiled-content" style="margin-bottom: 30px;">
+            <div class="tile" style="text-align: center; align-items: center; justify-content: center; padding: 20px;">
+                <div style="font-size: 40px; font-weight: 700; color: var(--primary); margin-bottom: 5px;">390</div>
+                <p style="margin: 0; font-weight: 700; font-size:16px;">Test Cases</p>
+            </div>
+            <div class="tile" style="text-align: center; align-items: center; justify-content: center; padding: 20px;">
+                <div style="font-size: 40px; font-weight: 700; color: var(--primary); margin-bottom: 5px;">88.4%</div>
+                <p style="margin: 0; font-weight: 700; font-size:16px;">Application Coverage</p>
+            </div>
+            <div class="tile" style="text-align: center; align-items: center; justify-content: center; padding: 20px;">
+                <div style="font-size: 40px; font-weight: 700; color: var(--primary); margin-bottom: 5px;">36</div>
+                <p style="margin: 0; font-weight: 700; font-size:16px;">Managed ORM Models</p>
+            </div>
+            <div class="tile" style="text-align: center; align-items: center; justify-content: center; padding: 20px;">
+                <div style="font-size: 40px; font-weight: 700; color: var(--primary); margin-bottom: 5px;">49</div>
+                <p style="margin: 0; font-weight: 700; font-size:16px;">DB Migrations</p>
+            </div>
+        </div>
+
+        <div class="info-box" style="margin-bottom: 30px;">
+            <h3 style="font-size: 20px; margin-bottom: 10px; color: var(--text-main);">주요 테스트 및 검증 시나리오</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size:15px;">
+                <p style="margin: 0;"><i class="fa-solid fa-check" style="color: var(--primary); margin-right: 8px;"></i>RBAC(권한 제어), 동시성 충돌, 멱등성 보장 검증</p>
+                <p style="margin: 0;"><i class="fa-solid fa-check" style="color: var(--primary); margin-right: 8px;"></i>LLM 타임아웃, 예외 포맷 응답, 잘못된 파라미터 방어</p>
+                <p style="margin: 0;"><i class="fa-solid fa-check" style="color: var(--primary); margin-right: 8px;"></i>Soft Delete 트랜잭션, 데이터 복원, 영구 삭제 검증</p>
+                <p style="margin: 0;"><i class="fa-solid fa-check" style="color: var(--primary); margin-right: 8px;"></i>Parent DB 다운타임 등 외부 비가용 시뮬레이션</p>
+            </div>
+        </div>
+
+        <div style="text-align: center;">
+            <p style="font-size: 20px; font-weight: 500; color: var(--text-main); margin-bottom: 10px;">요구사항 정의부터 문서화까지 통합된 워크스페이스</p>
+            <h2 style="font-size: 42px; color: var(--primary);">감사합니다</h2>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 16: Appendix Title -->
+<div class="slide-container" id="slide16" style="background-color: var(--text-main);">
+    <div class="section-title-layout" style="text-align: left; align-items: flex-start; padding-left: 100px;">
+        <h2 style="font-size: 70px; color: white; margin-bottom: 10px;">APPENDIX</h2>
+        <h3 style="font-size: 36px; color: var(--primary); margin-bottom: 30px;">Technical<br>Appendix</h3>
+        <p style="font-size: 20px; color: rgba(255,255,255,0.7); margin-bottom: 40px;">시스템 아키텍처 및 데이터 인터페이스 명세</p>
+        
+        <ul style="list-style: none; padding: 0; color: white; font-size: 20px;">
+            <li style="margin-bottom: 15px;"><span style="color: var(--primary); margin-right: 15px; font-weight: 700;">01</span>System Architecture</li>
+            <li style="margin-bottom: 15px;"><span style="color: var(--primary); margin-right: 15px; font-weight: 700;">02</span>Data Model &amp; API Spec</li>
+            <li><span style="color: var(--primary); margin-right: 15px; font-weight: 700;">03</span>Quality Assurance</li>
+        </ul>
+
+        <div style="position: absolute; bottom: 40px; right: 60px; color: rgba(255,255,255,0.5); font-size: 16px;">
+            Idea Developer · 3조<br>17
+        </div>
+    </div>
+</div>
+
+<!-- Slide 17: Execution Architecture (Dense Appx) -->
+<div class="slide-container" id="slide17">
+    <h2 class="slide-title">실행 아키텍처 (Execution Architecture)</h2>
+    <div class="content-area">
+        <p style="text-align: left; width: 100%; margin-bottom: 15px; font-weight: 700; font-size: 16px;">동기적 웹 요청과 비동기 작업, 외부 연동 시스템 간의 실패 경계(Failure Boundary) 분리</p>
+        
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; width: 100%; margin-bottom: 15px;">
+            <div class="tile" style="padding: 15px;">
+                <h3 style="font-size: 16px; margin-bottom: 8px;">Client Browser</h3>
+                <p style="margin: 0; font-size: 14px;">Django Template + Bootstrap UI<br>React CDN (Canvas 전용)</p>
+            </div>
+            <div class="tile" style="padding: 15px;">
+                <h3 style="font-size: 16px; margin-bottom: 8px;">Web App Server</h3>
+                <p style="margin: 0; font-size: 14px;">Django Websession, CSRF<br>Context Integration &amp; Policy</p>
+            </div>
+            <div class="tile" style="padding: 15px; border-color: var(--primary); background: var(--primary-light);">
+                <h3 style="font-size: 16px; margin-bottom: 8px; color: var(--primary);">Database Layer</h3>
+                <p style="margin: 0; font-size: 14px;">PostgreSQL (schema)<br>App Data + Job Queue Table</p>
+            </div>
+            <div class="tile" style="padding: 15px;">
+                <h3 style="font-size: 16px; margin-bottom: 8px;">Background Worker</h3>
+                <p style="margin: 0; font-size: 14px;">Row-level Locking (SKIP LOCKED)<br>LLM API &amp; Response Val.</p>
+            </div>
+            <div class="tile" style="padding: 15px;">
+                <h3 style="font-size: 16px; margin-bottom: 8px;">Parent System Sync</h3>
+                <p style="margin: 0; font-size: 14px;">PostgreSQL VIEW 조회<br>(unmanaged · Read-only)</p>
+            </div>
+            <div class="tile" style="padding: 15px;">
+                <h3 style="font-size: 16px; margin-bottom: 8px;">Maintenance Batch</h3>
+                <p style="margin: 0; font-size: 14px;">자정 실행: 기한 만료 처리<br>30일 경과 시 Hard Delete</p>
+            </div>
+            <div class="tile" style="padding: 15px; grid-column: span 2;">
+                <h3 style="font-size: 16px; margin-bottom: 8px;">External Notification</h3>
+                <p style="margin: 0; font-size: 14px;">Slack API 연동 (Commit 완료 후 발송)<br>일시 오류 시 3회 Backoff 재시도</p>
+            </div>
+        </div>
+
+        <div class="info-box" style="padding: 12px 15px; margin-bottom: 10px;">
+            <p style="margin: 0; font-size: 14px;">시스템 의존성을 낮추기 위해 Redis, Celery 등을 배제하고 PostgreSQL을 공통 실행 기반으로 활용했습니다.</p>
+        </div>
+        <div class="info-box" style="padding: 12px 15px; margin-bottom: 0;">
+            <p style="font-weight: 700; color: var(--primary); margin-bottom: 5px; font-size: 15px;">Future Scalability 향후 확장성</p>
+            <p style="margin: 0; font-size: 14px;">현재의 HTTP Polling 기반 이벤트 동기화 구조는 향후 실시간 커서 요구 시, 전송 계층만 WebSocket으로 교체 가능하도록 설계되었습니다.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 18: Core ERD -->
+<div class="slide-container" id="slide18">
+    <h2 class="slide-title">엔티티 관계 및 무결성 경계 <span>(ERD &amp; Integrity)</span></h2>
+    <div class="content-area">
+        <p style="text-align: left; width: 100%; margin-bottom: 20px; font-weight: 700; font-size: 16px;">부모 시스템 원장 참조(View) 및 식별자 기반 느슨한 결합(Loose Coupling) 구성</p>
+        
+        <div class="two-column tiled" style="margin-bottom: 20px; gap: 20px;">
+            <div style="padding: 20px;">
+                <h3 style="font-size: 18px; margin-bottom: 10px;">Parent Domain <span style="font-size: 14px; font-weight: 400; color: var(--text-muted);">(Read-only)</span></h3>
+                <ul style="list-style: none; padding: 0; font-size: 15px;">
+                    <li style="margin-bottom: 5px; padding-left: 0;"><code>ax_user_team_login_view</code></li>
+                    <li style="padding-left: 0;"><code>user_round_team_view</code></li>
+                </ul>
+            </div>
+            <div style="border-color: var(--primary); border-width: 2px; padding: 20px;">
+                <h3 style="color: var(--primary); font-size: 18px; margin-bottom: 10px;">Child Domain (Idea Developer)</h3>
+                <ul style="list-style: none; padding: 0; font-size: 14px;">
+                    <li style="margin-bottom: 4px; padding-left: 0;"><strong>LocalUserMapping:</strong> <code>external_user_id</code> (Unique)</li>
+                    <li style="margin-bottom: 4px; padding-left: 0;"><strong>Prd:</strong> <code>round_id</code>, <code>team_id</code>, <code>creator_user_id</code></li>
+                    <li style="margin-bottom: 4px; padding-left: 0;"><strong>PrdParticipant:</strong> (<code>prd_id</code>, <code>user_id</code>)</li>
+                    <li style="margin-bottom: 4px; padding-left: 0;"><strong>Section·Question·Answer:</strong> 1:1 Optional Relation</li>
+                    <li style="margin-bottom: 4px; padding-left: 0;"><strong>BrainstormCanvas:</strong> (<code>prd_id</code>, <code>version</code>)</li>
+                    <li style="padding-left: 0;"><strong>Node·Connection:</strong> UUID 식별, <code>lineage_id</code> 추적</li>
+                </ul>
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 20px; width: 100%;">
+            <div class="info-box" style="flex: 1;">
+                <p style="font-weight: 700; color: var(--primary); margin-bottom: 5px; font-size: 15px;">Foreign Key Validation</p>
+                <p style="margin: 0; font-size: 14px;"><code>user_id</code>, <code>round_id</code> 등 외부 식별자는 삽입 전 항상 최신 VIEW 상태를 조회하여 정합성을 검증합니다.</p>
+            </div>
+            <div class="info-box" style="flex: 2;">
+                <p style="font-weight: 700; color: var(--primary); margin-bottom: 5px; font-size: 15px;">Data Retention &amp; Audit Log</p>
+                <p style="margin: 0; font-size: 14px;">삭제된 PRD는 30일간 Soft-delete 상태로 유지되며, 이후 연관 엔티티를 일괄 정리합니다. 외래 키 종속성이 없는 별도의 <code>PrdDeletionAuditLog</code>를 통해 최소한의 삭제 감사 로그만 영구 보존합니다.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 19: Version Board & Contribution Calc -->
+<div class="slide-container" id="slide19">
+    <h2 class="slide-title">시계열 리비전(Revision) 및 <span>기여도 산출 모델</span></h2>
+    <div class="content-area">
+        <p style="text-align: left; width: 100%; margin-bottom: 15px; font-weight: 700; font-size: 16px;">의미론적 변경점(Lineage) 추적을 통한 무의미한 버전 증분 필터링</p>
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 15px;" class="info-box">
+            <div style="text-align: center;">
+                <p style="font-weight: 700; color: var(--primary); margin-bottom: 5px; font-size: 15px;">Ver.1</p>
+                <p style="font-weight: 500; font-size: 14px; margin-bottom: 2px;">최초 발제 메모 생성</p>
+             <p style="font-size: 13px; margin:0;">담당자: 민준</p>
+            </div>
+            <div style="color: var(--primary); font-size: 14px;"><i class="fa-solid fa-arrow-right"></i></div>
+            <div style="text-align: center;">
+                <p style="font-weight: 700; color: var(--primary); margin-bottom: 5px; font-size: 15px;">Ver.2</p>
+                <p style="font-weight: 500; font-size: 14px; margin-bottom: 2px;">해결안 디벨롭 및 수정</p>
+                 <p style="font-size: 13px; margin:0;">담당자: 서연</p>
+            </div>
+            <div style="color: var(--primary); font-size: 14px;"><i class="fa-solid fa-arrow-right"></i></div>
+            <div style="text-align: center;">
+                <p style="font-weight: 700; color: var(--primary); margin-bottom: 5px; font-size: 15px;">Ver.3</p>
+                <p style="font-weight: 500; font-size: 14px; margin-bottom: 2px;">최종 채택 반영</p>
+                 <p style="font-size: 13px; margin:0;">담당자: 서연</p>
+            </div>
+            <div style="border-left: 2px dashed var(--border); padding-left: 20px; margin-left: 10px;">
+                <p style="font-weight: 700; color: var(--accent); margin-bottom: 5px; font-size: 14px;">Lineage 점수: 민준(최초) + 서연(개선)</p>
+                <p style="font-size: 13px; margin: 0;">동일 Lineage 내에서는 사용자별 1회만 카운트하여<br>중복 점수를 방지합니다.</p>
+            </div>
+        </div>
+
+        <div class="two-column" style="margin-bottom: 15px; gap: 20px;">
+            <div>
+                <h3 style="font-size: 16px; color: var(--primary); margin-bottom: 5px;">유효 기여(Valid Contribution) 기준</h3>
+                <p style="font-size: 14px; margin:0;">메모의 최종 상태가 `Accepted`이며, 문서의 답변 텍스트로 참조(Referenced)된 Lineage 트리 내의 모든 참여자</p>
+            </div>
+            <div>
+                <h3 style="font-size: 16px; color: var(--primary); margin-bottom: 5px;">기여 인정 제외 대상 (Noise Filtering)</h3>
+                <p style="font-size: 14px; margin:0;">내용 변경 없는 좌표 이동(Positioning), 카테고리(Section) 변경, 단순 담당자 태그 변경 등 메타데이터 변동</p>
+            </div>
+        </div>
+
+        <div class="info-box">
+            <p style="font-weight: 700; color: var(--text-main); margin-bottom: 5px; font-size: 15px;">최종 점수 캘큘레이션</p>
+             <p style="margin-bottom: 5px; font-size: 14px;">메모와 코멘트의 사용자별 원점수를 각 영역 합계 100으로 비례 정규화한 뒤, 고정 가중치 50:50으로 최종 점수를 계산합니다.</p>
+            <p style="margin: 0; font-size: 14px;">결과 및 산출 근거 덤프는 관리자 API로만 노출되며, 재평가 시 기존 로그를 파기하지 않고 버저닝(Versioning)하여 무결성을 유지합니다.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 20: Permission Matrix -->
+<div class="slide-container" id="slide20">
+    <h2 class="slide-title">서버 사이드 권한 인가 <span>(RBAC)</span></h2>
+    <div class="content-area">
+        <p style="text-align: left; width: 100%; margin-bottom: 15px; font-weight: 700; font-size: 16px;">미들웨어 레벨의 API 엔드포인트 접근 제어 및 정책 강제(Policy Enforcement)</p>
+        
+        <div class="table-layout">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Resource Action</th>
+                        <th>Owner</th>
+                        <th>Editor</th>
+                        <th>Tutor</th>
+                        <th>Viewer</th>
+                        <th>Sys Admin</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td>PRD 리소스 조회(Read)</td><td>Allow</td><td>Allow</td><td>Allow</td><td>Allow</td><td>Allow</td></tr>
+                    <tr><td>문서 메타데이터 및 본문 수정(Update)</td><td>Allow</td><td>Allow</td><td style="color: #ef4444;">Deny</td><td style="color: #ef4444;">Deny</td><td>Strict</td></tr>
+                    <tr><td>참여자 역할 관리(Grant/Revoke)</td><td>Allow</td><td style="color: #ef4444;">Deny</td><td style="color: #ef4444;">Deny</td><td style="color: #ef4444;">Deny</td><td>Strict</td></tr>
+                    <tr><td>팀 내 일반 코멘트 작성</td><td>Allow</td><td>Allow</td><td style="color: #ef4444;">Deny</td><td style="color: #ef4444;">Deny</td><td>Binding</td></tr>
+                    <tr><td>강사 피드백 및 평가 코멘트 작성</td><td style="color: #ef4444;">Deny</td><td style="color: #ef4444;">Deny</td><td>Allow</td><td style="color: #ef4444;">Deny</td><td>Binding</td></tr>
+                    <tr><td>AI 기능 호출 및 결과 병합 처리</td><td>Allow</td><td>Allow</td><td style="color: #ef4444;">Deny</td><td style="color: #ef4444;">Deny</td><td>Binding</td></tr>
+                    <tr><td>브레인스토밍 캔버스 메모 상호작용</td><td>Allow</td><td>Allow</td><td>Allow</td><td style="color: #ef4444;">Deny</td><td>Strict</td></tr>
+                    <tr><td>문서 상태 변경 (완료/재개/삭제)</td><td>Owner Only</td><td style="color: #ef4444;">Deny</td><td style="color: #ef4444;">Deny</td><td style="color: #ef4444;">Deny</td><td>Maintain</td></tr>
+                    <tr><td>기여도 지표 조회 및 백그라운드 재평가</td><td style="color: #ef4444;">Deny</td><td style="color: #ef4444;">Deny</td><td style="color: #ef4444;">Deny</td><td style="color: #ef4444;">Deny</td><td>Allow</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="info-box" style="margin-top: 15px; background: var(--primary-light);">
+            <p style="margin: 0; font-size: 14px;"><strong>Locking Mechanism:</strong> 문서가 '완료(Completed)' 상태로 전이되면 일반 수정 API와 브레인스토밍 변경 요청은 403을 반환합니다. Tutor의 완료 후 리뷰 코멘트만 예외적으로 허용됩니다.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 21: API Error Contract -->
+<div class="slide-container" id="slide21">
+    <h2 class="slide-title">API 에러 응답 규약 <span>(Error Contract)</span></h2>
+    <div class="content-area">
+        <p style="text-align: left; width: 100%; margin-bottom: 15px; font-weight: 700; font-size: 16px;">HTTP Status 및 Error Code 표준화를 통한 클라이언트 예외 처리 일관성 확보</p>
+        
+        <div class="table-layout">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 50px;">HTTP</th>
+                        <th style="width: 30%;">Error Code Signature</th>
+                        <th>Frontend UI 핸들링 전략</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td><strong>400</strong></td><td><code>validation_error</code>, <code>invalid_format</code></td><td>입력값(Form State)을 보존하고, 에러가 발생한 필드 하단에 Validation 힌트 노출</td></tr>
+                    <tr><td><strong>401</strong></td><td><code>authentication_required</code></td><td>작업 컨텍스트를 안전한 `next` 파라미터로 감싸 로그인 페이지로 리다이렉트 처리</td></tr>
+                    <tr><td><strong>403</strong></td><td><code>permission_denied</code>, <code>csrf_failed</code></td><td>작업 즉시 중단, 최신 권한 상태 재조회(Refresh) 혹은 접근 불가 안내 모달 렌더링</td></tr>
+                    <tr><td><strong>404</strong></td><td><code>resource_not_found</code></td><td>보안상 리소스 스니핑 방지를 위해 사유 노출 최소화 및 목록(Index) 경로 안내</td></tr>
+                    <tr><td><strong>409</strong></td><td><code>version_conflict</code></td><td>동시성 제어 실패. 서버 최신 데이터를 Payload에 실어 사용자 강제 덮어쓰기 방지</td></tr>
+                    <tr><td><strong>429</strong></td><td><code>ai_usage_limit_exceeded</code></td><td>Rate Limit 초과. Retry-After 파싱 후 쿨다운(Cooldown) 타이머 렌더링 및 버튼 비활성화</td></tr>
+                    <tr><td><strong>500</strong></td><td><code>internal_server_error</code></td><td>작성 중 입력을 화면에 유지하고 재시도 경로와 로그 추적용 <code>request_id</code>를 안내</td></tr>
+                    <tr><td><strong>503</strong></td><td><code>integration_unavailable</code></td><td>부모 DB 참조 실패 시, 오염 방지를 위해 Write 중단 및 복구 후 재시도 안내</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div style="width: 100%; margin-top: 15px; background: #1e293b; color: white; padding: 12px 15px; border-radius: 8px; font-family: monospace; font-size: 14px;">
+            <p style="margin: 0; color: white;">Standard Envelope: <code>{ "ok": boolean, "data": Object|null, "error": { "code": string, "message": string }, "meta": { "request_id": string } }</code></p>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 22: PostgreSQL Worker & Maintenance -->
+<div class="slide-container" id="slide22">
+    <h2 class="slide-title">비동기 작업 큐 및 <span>배치 스케줄링</span></h2>
+    <div class="content-area">
+        <p style="text-align: left; width: 100%; margin-bottom: 15px; font-weight: 700; font-size: 16px;">PostgreSQL 기반 Task Queue 구축 및 I/O 바운드 워크로드 분리</p>
+        
+        <div style="display: flex; gap: 10px; width: 100%; margin-bottom: 20px;">
+            <div class="info-box" style="padding: 12px;">
+                <p style="font-weight: 700; color: var(--primary); margin-bottom: 4px; font-size: 14px;">1. Task Enqueue</p>
+                <p style="margin: 0; font-size: 13px;">프롬프트 버전 스냅샷<br>데이터 페이로드 덤프<br>Idempotency Key</p>
+            </div>
+            <div class="info-box" style="padding: 12px;">
+                <p style="font-weight: 700; color: var(--primary); margin-bottom: 4px; font-size: 14px;">2. Lock Acquisition</p>
+                <p style="margin: 0; font-size: 13px;"><code>SELECT FOR UPDATE</code><br><code>SKIP LOCKED</code> 제어<br>Lease 갱신 매커니즘</p>
+            </div>
+            <div class="info-box" style="padding: 12px;">
+                <p style="font-weight: 700; color: var(--primary); margin-bottom: 4px; font-size: 14px;">3. External API Call</p>
+                <p style="margin: 0; font-size: 13px;">REST HTTP 통신<br>30초 Hard Timeout<br>예외 시 제한적 Retry</p>
+            </div>
+            <div class="info-box" style="padding: 12px;">
+                <p style="font-weight: 700; color: var(--primary); margin-bottom: 4px; font-size: 14px;">4. Validation</p>
+                <p style="margin: 0; font-size: 13px;">JSON Schema 체크<br>할루시네이션 방어<br>DB ID 교차 검증</p>
+            </div>
+            <div class="info-box" style="padding: 12px;">
+                <p style="font-weight: 700; color: var(--primary); margin-bottom: 4px; font-size: 14px;">5. Log &amp; Finalize</p>
+                <p style="margin: 0; font-size: 13px;">상태 마킹(success/fail)<br>LLM Token 집계<br>사용자 피드백 플래그</p>
+            </div>
+        </div>
+
+        <div class="info-box" style="margin-bottom: 15px;">
+            <h3 style="font-size: 18px; color: var(--text-main); margin-bottom: 10px;">Cron Job (Daily Midnight Maintenance)</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
+                <div>
+                    <p style="font-weight: 700; color: var(--primary); margin-bottom: 5px; font-size: 14px;">기한 만료 작업 자동화</p>
+                    <p style="margin: 0; font-size: 13px;">Deadline이 지난 활성(In-progress) PRD 레코드를 감지하여 정책에 따라 일괄 Completed 전이(Transition) 처리.</p>
+                </div>
+                <div>
+                    <p style="font-weight: 700; color: var(--primary); margin-bottom: 5px; font-size: 14px;">데이터 영구 정리 (GC)</p>
+                    <p style="margin: 0; font-size: 13px;">소프트 삭제 플래그 활성화 후 30일 유예기간(Retention)이 지난 데이터를 DB에서 Hard Delete 수행.</p>
+                </div>
+                <div>
+                    <p style="font-weight: 700; color: var(--primary); margin-bottom: 5px; font-size: 14px;">임시 자원 TTL 해제</p>
+                    <p style="margin: 0; font-size: 13px;">저장되지 않은 AI 초안(Draft) 미리보기 및 완료된 코치 대화 세션 등 만료된 TTL 자원 플러시.</p>
+                </div>
+            </div>
+        </div>
+
+        <div style="width: 100%; background: var(--primary-light); padding: 12px 20px; border-radius: 8px; display: flex; align-items: center; justify-content: space-between;">
+            <p style="font-weight: 700; color: var(--text-main); margin: 0; font-size: 14px;">Safe Execution Policy</p>
+            <p style="margin: 0; font-size: 14px;">배치 작업은 쿼리 대상이 0건이더라도 에러 없이 정상(Success) 종료되도록 설계하여 알림 노이즈 방지.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 23: Parent Transfer Contract -->
+<div class="slide-container" id="slide23">
+    <h2 class="slide-title">통합 환경(Parent System) 이관 계약 및 <span>보안 통제</span></h2>
+    <div class="content-area">
+        <p style="text-align: left; width: 100%; margin-bottom: 15px; font-weight: 700; font-size: 16px;">독립 환경에서의 실행을 보장하되, 향후 본 서비스 통합 시 교체할 의존성 지점 분리</p>
+        
+        <div class="two-column" style="margin-bottom: 20px; gap: 20px;">
+            <div class="info-box">
+                <h3 style="font-size: 18px; color: var(--text-main); margin-bottom: 10px;">Core Logic (통합 시에도 그대로 유지)</h3>
+                <ul style="list-style: none; padding: 0; font-size: 15px;">
+                    <li style="margin-bottom: 4px; padding-left: 0;">PRD 편집기/캔버스 전체 비즈니스 룰셋</li>
+                    <li style="margin-bottom: 4px; padding-left: 0;">외부 <code>user_id</code> 참조 및 Nullable <code>round_id</code> 계약</li>
+                    <li style="margin-bottom: 4px; padding-left: 0;">Owner, Editor, Tutor, Viewer RBAC 권한 모델</li>
+                    <li style="margin-bottom: 4px; padding-left: 0;">Optimistic Lock 버전 충돌 제어 및 Idempotency 방어</li>
+                    <li style="padding-left: 0;">Soft-delete 정책, 데이터 변경 감사 로그 체계</li>
+                </ul>
+            </div>
+            <div class="info-box" style="border-color: var(--primary); background: var(--primary-light);">
+                <h3 style="font-size: 18px; color: var(--primary); margin-bottom: 10px;">Integration Points (통합 시 교체 대상)</h3>
+                <ul style="list-style: none; padding: 0; font-size: 15px;">
+                    <li style="margin-bottom: 4px; padding-left: 0;">독립 구현 OTP → 부모 <code>request.user</code> Session 활용</li>
+                    <li style="margin-bottom: 4px; padding-left: 0;">Standalone 인증 Resolver → 부모 내장 인증 교체</li>
+                    <li style="margin-bottom: 4px; padding-left: 0;">독립 <code>base template</code> → 부모 <code>base.html</code> 상속</li>
+                    <li style="margin-bottom: 4px; padding-left: 0;">독립 라우팅 URL Include → 부모 <code>urls.py</code> 맵핑</li>
+                    <li style="padding-left: 0;">Slack adapter binding → 부모 <code>notifications.slack</code> 호출</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="info-box" style="margin-bottom: 10px; padding: 15px 20px;">
+            <p style="font-weight: 700; color: var(--primary); margin-bottom: 5px; font-size: 15px;">Security &amp; Data Validation 통제 항목</p>
+            <p style="margin: 0; font-size: 14px;">안전한 Session 검증, CSRF 토큰 방어, 내부 <code>next</code> URL 화이트리스트 검사, 부모 DB 연결 시 Read-only User Connection 적용, 시크릿 키 환경변수 관리, 프롬프트 인젝션 방어(User Input 물리 분리), LLM 생성 ID 리스폰스의 DB 존재 여부 재검증.</p>
+        </div>
+        <div style="width: 100%; font-size: 13px; color: var(--text-muted);">
+            <p style="margin: 0;">[TBD] 부모 시스템 기여도 전달 API payload·인증·멱등성 규격, <code>results_scoreinput</code> 도입 여부, 이관 이후 공통 감사 로그 책임과 보존기간</p>
+        </div>
+    </div>
+</div>
+
+<!-- Slide 24: Test & Reproducibility -->
+<div class="slide-container" id="slide24">
+    <h2 class="slide-title">테스트 파이프라인(CI) 및 <span>재현성 확보</span></h2>
+    <div class="content-area">
+        
+        <div class="tiled-content" style="margin-bottom: 20px; gap: 20px;">
+            <div class="tile" style="padding: 15px 20px; text-align: center;">
+                <h3 style="font-size: 16px; margin-bottom: 8px;">Automated Test Cases</h3>
+                <p style="font-size: 28px; font-weight: 700; color: var(--primary); margin: 0;">390</p>
+            </div>
+            <div class="tile" style="padding: 15px 20px; text-align: center;">
+                <h3 style="font-size: 16px; margin-bottom: 8px;">DB Compatibility</h3>
+                <p style="font-size: 28px; font-weight: 700; color: var(--primary); margin: 0;">PG 16</p>
+            </div>
+            <div class="tile" style="padding: 15px 20px; text-align: center;">
+                <h3 style="font-size: 16px; margin-bottom: 8px;">Code Coverage</h3>
+                <p style="font-size: 28px; font-weight: 700; color: var(--primary); margin: 0;">88.4%</p>
+            </div>
+        </div>
+
+        <div class="info-box" style="margin-bottom: 20px;">
+            <h3 style="font-size: 18px; color: var(--text-main); margin-bottom: 10px;">핵심 컴포넌트 단위/통합 테스트 커버리지</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 14px;">
+                <p style="margin: 0;">[Security] 세션 탈취, Rate Limit 회피, Open Redirect 방어</p>
+                <p style="margin: 0;">[Fault] 부모 VIEW 통신 단절 시뮬레이션 및 정합성 엣지 케이스</p>
+                <p style="margin: 0;">[Concurrency] 다중 요청 시 Optimistic Lock (409) 작동</p>
+                <p style="margin: 0;">[Integrity] Node/Connection 무결성 보장 및 버전 정합성</p>
+                <p style="margin: 0;">[External] LLM API 30초 강제 종료(Timeout), 스키마 위반 방어</p>
+                <p style="margin: 0;">[Batch] 30일 경과 데이터 Hard Delete 및 Slack 실패 복구</p>
+            </div>
+        </div>
+
+        <div style="width: 100%; background: #1e293b; padding: 15px 20px; border-radius: 12px; color: white; font-family: monospace; font-size: 13px; margin-bottom: 15px;">
+            <p style="margin: 0 0 5px 0; color: #94a3b8; font-family: &#39;Pretendard&#39;, sans-serif;">로컬(Local) 및 CI 환경 린트/테스트 실행 커맨드 (Reproducibility)</p>
+            <p style="margin: 0;">$ python manage.py check --settings=config.settings.test</p>
+            <p style="margin: 0;">$ python manage.py test --settings=config.settings.test</p>
+            <p style="margin: 0;">$ ruff check .</p>
+        </div>
+
+        <p style="font-size: 14px; width: 100%; text-align: left; margin-bottom: 0;">※ 릴리스 배포 체크리스트: 물리적 DB 스냅샷 백업, Migration Graph 종속성 확인, Web/Worker 재기동, 부모 VIEW Read 권한 확인, CSP 룰셋 검증을 선행합니다.</p>
+    </div>
+</div>
+
+</body></html>

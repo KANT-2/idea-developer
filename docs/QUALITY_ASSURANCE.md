@@ -14,6 +14,10 @@ Pull Request와 `develop`, `main` push에서는 GitHub Actions가 PostgreSQL 16�
 실행한다. 애플리케이션 코드 커버리지는 85% 미만이면 실패하며 운영 설정의 `check --deploy`도
 통과해야 한다.
 
+2026-09-07 로컬 회귀 기준으로 390개 테스트를 발견해 385개가 통과했고, SQLite에서 지원하지 않는
+PostgreSQL 행 잠금 전용 테스트 5개는 건너뛰었다. `apps` 기준 측정 커버리지는 88.4%다. 건너뛴
+5개는 PostgreSQL 16 CI 또는 테스트 DB 생성 권한이 있는 로컬 PostgreSQL에서 실행한다.
+
 ## 2. 테스트 범위
 
 | 영역 | 주요 검증 |
