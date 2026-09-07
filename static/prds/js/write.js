@@ -62,8 +62,12 @@
   const settingsDangerSection = document.getElementById("prd-settings-danger-section");
   const createdDateOutput = document.getElementById("prd-created-date");
   const summaryForm = document.getElementById("prd-summary-form");
+  const summaryTitleField = document.getElementById("prd-summary-title-field");
+  const summaryDescriptionField = document.getElementById("prd-summary-description-field");
+  const summaryDeadlineField = document.getElementById("prd-summary-deadline-field");
   const summaryTitleInput = document.getElementById("prd-summary-title");
   const summaryDescriptionInput = document.getElementById("prd-summary-description");
+  const summaryDeadlineInput = document.getElementById("prd-summary-deadline");
   const summarySaveButton = document.getElementById("prd-summary-save");
   const summaryError = document.getElementById("prd-summary-error");
   const deletePrdButton = document.getElementById("delete-prd");
@@ -83,6 +87,8 @@
   let questionListMode = false;
   let canManageParticipants = false;
   let canCreateComments = false;
+  let canEditSummaryMetadata = false;
+  let canEditDeadlineMetadata = false;
   const pendingAnswers = new Map();
   let savingAllAnswers = false;
   const statusLabels = {in_progress: "진행 중", completed: "완료", held: "보류", dropped: "드랍"};
@@ -273,8 +279,13 @@
     deadlineInput.disabled = !data.permissions.can_edit_deadline;
     deadlineInput.min = data.prd.auto_completed ? localDateKey(new Date()) : "";
     const canEditSummary = data.permissions.can_edit && data.prd.status !== "completed";
+    canEditSummaryMetadata = canEditSummary;
+    canEditDeadlineMetadata = Boolean(data.permissions.can_edit_deadline);
     settingsButton.classList.remove("d-none");
-    settingsEditSection.classList.toggle("d-none", !canEditSummary);
+    settingsEditSection.classList.toggle("d-none", !canEditSummaryMetadata && !canEditDeadlineMetadata);
+    summaryTitleField.classList.toggle("d-none", !canEditSummaryMetadata);
+    summaryDescriptionField.classList.toggle("d-none", !canEditSummaryMetadata);
+    summaryDeadlineField.classList.toggle("d-none", !canEditDeadlineMetadata);
     settingsDangerSection.classList.toggle("d-none", !data.permissions.can_delete);
     createdDateOutput.textContent = data.prd.created_at
       ? localDateKey(new Date(data.prd.created_at))
@@ -1262,6 +1273,8 @@
   settingsModalElement.addEventListener("show.bs.modal", function () {
     summaryTitleInput.value = detail?.prd.title || "";
     summaryDescriptionInput.value = detail?.prd.description || "";
+    summaryDeadlineInput.value = detail?.prd.deadline || "";
+    summaryDeadlineInput.min = deadlineInput.min;
     summaryError.classList.add("d-none");
     summaryError.textContent = "";
     summaryForm.classList.remove("was-validated");
@@ -1276,19 +1289,23 @@
     summarySaveButton.disabled = true;
     summaryError.classList.add("d-none");
     try {
-      await updateMetadata({
-        title: summaryTitleInput.value.trim(),
-        description: summaryDescriptionInput.value.trim()
-      });
+      const changes = {};
+      if (canEditSummaryMetadata) {
+        changes.title = summaryTitleInput.value.trim();
+        changes.description = summaryDescriptionInput.value.trim();
+      }
+      if (canEditDeadlineMetadata) changes.deadline = summaryDeadlineInput.value || null;
+      await updateMetadata(changes);
       settingsModal.hide();
-      showAlert("PRD 제목과 한 줄 소개를 수정했습니다.", "success");
+      showAlert("PRD 기본 정보를 수정했습니다.", "success");
     } catch (error) {
       if (error.code === "version_conflict") {
         const latest = await api(detailApi);
         renderDetail(latest);
         summaryTitleInput.value = latest.prd.title;
         summaryDescriptionInput.value = latest.prd.description || "";
-        summaryError.textContent = "다른 사용자가 먼저 수정했습니다. 최신 제목과 소개를 불러왔습니다.";
+        summaryDeadlineInput.value = latest.prd.deadline || "";
+        summaryError.textContent = "다른 사용자가 먼저 수정했습니다. 최신 기본 정보를 불러왔습니다.";
       } else summaryError.textContent = error.message;
       summaryError.classList.remove("d-none");
     } finally {

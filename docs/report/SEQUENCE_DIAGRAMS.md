@@ -110,7 +110,30 @@ sequenceDiagram
 
 드래그 중간 좌표는 저장하지 않고 종료 좌표만 전송한다.
 
-## 5. 보류와 연결선 정리
+## 5. 보드 순서 변경과 최신 삭제
+
+```mermaid
+sequenceDiagram
+    participant U as 편집자
+    participant UI as React CDN 화면
+    participant API as Brainstorm API
+    participant DB as PostgreSQL
+
+    U->>UI: 보드 순서 변경
+    UI->>API: PATCH boards/order + 활성 canvas ID 전체
+    API->>DB: PRD row lock + ID 집합 검증
+    DB->>DB: display_order 일괄 갱신 + change event
+    API-->>UI: latest_canvas_id
+    UI->>API: 최신 보드 전체 재조회
+    U->>UI: 최신 보드 삭제 확인
+    UI->>API: DELETE boards/:latest_id
+    API->>DB: PRD row lock + 최신·잔여 보드 검증
+    DB->>DB: 최신 soft delete + 다음 보드 승격 + change event
+    API-->>UI: 승격된 latest_canvas_id
+    UI->>API: 승격 보드 전체 재조회
+```
+
+## 6. 보류와 연결선 정리
 
 ```mermaid
 sequenceDiagram
@@ -136,7 +159,7 @@ sequenceDiagram
     end
 ```
 
-## 6. AI 코치와 변경안 승인
+## 7. AI 코치와 변경안 승인
 
 ```mermaid
 sequenceDiagram
@@ -169,7 +192,7 @@ sequenceDiagram
     end
 ```
 
-## 7. 브레인스토밍 PRD 반영
+## 8. 브레인스토밍 PRD 반영
 
 ```mermaid
 sequenceDiagram
@@ -197,7 +220,7 @@ sequenceDiagram
     end
 ```
 
-## 8. 완료·기여도·재개
+## 9. 완료·기여도·재개
 
 ```mermaid
 sequenceDiagram
@@ -223,7 +246,7 @@ sequenceDiagram
     DB-->>API: in_progress, 기존 평가 버전 보존
 ```
 
-## 9. 30일 삭제와 자정 유지보수
+## 10. 30일 삭제와 자정 유지보수
 
 ```mermaid
 sequenceDiagram

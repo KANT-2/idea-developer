@@ -23,7 +23,7 @@ Pull Request와 `develop`, `main` push에서는 GitHub Actions가 PostgreSQL 16�
 | PRD | 유형·상태·외부 ID, 템플릿 복제, completion rate, idempotency, DB constraint |
 | 홈 | 접근 범위, KPI, 과거·회차 없는 PRD, 필터·정렬·날짜 경계, N+1 방지 |
 | 상세 편집 | 역할 권한, 답변·참여자·코멘트 version 충돌, 완료 잠금, 재개 감사 |
-| 브레인스토밍 | 이동·보류·삭제·복원, 연결 무결성, 버전 보드, polling cursor, batch rollback |
+| 브레인스토밍 | 이동·보류·삭제·복원, 연결 무결성, 최신 보드 단독 편집, 순서 변경·최신 승격, polling cursor, batch rollback |
 | AI | schema·ID 검증, prompt 분리, timeout·취소·재시도, 사용량, 코치 동시 append, 승인 전 미저장, 관점별 전체 초안의 선택 반영·version 충돌 |
 | 로깅 | request ID·`extra` 필드 보존, 예외 stack, 직렬화 불가능한 값의 안전한 문자열 변환 |
 | 기여도 | lineage 중복 제거, 내용 편집자, PRD 반영 confidence, 50:50 정규화, AI 실패 유지 |
@@ -72,7 +72,7 @@ Pull Request와 `develop`, `main` push에서는 GitHub Actions가 PostgreSQL 16�
 - `tests/test_ui_navigation.py`는 로그인 전후 진입 경로, 보호 화면의 안전한 `next`, 홈·새 PRD
   렌더링, 일반 화면 HTML 404/API JSON 404 분리, `DEBUG=True` 기술 404 차단, 모든 주요 fetch
   client의 비정상 응답·네트워크 실패 방어를 검증한다. 브라우저 smoke test는 홈→새 PRD 2단계와
-  참여자 검색, 홈→PRD 상세, 상세→새 탭 브레인스토밍→상세 복귀, 404→홈 복귀를 확인한다.
+  참여자 검색, 홈→PRD 상세, 상세→같은 탭 브레인스토밍→상세 복귀, 404→홈 복귀를 확인한다.
 - SQLite 전체 회귀에서는 PostgreSQL `select_for_update` 전용 동시성 테스트 5개가 skip된다.
   GitHub Actions의 PostgreSQL 16 job에서 이 5개를 포함해 실행한다. 로컬 PostgreSQL에서 직접
   실행하려면 애플리케이션 DB와 분리된 테스트 DB 생성 권한이 필요하다.

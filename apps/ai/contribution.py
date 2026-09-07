@@ -187,6 +187,7 @@ class ContributionEvaluationService:
         accepted_candidates = list(
             BrainstormNode.objects.filter(
                 canvas__prd=prd,
+                canvas__is_deleted=False,
                 node_type=BrainstormNodeType.NOTE,
                 status=BrainstormNodeStatus.ACCEPTED,
                 is_deleted=False,
@@ -289,6 +290,7 @@ class ContributionEvaluationService:
         lineage_nodes = list(
             BrainstormNode.objects.filter(
                 canvas__prd=prd,
+                canvas__is_deleted=False,
                 lineage_id__in=lineage_ids,
                 node_type=BrainstormNodeType.NOTE,
             ).values("id", "lineage_id")
@@ -301,6 +303,7 @@ class ContributionEvaluationService:
 
         content_changes = BrainstormChangeLog.objects.filter(
             canvas__prd=prd,
+            canvas__is_deleted=False,
             action="node_content_updated",
             target_type=BrainstormChangeTarget.NODE,
             target_id__in=lineage_by_target_id,
@@ -337,7 +340,9 @@ class ContributionEvaluationService:
         node_to_lineage = {
             str(node_id): str(lineage_id)
             for node_id, lineage_id in BrainstormNode.objects.filter(
-                canvas__prd=prd, lineage_id__in=lineage_ids
+                canvas__prd=prd,
+                canvas__is_deleted=False,
+                lineage_id__in=lineage_ids,
             ).values_list("id", "lineage_id")
         }
         confidences_by_lineage = defaultdict(list)
@@ -427,6 +432,7 @@ class ContributionEvaluationService:
     def _restore_removed_assignees(*, prd, participant_user_ids):
         nodes = BrainstormNode.objects.select_for_update().filter(
             canvas__prd=prd,
+            canvas__is_deleted=False,
             node_type=BrainstormNodeType.NOTE,
             is_deleted=False,
         )

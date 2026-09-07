@@ -16,7 +16,8 @@
 | PRD·참여자·코멘트 동시 수정 보호 | `apps/prds/detail_views.py`, `comment_services.py` | `test_edit_concurrency.py`, `test_prd_detail_api.py` |
 | PRD 완료 잠금과 owner·관리자 재개 | `apps/prds/status_services.py`, permissions | `test_prd_detail_api.py`, `test_permissions.py` |
 | PRD 휴지통·30일 보존 | `apps/prds/detail_views.py`, `apps/jobs/cleanup.py` | `test_prd_detail_api.py`, `test_midnight_maintenance.py` |
-| 캔버스 버전과 lineage 보존 | `apps/brainstorm/models.py`, `services.py` | `test_brainstorm_models.py`, `test_brainstorm_api.py` |
+| 캔버스 버전·lineage·최신 보드 단독 편집 | `apps/brainstorm/models.py`, `services.py`, `views.py` | `test_brainstorm_models.py`, `test_brainstorm_api.py` |
+| 보드 순서 변경·최신 지정·삭제 후 승격 | `apps/brainstorm/services.py`, `views.py`, 브레인스토밍 JS | `test_brainstorm_api.py`, `test_templates.py` |
 | 메모 이동·보류·연결선 무결성 | `apps/brainstorm/services.py` | `test_brainstorm_api.py`, `test_brainstorm_models.py` |
 | polling cursor와 전체 재동기화 | `apps/brainstorm/views.py`, 브레인스토밍 JS | `test_brainstorm_api.py`, `test_templates.py` |
 | AI 작업 lock·lease·취소·재시도 | `apps/ai/services.py`, `worker.py` | `test_ai_infrastructure.py`, `test_worker.py` |
