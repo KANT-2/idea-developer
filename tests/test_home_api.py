@@ -324,12 +324,19 @@ class HomeApiTests(TestCase):
         )
 
     def test_recent_activity_endpoint_is_paginated_and_protected(self):
+        histories = []
         for index in range(10):
-            PrdChangeHistory.objects.create(
-                prd=self.personal,
-                actor_user_id=7,
-                event_type="answer_updated",
-                after_data={"sequence": index},
+            histories.append(
+                PrdChangeHistory.objects.create(
+                    prd=self.personal,
+                    actor_user_id=7,
+                    event_type="answer_updated",
+                    after_data={"sequence": index},
+                )
+            )
+        for index, history in enumerate(histories):
+            PrdChangeHistory.objects.filter(pk=history.pk).update(
+                created_at=NOW - timedelta(minutes=index * 31)
             )
 
         response = self.client.get(
@@ -352,6 +359,31 @@ class HomeApiTests(TestCase):
         self.assertEqual(
             self.client.get(reverse("home_api:recent-activity")).status_code,
             401,
+        )
+
+    def test_recent_activity_groups_rapid_equivalent_changes(self):
+        histories = [
+            PrdChangeHistory.objects.create(
+                prd=self.personal,
+                actor_user_id=7,
+                event_type="answer_updated",
+            )
+            for _ in range(3)
+        ]
+        for index, history in enumerate(histories):
+            PrdChangeHistory.objects.filter(pk=history.pk).update(
+                created_at=NOW - timedelta(minutes=index * 5)
+            )
+
+        home_data = self.get_home().json()["data"]
+        data = self.client.get(reverse("home_api:recent-activity")).json()["data"]
+
+        self.assertEqual(sum(day["count"] for day in home_data["weekly_activity"]), 1)
+        self.assertEqual(data["pagination"]["total_items"], 1)
+        self.assertEqual(data["items"][0]["activity_count"], 3)
+        self.assertEqual(
+            data["items"][0]["description"],
+            "질문 답변 3건을 수정했습니다.",
         )
 
     def test_comment_and_participant_events_have_recent_activity_labels(self):
