@@ -217,6 +217,10 @@
             font-size: 14px;
         }
 
+        .two-column ul.plain-list li::before {
+            display: none;
+        }
+
         .image-wrapper {
             border-radius: 12px;
             max-height: 360px; /* Reduced to fit with titles */
@@ -520,9 +524,9 @@
         </div>
         
         <ul style="display: flex; gap: 30px; list-style: none; padding: 0; margin-top: 20px; width: 100%; justify-content: center; font-size: 16px;">
-            <li style="margin: 0;"><i class="fa-solid fa-check" style="color: var(--primary); margin-right: 8px;"></i>참여 프로젝트 상태 및 마감일 통합 관리</li>
-            <li style="margin: 0;"><i class="fa-solid fa-check" style="color: var(--primary); margin-right: 8px;"></i>권한(접근성) 기반 KPI 통계 제공</li>
-            <li style="margin: 0;"><i class="fa-solid fa-check" style="color: var(--primary); margin-right: 8px;"></i>팀별 최근 활동 내역 및 알림 트래킹</li>
+            <li style="margin: 0;"><span style="color: var(--primary); margin-right: 8px;">•</span>참여 프로젝트 상태 및 마감일 통합 관리</li>
+            <li style="margin: 0;"><span style="color: var(--primary); margin-right: 8px;">•</span>권한(접근성) 기반 KPI 통계 제공</li>
+            <li style="margin: 0;"><span style="color: var(--primary); margin-right: 8px;">•</span>팀별 최근 활동 내역 및 알림 트래킹</li>
         </ul>
     </div>
 </div>
@@ -884,10 +888,10 @@
         <div class="info-box" style="margin-bottom: 30px;">
             <h3 style="font-size: 20px; margin-bottom: 10px; color: var(--text-main);">주요 테스트 및 검증 시나리오</h3>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size:15px;">
-                <p style="margin: 0;"><i class="fa-solid fa-check" style="color: var(--primary); margin-right: 8px;"></i>RBAC(권한 제어), 동시성 충돌, 멱등성 보장 검증</p>
-                <p style="margin: 0;"><i class="fa-solid fa-check" style="color: var(--primary); margin-right: 8px;"></i>LLM 타임아웃, 예외 포맷 응답, 잘못된 파라미터 방어</p>
-                <p style="margin: 0;"><i class="fa-solid fa-check" style="color: var(--primary); margin-right: 8px;"></i>Soft Delete 트랜잭션, 데이터 복원, 영구 삭제 검증</p>
-                <p style="margin: 0;"><i class="fa-solid fa-check" style="color: var(--primary); margin-right: 8px;"></i>Parent DB 다운타임 등 외부 비가용 시뮬레이션</p>
+                <p style="margin: 0;"><span style="color: var(--primary); margin-right: 8px;">•</span>RBAC(권한 제어), 동시성 충돌, 멱등성 보장 검증</p>
+                <p style="margin: 0;"><span style="color: var(--primary); margin-right: 8px;">•</span>LLM 타임아웃, 예외 포맷 응답, 잘못된 파라미터 방어</p>
+                <p style="margin: 0;"><span style="color: var(--primary); margin-right: 8px;">•</span>Soft Delete 트랜잭션, 데이터 복원, 영구 삭제 검증</p>
+                <p style="margin: 0;"><span style="color: var(--primary); margin-right: 8px;">•</span>Parent DB 다운타임 등 외부 비가용 시뮬레이션</p>
             </div>
         </div>
 
@@ -973,14 +977,14 @@
         <div class="two-column tiled" style="margin-bottom: 20px; gap: 20px;">
             <div style="padding: 20px;">
                 <h3 style="font-size: 18px; margin-bottom: 10px;">Parent Domain <span style="font-size: 14px; font-weight: 400; color: var(--text-muted);">(Read-only)</span></h3>
-                <ul style="list-style: none; padding: 0; font-size: 15px;">
+                <ul class="plain-list" style="list-style: none; padding: 0; font-size: 15px;">
                     <li style="margin-bottom: 5px; padding-left: 0;"><code>ax_user_team_login_view</code></li>
                     <li style="padding-left: 0;"><code>user_round_team_view</code></li>
                 </ul>
             </div>
             <div style="border-color: var(--primary); border-width: 2px; padding: 20px;">
                 <h3 style="color: var(--primary); font-size: 18px; margin-bottom: 10px;">Child Domain (Idea Developer)</h3>
-                <ul style="list-style: none; padding: 0; font-size: 14px;">
+                <ul class="plain-list" style="list-style: none; padding: 0; font-size: 14px;">
                     <li style="margin-bottom: 4px; padding-left: 0;"><strong>LocalUserMapping:</strong> <code>external_user_id</code> (Unique)</li>
                     <li style="margin-bottom: 4px; padding-left: 0;"><strong>Prd:</strong> <code>round_id</code>, <code>team_id</code>, <code>creator_user_id</code></li>
                     <li style="margin-bottom: 4px; padding-left: 0;"><strong>PrdParticipant:</strong> (<code>prd_id</code>, <code>user_id</code>)</li>
@@ -1186,7 +1190,7 @@
         <div class="two-column" style="margin-bottom: 20px; gap: 20px;">
             <div class="info-box">
                 <h3 style="font-size: 18px; color: var(--text-main); margin-bottom: 10px;">Core Logic (통합 시에도 그대로 유지)</h3>
-                <ul style="list-style: none; padding: 0; font-size: 15px;">
+                <ul class="plain-list" style="list-style: none; padding: 0; font-size: 15px;">
                     <li style="margin-bottom: 4px; padding-left: 0;">PRD 편집기/캔버스 전체 비즈니스 룰셋</li>
                     <li style="margin-bottom: 4px; padding-left: 0;">외부 <code>user_id</code> 참조 및 Nullable <code>round_id</code> 계약</li>
                     <li style="margin-bottom: 4px; padding-left: 0;">Owner, Editor, Tutor, Viewer RBAC 권한 모델</li>
@@ -1196,7 +1200,7 @@
             </div>
             <div class="info-box" style="border-color: var(--primary); background: var(--primary-light);">
                 <h3 style="font-size: 18px; color: var(--primary); margin-bottom: 10px;">Integration Points (통합 시 교체 대상)</h3>
-                <ul style="list-style: none; padding: 0; font-size: 15px;">
+                <ul class="plain-list" style="list-style: none; padding: 0; font-size: 15px;">
                     <li style="margin-bottom: 4px; padding-left: 0;">독립 구현 OTP → 부모 <code>request.user</code> Session 활용</li>
                     <li style="margin-bottom: 4px; padding-left: 0;">Standalone 인증 Resolver → 부모 내장 인증 교체</li>
                     <li style="margin-bottom: 4px; padding-left: 0;">독립 <code>base template</code> → 부모 <code>base.html</code> 상속</li>
