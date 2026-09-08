@@ -27,7 +27,7 @@ API는 `/api/v1/` 아래에 있으며 헬스체크를 제외하고 Django sessio
 | 사용자 | `/api/v1/users/` | 권한 범위 내 사용자 검색 |
 | 홈 | `/api/v1/home/` | KPI, PRD 목록, 튜터 학생 검색, 최근 활동 |
 | PRD | `/api/v1/prds/` | 생성, 상세, 답변, 참여자, 코멘트, 상태, 휴지통 |
-| PRD AI | `/api/v1/prds/<prd_id>/ai/` | 코치, 3관점 진단, 질문 초안, 관점별 전체 초안, 작업 상태·취소·재시도 |
+| PRD AI | `/api/v1/prds/<prd_id>/ai/` | 코치, 3관점 진단·종합, 질문 초안, 세 관점 통합 전체 초안, 작업 상태·취소·재시도 |
 | 브레인스토밍 | `/api/v1/prds/<prd_id>/brainstorm/` | 보드, 노드, 연결선, viewport, polling, PRD 반영 |
 
 ### 브레인스토밍 보드 버전
@@ -55,14 +55,17 @@ API는 `/api/v1/` 아래에 있으며 헬스체크를 제외하고 Django sessio
 URL의 단일 기준은 `config/urls.py`와 각 앱의 `*_urls.py`이다. 경로를 변경하면 이 문서와 관련
 테스트를 같은 PR에서 갱신한다.
 
-## 관점별 PRD 전체 초안
+## PRD 진단 종합과 세 관점 통합 전체 초안
 
 | 단계 | Method·경로 | 주요 입력 | 결과·검증 |
 |---|---|---|---|
-| 생성 요청 | `POST /api/v1/prds/<prd_id>/ai/perspective-draft/run/` | `persona`: `pm`, `engineering`, `investor`; `Idempotency-Key` | 권한과 사용량을 확인하고 job을 생성한다. 신규 job은 202, 같은 멱등 요청은 기존 job과 200을 반환한다. |
+| 진단 조회 | `GET /api/v1/prds/<prd_id>/ai/evaluation/` | 없음 | 세 관점별 최신 job과 현재 여부, 종합 job과 현재 여부를 함께 반환한다. |
+| 종합 요청 | `POST /api/v1/prds/<prd_id>/ai/evaluation/synthesis/run/` | `Idempotency-Key` | 최신 상태로 성공한 세 관점 진단을 검증하고 종합 job을 생성한다. |
+| 초안 생성 | `POST /api/v1/prds/<prd_id>/ai/perspective-draft/run/` | `Idempotency-Key` | 세 관점과 현재 PRD context를 입력으로 job을 생성한다. 신규 job은 202, 같은 멱등 요청은 기존 job과 200을 반환한다. |
 | 상태 조회 | `GET /api/v1/prds/<prd_id>/ai/jobs/<job_id>/` | URL의 job ID | 요청 사용자 소유의 같은 PRD job만 조회한다. |
 | 취소·재시도 | 공통 `jobs/<job_id>/cancel/`, `retry/` | job ID | 공통 AI 상태 전이 규칙을 따른다. |
 | 선택 반영 | `POST /api/v1/prds/<prd_id>/ai/perspective-draft/<job_id>/apply/` | `approved_questions: [{question_id, version}]` | 성공한 본인 job의 미리보기 항목만 허용하고 질문 version이 바뀌면 409를 반환한다. |
 
-생성 결과의 `answers`에는 `question_id`, 생성 당시 `question_version`, 정화된 `draft`, 정화된
+종합 결과의 섹션 ID는 현재 진단 입력과 정확히 일치해야 하며, 중복·누락·잘못된 상태값은 폐기한다.
+초안 생성 결과의 `answers`에는 `question_id`, 생성 당시 `question_version`, 정화된 `draft`, 정화된
 `reasoning`이 포함된다. 반영할 질문은 하나 이상이어야 하며 중복 ID는 허용하지 않는다.

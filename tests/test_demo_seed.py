@@ -1,6 +1,7 @@
 from io import StringIO
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core.management import call_command
 from django.test import TestCase
 
@@ -27,7 +28,7 @@ def parent_user(user_id):
         "first_name": "데모",
         "last_name": str(user_id),
         "role": "tutor" if user_id == 2 else "student",
-        "approval_status": "fixture-approved",
+        "approval_status": settings.INTEGRATION_APPROVED_USER_STATUS,
         "is_active": True,
         "is_staff": False,
         "is_superuser": False,
@@ -73,6 +74,12 @@ class DemoWorkspaceSeedTests(TestCase):
         self.assertEqual(
             sorted(progress_prds.values_list("completion_rate", flat=True)),
             [24, 32, 46, 54, 66, 73, 85, 93],
+        )
+        self.assertFalse(
+            PrdAnswer.objects.filter(
+                question__section__prd__in=progress_prds,
+                content__startswith="검토 완료 항목",
+            ).exists()
         )
         messi_roles = set(
             PrdParticipant.objects.filter(

@@ -29,6 +29,30 @@ class EvaluationProvider:
     def generate(self, request, *, timeout_seconds, cancellation_check):
         self.__class__.requests.append(request)
         data = request.user_data["untrusted_user_data"]
+        if data.get("kind") == "prd_evaluation_synthesis":
+            return AiProviderResult(
+                output={
+                    "overall_score": 68,
+                    "summary": (
+                        "PM 관점의 문제 정의는 분명하지만 투자자 관점의 차별화 근거가 부족합니다."
+                    ),
+                    "sections": [
+                        {
+                            "section_id": section["section_id"],
+                            "score": 68,
+                            "status": "needs_improvement",
+                            "feedback": (
+                                "PM 관점은 구체적이지만 투자자 관점의 근거를 보완해야 합니다."
+                            ),
+                        }
+                        for section in data["sections"]
+                    ],
+                },
+                input_tokens=30,
+                output_tokens=12,
+                cost_usd=Decimal("0"),
+                model="evaluation-synthesis-test-model",
+            )
         return AiProviderResult(
             output={
                 "overall_score": 73,
@@ -138,6 +162,36 @@ class PrdEvaluationApiTests(TestCase):
             model="evaluation-test-model",
             activate=True,
         )
+        AiPrompt.objects.filter(feature_type=AiFeatureType.PRD_EVALUATION_SYNTHESIS).delete()
+        AiPromptService().create_version(
+            feature_type=AiFeatureType.PRD_EVALUATION_SYNTHESIS,
+            system_instructions="세 관점 진단 결과를 종합한다.",
+            output_schema={
+                "type": "object",
+                "required": ["overall_score", "summary", "sections"],
+                "properties": {
+                    "overall_score": {"type": "integer", "minimum": 0, "maximum": 100},
+                    "summary": {"type": "string"},
+                    "sections": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["section_id", "score", "status", "feedback"],
+                            "properties": {
+                                "section_id": {"type": "integer"},
+                                "score": {"type": "integer", "minimum": 0, "maximum": 100},
+                                "status": {"enum": ["good", "needs_improvement", "missing"]},
+                                "feedback": {"type": "string"},
+                            },
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "additionalProperties": False,
+            },
+            model="evaluation-synthesis-test-model",
+            activate=True,
+        )
 
     def url(self, name, **kwargs):
         return reverse(f"ai_api:{name}", kwargs={"prd_id": self.prd.pk, **kwargs})
@@ -149,6 +203,14 @@ class PrdEvaluationApiTests(TestCase):
             content_type="application/json",
             HTTP_IDEMPOTENCY_KEY=key,
         )
+
+    def complete_all_perspectives(self):
+        for persona in ("pm", "engineering", "investor"):
+            response = self.request(persona=persona, key=f"synthesis-source-{persona}")
+            self.assertEqual(response.status_code, 202)
+        runner = AiJobRunner(worker_id="synthesis-source-worker")
+        for _ in range(3):
+            self.assertTrue(runner.run_once())
 
     def test_page_distinguishes_completion_progress_from_ai_evaluation(self):
         response = self.client.get(reverse("prd-write-page", args=[self.prd.pk]))
@@ -207,6 +269,37 @@ class PrdEvaluationApiTests(TestCase):
         self.assertEqual(
             {job["output"]["persona"] for job in latest["jobs"].values()},
             {"pm", "engineering", "investor"},
+        )
+
+    def test_synthesis_requires_three_current_results_and_is_idempotent(self):
+        url = self.url("request-evaluation-synthesis")
+        missing = self.client.post(url, data="{}", content_type="application/json")
+        self.assertEqual(missing.status_code, 400)
+
+        self.complete_all_perspectives()
+        first = self.client.post(
+            url,
+            data="{}",
+            content_type="application/json",
+            HTTP_IDEMPOTENCY_KEY="evaluation-synthesis-key",
+        )
+        second = self.client.post(
+            url,
+            data="{}",
+            content_type="application/json",
+            HTTP_IDEMPOTENCY_KEY="evaluation-synthesis-key",
+        )
+        self.assertEqual(first.status_code, 202)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.json()["data"]["id"], second.json()["data"]["id"])
+
+        self.assertTrue(AiJobRunner(worker_id="synthesis-worker").run_once())
+        latest = self.client.get(self.url("latest-evaluation")).json()["data"]
+        self.assertTrue(latest["synthesis_is_current"])
+        self.assertEqual(latest["synthesis"]["output"]["overall_score"], 68)
+        self.assertEqual(
+            latest["synthesis"]["output"]["sections"][0]["section_id"],
+            self.section.id,
         )
 
     def test_unknown_persona_is_rejected(self):

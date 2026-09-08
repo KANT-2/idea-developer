@@ -507,10 +507,7 @@ class Command(BaseCommand):
             )
         elif target_rate := spec.get("target_completion_rate"):
             completed_count = round(len(flat_questions) * target_rate / 100)
-            answers = tuple(
-                Command._progress_answer(question=question, index=index)
-                for index, question in enumerate(flat_questions[:completed_count], start=1)
-            )
+            answers = tuple(Command._progress_answer() for _ in range(completed_count))
         for question, answer in zip(flat_questions, answers, strict=False):
             PrdAnswer.objects.create(
                 question=question,
@@ -598,9 +595,8 @@ class Command(BaseCommand):
         )
 
     @staticmethod
-    def _progress_answer(*, question, index):
+    def _progress_answer():
         return (
-            f"검토 완료 항목 {index}: {question.prompt} "
             "사용자 관찰과 팀 논의를 바탕으로 현재 가설과 검증 기준을 정리했습니다. "
             "다음 실험에서 확인할 지표와 담당자를 지정하고 결과에 따라 내용을 보완합니다."
         )

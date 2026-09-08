@@ -14,6 +14,7 @@
   var interval = Math.min(5000, Math.max(2000, Number(root.dataset.pollingIntervalMs || 3000)));
   var csrf = document.querySelector('meta[name="csrf-token"]')?.content || "";
   var activeCanvasId = null;
+  var DEFAULT_CANVAS_ZOOM = .55;
   var layout = window.BrainstormLayout;
   var apiClientFactory = window.BrainstormApiClient;
   if (!layout || !apiClientFactory) {
@@ -109,11 +110,13 @@
             resizeBoard(opened.length, openedPerSection.length ? Math.max.apply(null, openedPerSection) : 0);
             // 페이지를 열 때는 언제나 도화지 전체가 한눈에 들어오게 맞춘다.
             // 지난번에 확대해 둔 배율을 그대로 복원하면 들어오자마자 축소해야 한다.
-            setView(fitBoardView(.5, .5));
+            setView(fitBoardView(DEFAULT_CANVAS_ZOOM, DEFAULT_CANVAS_ZOOM));
             initialViewport.current = true;
             // 첫 계산은 무대가 아직 그려지기 전일 수 있어 한 번 더 맞춘다.
             window.requestAnimationFrame(function () {
-              window.requestAnimationFrame(function () { setView(fitBoardView(.5, .5)); });
+              window.requestAnimationFrame(function () {
+                setView(fitBoardView(DEFAULT_CANVAS_ZOOM, DEFAULT_CANVAS_ZOOM));
+              });
             });
           }
         }).catch(function (error) {

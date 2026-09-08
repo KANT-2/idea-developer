@@ -19,7 +19,7 @@ from django.db.models import (
     When,
     Window,
 )
-from django.db.models.functions import RowNumber, TruncDate
+from django.db.models.functions import RowNumber
 from django.utils import timezone
 
 from apps.accounts.permissions import ParticipantAction, role_permission_policy
@@ -48,6 +48,7 @@ HOME_SORTS = {
     "created_desc",
     "created_asc",
 }
+RECENT_ACTIVITY_GROUP_WINDOW = timedelta(minutes=30)
 
 
 @dataclass(frozen=True, slots=True)
@@ -362,20 +363,19 @@ class HomeQueryService:
         ).values("id")
         week_start = today - timedelta(days=today.weekday())
         week_end = week_start + timedelta(days=6)
-        daily_counts = {
-            row["day"]: row["count"]
-            for row in (
-                PrdChangeHistory.objects.filter(
-                    prd_id__in=participant_prd_ids,
-                    actor_user_id=context.user_id,
-                    created_at__date__range=(week_start, week_end),
-                )
-                .annotate(day=TruncDate("created_at"))
-                .values("day")
-                .annotate(count=Count("id"))
-                .order_by("day")
+        weekly_histories = (
+            PrdChangeHistory.objects.filter(
+                prd_id__in=participant_prd_ids,
+                actor_user_id=context.user_id,
+                created_at__date__range=(week_start, week_end),
             )
-        }
+            .select_related("prd")
+            .order_by("-created_at", "-id")
+        )
+        daily_counts = {}
+        for activity in self._group_activity_histories(weekly_histories):
+            day = timezone.localdate(activity["history"].created_at)
+            daily_counts[day] = daily_counts.get(day, 0) + 1
         day_labels = ("월", "화", "수", "목", "금", "토", "일")
         weekly = [
             {
@@ -421,9 +421,11 @@ class HomeQueryService:
             .select_related("prd")
             .order_by("-created_at", "-id")
         )
-        total_items = queryset.count()
+        grouped = self._group_activity_histories(queryset)
+        total_items = len(grouped)
         offset = (page - 1) * page_size
-        histories = list(queryset[offset : offset + page_size])
+        page_groups = grouped[offset : offset + page_size]
+        histories = [activity["history"] for activity in page_groups]
         names = self._activity_actor_names(histories)
         return {
             "items": [
@@ -437,10 +439,14 @@ class HomeQueryService:
                         f"사용자 {history.actor_user_id}",
                     ),
                     "event_type": history.event_type,
-                    "description": self._activity_description(history),
+                    "activity_count": activity["count"],
+                    "description": self._activity_description(
+                        history,
+                        count=activity["count"],
+                    ),
                     "created_at": history.created_at.isoformat(),
                 }
-                for history in histories
+                for activity, history in zip(page_groups, histories, strict=True)
             ],
             "pagination": {
                 "page": page,
@@ -449,6 +455,40 @@ class HomeQueryService:
                 "total_pages": ceil(total_items / page_size) if total_items else 0,
             },
         }
+
+    @classmethod
+    def _group_activity_histories(cls, histories):
+        """Collapse rapid, equivalent changes for the user-facing activity feed.
+
+        Detailed change-history rows remain untouched for audit and conflict tracing.
+        """
+        groups = []
+        latest_group_by_key = {}
+        for history in histories:
+            key = cls._activity_group_key(history)
+            group = latest_group_by_key.get(key)
+            if (
+                group is not None
+                and group["history"].created_at - history.created_at <= RECENT_ACTIVITY_GROUP_WINDOW
+            ):
+                group["count"] += 1
+                continue
+            group = {"history": history, "count": 1}
+            groups.append(group)
+            latest_group_by_key[key] = group
+        return groups
+
+    @staticmethod
+    def _activity_group_key(history):
+        detail = None
+        if history.event_type == "question_hold_changed":
+            detail = bool(history.after_data.get("is_held"))
+        return (
+            history.prd_id,
+            history.actor_user_id,
+            history.event_type,
+            detail,
+        )
 
     def _activity_actor_names(self, histories):
         user_ids_by_round = {}
@@ -470,7 +510,17 @@ class HomeQueryService:
         return names
 
     @staticmethod
-    def _activity_description(history):
+    def _activity_description(history, *, count=1):
+        if count > 1:
+            grouped_labels = {
+                "answer_updated": f"질문 답변 {count}건을 수정했습니다.",
+                "participant_added": f"참여자 {count}명을 추가했습니다.",
+                "participant_role_changed": f"참여자 역할 {count}건을 변경했습니다.",
+                "participant_removed": f"참여자 {count}명을 제외했습니다.",
+                "comment_created": f"새 코멘트 {count}개를 작성했습니다.",
+            }
+            if history.event_type in grouped_labels:
+                return grouped_labels[history.event_type]
         labels = {
             "answer_updated": "질문 답변을 수정했습니다.",
             "participant_added": "참여자를 추가했습니다.",
@@ -478,8 +528,13 @@ class HomeQueryService:
             "participant_removed": "참여자를 제외했습니다.",
             "prd_created": "새 PRD를 만들었습니다.",
             "comment_created": "새 코멘트를 작성했습니다.",
+            "prd_metadata_updated": "PRD 설정을 수정했습니다.",
             "prd_completed": "PRD를 완료했습니다.",
             "prd_reopened": "PRD를 다시 열었습니다.",
+            "ai_chat_proposal_applied": "AI 코치 제안을 반영했습니다.",
+            "ai_draft_applied": "AI 질문 초안을 반영했습니다.",
+            "ai_perspective_draft_applied": "AI 관점별 초안을 반영했습니다.",
+            "brainstorm_ai_prd_applied": "아이디어를 PRD에 반영했습니다.",
         }
         if history.event_type == "question_hold_changed":
             return (
