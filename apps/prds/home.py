@@ -469,8 +469,7 @@ class HomeQueryService:
             group = latest_group_by_key.get(key)
             if (
                 group is not None
-                and group["history"].created_at - history.created_at
-                <= RECENT_ACTIVITY_GROUP_WINDOW
+                and group["history"].created_at - history.created_at <= RECENT_ACTIVITY_GROUP_WINDOW
             ):
                 group["count"] += 1
                 continue

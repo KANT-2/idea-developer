@@ -507,10 +507,7 @@ class Command(BaseCommand):
             )
         elif target_rate := spec.get("target_completion_rate"):
             completed_count = round(len(flat_questions) * target_rate / 100)
-            answers = tuple(
-                Command._progress_answer()
-                for _ in range(completed_count)
-            )
+            answers = tuple(Command._progress_answer() for _ in range(completed_count))
         for question, answer in zip(flat_questions, answers, strict=False):
             PrdAnswer.objects.create(
                 question=question,

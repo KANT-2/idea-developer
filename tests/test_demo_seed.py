@@ -1,6 +1,7 @@
 from io import StringIO
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core.management import call_command
 from django.test import TestCase
 
@@ -27,7 +28,7 @@ def parent_user(user_id):
         "first_name": "데모",
         "last_name": str(user_id),
         "role": "tutor" if user_id == 2 else "student",
-        "approval_status": "fixture-approved",
+        "approval_status": settings.INTEGRATION_APPROVED_USER_STATUS,
         "is_active": True,
         "is_staff": False,
         "is_superuser": False,

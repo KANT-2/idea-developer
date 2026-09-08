@@ -34,8 +34,7 @@ class EvaluationProvider:
                 output={
                     "overall_score": 68,
                     "summary": (
-                        "PM 관점의 문제 정의는 분명하지만 "
-                        "투자자 관점의 차별화 근거가 부족합니다."
+                        "PM 관점의 문제 정의는 분명하지만 투자자 관점의 차별화 근거가 부족합니다."
                     ),
                     "sections": [
                         {
@@ -43,8 +42,7 @@ class EvaluationProvider:
                             "score": 68,
                             "status": "needs_improvement",
                             "feedback": (
-                                "PM 관점은 구체적이지만 "
-                                "투자자 관점의 근거를 보완해야 합니다."
+                                "PM 관점은 구체적이지만 투자자 관점의 근거를 보완해야 합니다."
                             ),
                         }
                         for section in data["sections"]
