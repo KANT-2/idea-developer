@@ -475,8 +475,8 @@ class ConfirmedPrdTemplateSeedTests(TestCase):
                 for template in templates.values()
             },
             {
-                PrdType.NEW_PRODUCT: 29,
-                PrdType.NEW_FEATURE: 31,
+                PrdType.NEW_PRODUCT: 30,
+                PrdType.NEW_FEATURE: 32,
                 PrdType.IMPROVEMENT: 32,
             },
         )
@@ -505,7 +505,7 @@ class ConfirmedPrdTemplateSeedTests(TestCase):
         self.assertEqual(prd.sections.count(), 7)
         self.assertEqual(
             PrdQuestion.objects.filter(section__prd=prd).count(),
-            31,
+            32,
         )
         self.assertEqual(
             prd.sections.order_by("position").first().title,
@@ -513,7 +513,7 @@ class ConfirmedPrdTemplateSeedTests(TestCase):
         )
         self.assertEqual(
             prd.sections.order_by("position").first().questions.order_by("position").first().prompt,
-            "어떤 서비스에 어떤 이름의 기능을 추가하나요?",
+            "어떤 서비스에 기능을 추가하나요?",
         )
 
     def test_existing_prd_answers_and_brainstorm_links_are_preserved_during_backfill(self):
