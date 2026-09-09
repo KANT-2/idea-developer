@@ -58,7 +58,7 @@ class DemoWorkspaceSeedTests(TestCase):
         self.assertIn("생성 14개", first_output)
         self.assertEqual(Prd.objects.count(), 14)
         self.assertEqual(PrdParticipant.objects.count(), 53)
-        self.assertEqual(PrdAnswer.objects.count(), 251)
+        self.assertEqual(PrdAnswer.objects.count(), 182)
         self.assertEqual(PrdComment.objects.count(), 24)
         self.assertEqual(BrainstormCanvas.objects.count(), 14)
         self.assertEqual(BrainstormNode.objects.count(), 47)
@@ -73,7 +73,7 @@ class DemoWorkspaceSeedTests(TestCase):
         ).with_completion_rate()
         self.assertEqual(
             sorted(progress_prds.values_list("completion_rate", flat=True)),
-            [24, 32, 46, 54, 66, 73, 85, 93],
+            [24, 31, 45, 55, 66, 72, 86, 93],
         )
         self.assertFalse(
             PrdAnswer.objects.filter(

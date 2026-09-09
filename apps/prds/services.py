@@ -97,6 +97,55 @@ class PrdParticipantService:
         PrdParticipant.objects.bulk_create(participants)
         return tuple(participants)
 
+    @transaction.atomic
+    def add_participants(
+        self,
+        *,
+        prd: Prd,
+        user_ids: tuple[int, ...],
+        role: str,
+        actor_user_id: int,
+    ):
+        """Add a bounded set in one transaction and send one batched notification."""
+        role = self._validate_role(role)
+        unique_user_ids = tuple(dict.fromkeys(user_ids))
+        memberships = self.validate_memberships(
+            user_ids=unique_user_ids,
+            round_id=prd.round_id,
+        )
+        existing_user_ids = set(
+            prd.participants.filter(user_id__in=unique_user_ids).values_list("user_id", flat=True)
+        )
+        participants = [
+            PrdParticipant(
+                prd=prd,
+                user_id=membership.user_id,
+                participant_id=getattr(membership, "participant_id", None),
+                role=role,
+            )
+            for membership in memberships
+            if membership.user_id != prd.creator_user_id
+            and membership.user_id not in existing_user_ids
+        ]
+        PrdParticipant.objects.bulk_create(participants)
+        if participants:
+            added_user_ids = tuple(row.user_id for row in participants)
+            self._record_change(
+                prd=prd,
+                actor_user_id=actor_user_id,
+                event_type="participants_added",
+                before={},
+                after={"user_ids": list(added_user_ids), "role": role},
+            )
+            transaction.on_commit(
+                lambda: send_prd_participant_added(
+                    prd_id=prd.pk,
+                    prd_title=prd.title,
+                    user_ids=added_user_ids,
+                )
+            )
+        return tuple(participants)
+
     @staticmethod
     def _validate_role(role: str) -> str:
         if role not in {

@@ -173,6 +173,18 @@ class PrdCreationApiTests(TestCase):
         self.assertEqual({row["user_id"] for row in results}, {7, 9})
         self.assertTrue(all("email" in row and "team" in row for row in results))
 
+    def test_all_keyword_returns_bounded_active_users_in_current_round(self):
+        response = self.client.get(
+            reverse("prd_api:participant-search"),
+            {"q": "all"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertTrue(data["bulk_mode"])
+        self.assertEqual({row["user_id"] for row in data["results"]}, {7, 8, 9})
+        self.assertEqual(data["pagination"]["page_size"], 20)
+
     def test_create_uses_context_ids_and_adds_immediate_editors_without_duplicates(self):
         response = self.post_create(
             self.payload(

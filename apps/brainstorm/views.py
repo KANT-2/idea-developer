@@ -726,6 +726,74 @@ def auto_layout(request, prd_id):
         return _error(request, exc)
 
 
+@require_POST
+def batch_position(request, prd_id):
+    if response := _authentication_error(request):
+        return response
+    try:
+        context, access, canvas_row = _access(request, prd_id)
+        operation_id, nodes = BrainstormMutationService().move_many(
+            canvas=canvas_row,
+            access=access,
+            actor_user_id=context.user_id,
+            payload=_parse_json(request),
+        )
+        return api_success(
+            {
+                "operation_id": str(operation_id),
+                "nodes": [_serialize_node(node) for node in nodes],
+                "cursor": _latest_cursor(canvas_row),
+            },
+            request_id=_request_id(request),
+        )
+    except (
+        PrdNotFound,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+        VersionConflict,
+    ) as exc:
+        return _error(request, exc)
+
+
+def _history_action(request, prd_id, method_name):
+    if response := _authentication_error(request):
+        return response
+    try:
+        context, access, canvas_row = _access(request, prd_id)
+        change = getattr(BrainstormMutationService(), method_name)(
+            canvas=canvas_row,
+            access=access,
+            actor_user_id=context.user_id,
+        )
+        return api_success(
+            {
+                "action": change.action,
+                "operation_id": str(change.operation_id),
+                "cursor": _latest_cursor(canvas_row),
+            },
+            request_id=_request_id(request),
+        )
+    except (
+        PrdNotFound,
+        PermissionDenied,
+        IntegrationError,
+        ValidationError,
+        VersionConflict,
+    ) as exc:
+        return _error(request, exc)
+
+
+@require_POST
+def undo(request, prd_id):
+    return _history_action(request, prd_id, "undo_last")
+
+
+@require_POST
+def redo(request, prd_id):
+    return _history_action(request, prd_id, "redo_last")
+
+
 def _reset_events_response(request, *, cursor, reason):
     return api_success(
         {

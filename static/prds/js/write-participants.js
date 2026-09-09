@@ -233,6 +233,45 @@
           const data = await api(participantSearchApi + "?" + params.toString());
           if (sequence !== participantSearchSequence) return;
           participantResults.replaceChildren();
+          if (data.bulk_mode) {
+            const available = data.results.filter(function (user) { return !user.selected; });
+            if (available.length) {
+              const addAll = element("button", "participant-result participant-result-all");
+              addAll.type = "button";
+              const copy = element("div", "participant-person-copy");
+              copy.append(
+                element("strong", "", "검색 결과 모두 추가"),
+                element("small", "", "활성 사용자 " + available.length + "명을 편집자로 추가합니다.")
+              );
+              const state = element("span", "btn btn-sm btn-primary", "모두 추가");
+              addAll.append(
+                element("span", "participant-person-avatar avatar-color-7", "+"),
+                copy,
+                state
+              );
+              addAll.addEventListener("click", async function () {
+                addAll.disabled = true;
+                state.textContent = "추가 중…";
+                try {
+                  const result = await api(participantsApi, {
+                    method: "POST",
+                    body: JSON.stringify({
+                      user_ids: available.map(function (user) { return Number(user.user_id); }),
+                      role: "editor"
+                    })
+                  });
+                  await loadParticipants();
+                  showParticipantAlert(result.created_count + "명을 편집자로 추가했습니다.", "success");
+                  scheduleParticipantSearch(0);
+                } catch (error) {
+                  showParticipantAlert(error.message);
+                  addAll.disabled = false;
+                  state.textContent = "모두 추가";
+                }
+              });
+              participantResults.append(addAll);
+            }
+          }
           data.results.forEach(function (user) { participantResults.append(searchResultRow(user)); });
           if (!data.results.length) {
             participantSearchHelp.classList.remove("d-none");

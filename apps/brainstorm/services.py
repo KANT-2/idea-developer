@@ -712,6 +712,577 @@ class BrainstormMutationService:
         )
         return node
 
+    @transaction.atomic
+    def move_many(self, *, canvas, access, actor_user_id, payload):
+        """Move selected notes as one all-or-nothing collaboration operation."""
+        BrainstormAccessService.enforce_write(access)
+        canvas = self._lock_canvas(canvas, access=access)
+        items = payload.get("nodes")
+        if not isinstance(items, list) or not items or len(items) > 100:
+            raise ValidationError({"nodes": "이동할 메모는 1개 이상 100개 이하여야 합니다."})
+        submitted_ids = [str(item.get("id")) for item in items if isinstance(item, dict)]
+        if len(submitted_ids) != len(items) or len(set(submitted_ids)) != len(items):
+            raise ValidationError({"nodes": "메모 ID가 누락되었거나 중복되었습니다."})
+        nodes = list(
+            BrainstormNode.objects.select_for_update().filter(
+                canvas=canvas,
+                pk__in=submitted_ids,
+                node_type=BrainstormNodeType.NOTE,
+                is_deleted=False,
+            )
+        )
+        nodes_by_id = {str(node.pk): node for node in nodes}
+        if set(nodes_by_id) != set(submitted_ids):
+            raise ValidationError({"nodes": "이동할 수 없는 메모가 포함되어 있습니다."})
+
+        before_nodes = []
+        after_nodes = []
+        changed_at = timezone.now()
+        for item in items:
+            node = nodes_by_id[str(item["id"])]
+            expected_version = self._validate_version(item.get("version"))
+            if node.version != expected_version:
+                raise VersionConflict(node)
+            if node.status == BrainstormNodeStatus.HELD:
+                raise ValidationError({"nodes": "보류 메모는 함께 이동할 수 없습니다."})
+            section = self._section(canvas, item.get("section_id"))
+            x = self._validate_coordinate(item.get("x"), "x")
+            y = self._validate_coordinate(item.get("y"), "y")
+            before_nodes.append(
+                {
+                    "id": str(node.pk),
+                    "x": str(node.position_x),
+                    "y": str(node.position_y),
+                    "section_id": node.section_id,
+                    "status": node.status,
+                    "version": node.version,
+                }
+            )
+            node.position_x = x
+            node.position_y = y
+            node.section = section
+            node.status = (
+                BrainstormNodeStatus.ACCEPTED
+                if section is not None
+                else BrainstormNodeStatus.DEFAULT
+            )
+            node.version += 1
+            node.updated_at = changed_at
+            after_nodes.append(
+                {
+                    "id": str(node.pk),
+                    "x": str(x),
+                    "y": str(y),
+                    "section_id": node.section_id,
+                    "status": node.status,
+                    "version": node.version,
+                }
+            )
+        BrainstormNode.objects.bulk_update(
+            nodes,
+            ["position_x", "position_y", "section", "status", "version", "updated_at"],
+        )
+        operation_id = uuid.uuid4()
+        self._record(
+            canvas=canvas,
+            actor_user_id=actor_user_id,
+            action="nodes_moved",
+            target_type=BrainstormChangeTarget.CANVAS,
+            target_id=canvas.pk,
+            before={"nodes": before_nodes},
+            after={"nodes": after_nodes},
+            operation_id=operation_id,
+        )
+        return operation_id, nodes
+
+    @transaction.atomic
+    def undo_last(self, *, canvas, access, actor_user_id):
+        """Undo the actor's latest still-current reversible canvas operation."""
+        BrainstormAccessService.enforce_write(access)
+        canvas = self._lock_canvas(canvas, access=access)
+        reversible = {
+            "node_created",
+            "node_content_updated",
+            "node_assignee_updated",
+            "node_moved",
+            "nodes_moved",
+            "auto_layout_applied",
+            "node_status_updated",
+            "node_deleted",
+            "node_restored",
+            "connection_created",
+            "connection_deleted",
+        }
+        recent_desc = list(
+            BrainstormChangeLog.objects.filter(canvas=canvas, actor_user_id=actor_user_id).order_by(
+                "-id"
+            )[:200]
+        )
+        recent = list(reversed(recent_desc))
+        active = {str(row.operation_id): True for row in recent if row.action in reversible}
+        expected_states = {}
+        for row in recent:
+            if row.action == "operation_undone":
+                active[str(row.after_data.get("undone_operation_id"))] = False
+            elif row.action == "operation_redone":
+                operation_id = str(row.after_data.get("redone_operation_id"))
+                active[operation_id] = True
+                expected_states[operation_id] = row.after_data.get("state") or {}
+        change = next(
+            (
+                row
+                for row in recent_desc
+                if row.action in reversible and active.get(str(row.operation_id), True)
+            ),
+            None,
+        )
+        if change is None:
+            raise ValidationError({"undo": "실행 취소할 내 작업이 없습니다."})
+
+        expected_state = expected_states.get(str(change.operation_id))
+        if change.action in {"nodes_moved", "auto_layout_applied"}:
+            self._undo_node_batch(
+                canvas=canvas,
+                change=change,
+                expected_state=expected_state,
+            )
+        elif change.target_type == BrainstormChangeTarget.NODE:
+            self._undo_node_change(
+                canvas=canvas,
+                change=change,
+                expected_state=expected_state,
+                actor_user_id=actor_user_id,
+            )
+        elif change.target_type == BrainstormChangeTarget.CONNECTION:
+            self._undo_connection_change(
+                canvas=canvas,
+                change=change,
+                expected_state=expected_state,
+            )
+        else:
+            raise ValidationError({"undo": "현재 실행 취소할 수 없는 작업입니다."})
+
+        self._record(
+            canvas=canvas,
+            actor_user_id=actor_user_id,
+            action="operation_undone",
+            target_type=BrainstormChangeTarget.CANVAS,
+            target_id=canvas.pk,
+            before={"action": change.action},
+            after={
+                "undone_operation_id": str(change.operation_id),
+                "state": self._operation_state(canvas=canvas, change=change),
+            },
+        )
+        return change
+
+    @transaction.atomic
+    def redo_last(self, *, canvas, access, actor_user_id):
+        """Reapply the most recently undone operation unless new work cleared redo."""
+        BrainstormAccessService.enforce_write(access)
+        canvas = self._lock_canvas(canvas, access=access)
+        reversible = {
+            "node_created",
+            "node_content_updated",
+            "node_assignee_updated",
+            "node_moved",
+            "nodes_moved",
+            "auto_layout_applied",
+            "node_status_updated",
+            "node_deleted",
+            "node_restored",
+            "connection_created",
+            "connection_deleted",
+        }
+        recent = list(
+            BrainstormChangeLog.objects.filter(canvas=canvas, actor_user_id=actor_user_id).order_by(
+                "-id"
+            )[:200]
+        )
+        recent.reverse()
+        originals = {str(row.operation_id): row for row in recent if row.action in reversible}
+        active = {operation_id: True for operation_id in originals}
+        undo_markers = {}
+        for row in recent:
+            if row.action == "operation_undone":
+                operation_id = str(row.after_data.get("undone_operation_id"))
+                if operation_id in originals:
+                    active[operation_id] = False
+                    undo_markers[operation_id] = row
+            elif row.action == "operation_redone":
+                operation_id = str(row.after_data.get("redone_operation_id"))
+                if operation_id in originals:
+                    active[operation_id] = True
+        last_original_id = max((row.id for row in originals.values()), default=0)
+        candidates = [
+            marker
+            for operation_id, marker in undo_markers.items()
+            if not active.get(operation_id, True) and marker.id > last_original_id
+        ]
+        if not candidates:
+            raise ValidationError({"redo": "다시 실행할 작업이 없습니다."})
+        marker = max(candidates, key=lambda row: row.id)
+        operation_id = str(marker.after_data["undone_operation_id"])
+        change = originals[operation_id]
+        expected_state = marker.after_data.get("state") or {}
+
+        if change.action in {"nodes_moved", "auto_layout_applied"}:
+            self._redo_node_batch(canvas=canvas, change=change, expected_state=expected_state)
+        elif change.target_type == BrainstormChangeTarget.NODE:
+            self._redo_node_change(
+                canvas=canvas,
+                change=change,
+                expected_state=expected_state,
+                actor_user_id=actor_user_id,
+            )
+        elif change.target_type == BrainstormChangeTarget.CONNECTION:
+            self._redo_connection_change(
+                canvas=canvas,
+                change=change,
+                expected_state=expected_state,
+            )
+        else:
+            raise ValidationError({"redo": "현재 다시 실행할 수 없는 작업입니다."})
+
+        self._record(
+            canvas=canvas,
+            actor_user_id=actor_user_id,
+            action="operation_redone",
+            target_type=BrainstormChangeTarget.CANVAS,
+            target_id=canvas.pk,
+            before={"action": change.action},
+            after={
+                "redone_operation_id": operation_id,
+                "state": self._operation_state(canvas=canvas, change=change),
+            },
+        )
+        return change
+
+    @staticmethod
+    def _operation_state(*, canvas, change):
+        if change.action in {"nodes_moved", "auto_layout_applied"}:
+            node_ids = [str(row.get("id")) for row in change.after_data.get("nodes", [])]
+            return {
+                "nodes": [
+                    {
+                        "id": str(row.pk),
+                        "version": row.version,
+                        "is_deleted": row.is_deleted,
+                    }
+                    for row in BrainstormNode.objects.filter(canvas=canvas, pk__in=node_ids)
+                ]
+            }
+        if change.target_type == BrainstormChangeTarget.NODE:
+            row = (
+                BrainstormNode.objects.filter(canvas=canvas, pk=change.target_id)
+                .values("version", "is_deleted")
+                .first()
+            )
+            return {"version": row["version"], "is_deleted": row["is_deleted"]} if row else {}
+        if change.target_type == BrainstormChangeTarget.CONNECTION:
+            row = (
+                BrainstormConnection.objects.filter(canvas=canvas, pk=change.target_id)
+                .values("version", "is_deleted")
+                .first()
+            )
+            return {"version": row["version"], "is_deleted": row["is_deleted"]} if row else {}
+        return {}
+
+    def _redo_node_batch(self, *, canvas, change, expected_state):
+        after_rows = change.after_data.get("nodes") or []
+        expected_versions = {
+            str(row["id"]): row["version"] for row in expected_state.get("nodes", [])
+        }
+        nodes = list(
+            BrainstormNode.objects.select_for_update().filter(
+                canvas=canvas,
+                pk__in=[str(row.get("id")) for row in after_rows],
+                node_type=BrainstormNodeType.NOTE,
+                is_deleted=False,
+            )
+        )
+        if len(nodes) != len(after_rows):
+            raise ValidationError({"redo": "일부 메모가 삭제되어 다시 실행할 수 없습니다."})
+        after_by_id = {str(row["id"]): row for row in after_rows}
+        changed_at = timezone.now()
+        for node in nodes:
+            if node.version != expected_versions.get(str(node.pk)):
+                raise VersionConflict(node)
+            after = after_by_id[str(node.pk)]
+            section = self._section(canvas, after.get("section_id"))
+            node.position_x = self._validate_coordinate(after.get("x"), "x")
+            node.position_y = self._validate_coordinate(after.get("y"), "y")
+            node.section = section
+            node.status = (
+                BrainstormNodeStatus.ACCEPTED
+                if section is not None
+                else BrainstormNodeStatus.DEFAULT
+            )
+            node.version += 1
+            node.updated_at = changed_at
+        BrainstormNode.objects.bulk_update(
+            nodes,
+            ["position_x", "position_y", "section", "status", "version", "updated_at"],
+        )
+
+    def _redo_node_change(self, *, canvas, change, expected_state, actor_user_id):
+        try:
+            node = BrainstormNode.objects.select_for_update().get(
+                canvas=canvas, pk=change.target_id
+            )
+        except (BrainstormNode.DoesNotExist, ValidationError, ValueError) as exc:
+            raise ValidationError({"redo": "대상 메모를 찾을 수 없습니다."}) from exc
+        if node.version != expected_state.get("version"):
+            raise VersionConflict(node)
+        if change.action == "node_created":
+            if not node.is_deleted:
+                raise ValidationError({"redo": "메모가 이미 복원되어 있습니다."})
+            node.restore()
+            return
+        if change.action == "node_deleted":
+            if node.is_deleted:
+                raise ValidationError({"redo": "메모가 이미 삭제되어 있습니다."})
+            node.soft_delete()
+            return
+        if change.action == "node_restored":
+            if not node.is_deleted:
+                raise ValidationError({"redo": "메모 삭제 상태가 이미 변경되었습니다."})
+            node.restore()
+            return
+        if node.is_deleted:
+            raise ValidationError({"redo": "삭제된 메모의 작업은 다시 실행할 수 없습니다."})
+
+        after = change.after_data
+        if change.action == "node_content_updated":
+            node.content = self._validate_content(after.get("content"))
+            fields = ["content", "version", "updated_at"]
+        elif change.action == "node_assignee_updated":
+            node.assignee_id = after.get("assignee_id")
+            fields = ["assignee_id", "version", "updated_at"]
+        elif change.action == "node_moved":
+            section = self._section(canvas, after.get("section_id"))
+            node.position_x = self._validate_coordinate(after.get("x"), "x")
+            node.position_y = self._validate_coordinate(after.get("y"), "y")
+            node.section = section
+            node.status = (
+                BrainstormNodeStatus.ACCEPTED
+                if section is not None
+                else BrainstormNodeStatus.DEFAULT
+            )
+            fields = ["position_x", "position_y", "section", "status", "version", "updated_at"]
+        elif change.action == "node_status_updated":
+            after_status = after.get("status")
+            section = self._section(canvas, after.get("section_id"))
+            if after_status == BrainstormNodeStatus.HELD:
+                node.hold(actor_user_id=actor_user_id)
+                return
+            node.section = section
+            node.status = after_status
+            node.held_from_section_id = after.get("held_from_section_id")
+            fields = ["section", "status", "held_from_section", "version", "updated_at"]
+        else:
+            raise ValidationError({"redo": "현재 다시 실행할 수 없는 메모 작업입니다."})
+        node.version += 1
+        node.full_clean()
+        node.save(update_fields=fields)
+
+    def _redo_connection_change(self, *, canvas, change, expected_state):
+        try:
+            connection = (
+                BrainstormConnection.objects.select_for_update()
+                .select_related("node_a", "node_b")
+                .get(canvas=canvas, pk=change.target_id)
+            )
+        except (BrainstormConnection.DoesNotExist, ValidationError, ValueError) as exc:
+            raise ValidationError({"redo": "대상 연결선을 찾을 수 없습니다."}) from exc
+        if connection.version != expected_state.get("version"):
+            raise VersionConflict(connection)
+        changed_at = timezone.now()
+        if change.action == "connection_created":
+            if (
+                not connection.is_deleted
+                or connection.node_a.is_deleted
+                or connection.node_b.is_deleted
+            ):
+                raise ValidationError({"redo": "현재 연결선을 다시 만들 수 없습니다."})
+            duplicate = (
+                BrainstormConnection.objects.filter(canvas=canvas, is_deleted=False)
+                .exclude(pk=connection.pk)
+                .filter(
+                    Q(node_a=connection.node_a, node_b=connection.node_b)
+                    | Q(node_a=connection.node_b, node_b=connection.node_a)
+                )
+            )
+            if duplicate.exists():
+                raise ValidationError({"redo": "같은 메모 사이에 다른 연결선이 있습니다."})
+            connection.is_deleted = False
+            connection.deleted_at = None
+        elif change.action == "connection_deleted":
+            if connection.is_deleted:
+                raise ValidationError({"redo": "연결선이 이미 삭제되어 있습니다."})
+            connection.is_deleted = True
+            connection.deleted_at = changed_at
+        else:
+            raise ValidationError({"redo": "현재 다시 실행할 수 없는 연결선 작업입니다."})
+        connection.version += 1
+        connection.updated_at = changed_at
+        connection.save(update_fields=["is_deleted", "deleted_at", "version", "updated_at"])
+
+    def _undo_node_batch(self, *, canvas, change, expected_state=None):
+        before_rows = change.before_data.get("nodes") or []
+        after_rows = change.after_data.get("nodes") or []
+        if not before_rows or len(before_rows) != len(after_rows):
+            raise ValidationError({"undo": "변경 전 위치 정보가 없어 취소할 수 없습니다."})
+        before_by_id = {str(row.get("id")): row for row in before_rows}
+        after_by_id = {str(row.get("id")): row for row in after_rows}
+        expected_versions = {
+            str(row["id"]): row["version"] for row in (expected_state or {}).get("nodes", [])
+        }
+        nodes = list(
+            BrainstormNode.objects.select_for_update().filter(
+                canvas=canvas,
+                pk__in=before_by_id,
+                node_type=BrainstormNodeType.NOTE,
+                is_deleted=False,
+            )
+        )
+        if len(nodes) != len(before_by_id):
+            raise ValidationError({"undo": "일부 메모가 삭제되어 취소할 수 없습니다."})
+        changed_at = timezone.now()
+        for node in nodes:
+            before = before_by_id[str(node.pk)]
+            after = after_by_id.get(str(node.pk), {})
+            expected = expected_versions.get(str(node.pk), after.get("version"))
+            if node.version != expected:
+                raise VersionConflict(node)
+            section = self._section(canvas, before.get("section_id"))
+            node.position_x = self._validate_coordinate(before.get("x"), "x")
+            node.position_y = self._validate_coordinate(before.get("y"), "y")
+            node.section = section
+            node.status = (
+                BrainstormNodeStatus.ACCEPTED
+                if section is not None
+                else BrainstormNodeStatus.DEFAULT
+            )
+            node.version += 1
+            node.updated_at = changed_at
+        BrainstormNode.objects.bulk_update(
+            nodes,
+            ["position_x", "position_y", "section", "status", "version", "updated_at"],
+        )
+
+    def _undo_node_change(self, *, canvas, change, expected_state=None, actor_user_id):
+        try:
+            node = BrainstormNode.objects.select_for_update().get(
+                canvas=canvas, pk=change.target_id
+            )
+        except (BrainstormNode.DoesNotExist, ValidationError, ValueError) as exc:
+            raise ValidationError({"undo": "대상 메모를 찾을 수 없습니다."}) from exc
+        expected = (expected_state or {}).get("version", change.after_data.get("version"))
+        if node.version != expected:
+            raise VersionConflict(node)
+        if change.action == "node_created":
+            if node.is_deleted:
+                raise ValidationError({"undo": "이미 삭제된 메모입니다."})
+            if (
+                BrainstormConnection.objects.filter(canvas=canvas, is_deleted=False)
+                .filter(Q(node_a=node) | Q(node_b=node))
+                .exists()
+            ):
+                raise ValidationError({"undo": "연결된 메모는 연결선을 먼저 취소해 주세요."})
+            node.soft_delete()
+            return
+        if change.action == "node_deleted":
+            if not node.is_deleted:
+                raise ValidationError({"undo": "메모 삭제 상태가 이미 변경되었습니다."})
+            node.restore()
+            return
+        if node.is_deleted:
+            raise ValidationError({"undo": "삭제된 메모의 작업은 취소할 수 없습니다."})
+        if change.action == "node_restored":
+            node.soft_delete()
+            return
+
+        before = change.before_data
+        if change.action == "node_content_updated":
+            node.content = self._validate_content(before.get("content"))
+            fields = ["content", "version", "updated_at"]
+        elif change.action == "node_assignee_updated":
+            node.assignee_id = before.get("assignee_id")
+            fields = ["assignee_id", "version", "updated_at"]
+        elif change.action == "node_moved":
+            section = self._section(canvas, before.get("section_id"))
+            node.position_x = self._validate_coordinate(before.get("x"), "x")
+            node.position_y = self._validate_coordinate(before.get("y"), "y")
+            node.section = section
+            node.status = (
+                BrainstormNodeStatus.ACCEPTED
+                if section is not None
+                else BrainstormNodeStatus.DEFAULT
+            )
+            fields = ["position_x", "position_y", "section", "status", "version", "updated_at"]
+        elif change.action == "node_status_updated":
+            before_status = before.get("status")
+            section = self._section(canvas, before.get("section_id"))
+            if before_status == BrainstormNodeStatus.HELD:
+                if (
+                    BrainstormConnection.objects.filter(canvas=canvas, is_deleted=False)
+                    .filter(Q(node_a=node) | Q(node_b=node))
+                    .exists()
+                ):
+                    raise ValidationError(
+                        {"undo": "새 연결선이 있어 보류 복원을 취소할 수 없습니다."}
+                    )
+                section = None
+            node.section = section
+            node.status = before_status
+            node.held_from_section_id = before.get("held_from_section_id")
+            fields = ["section", "status", "held_from_section", "version", "updated_at"]
+        else:
+            raise ValidationError({"undo": "현재 실행 취소할 수 없는 메모 작업입니다."})
+        node.version += 1
+        node.full_clean()
+        node.save(update_fields=fields)
+
+    def _undo_connection_change(self, *, canvas, change, expected_state=None):
+        try:
+            connection = (
+                BrainstormConnection.objects.select_for_update()
+                .select_related("node_a", "node_b")
+                .get(canvas=canvas, pk=change.target_id)
+            )
+        except (BrainstormConnection.DoesNotExist, ValidationError, ValueError) as exc:
+            raise ValidationError({"undo": "대상 연결선을 찾을 수 없습니다."}) from exc
+        expected = (expected_state or {}).get("version", change.after_data.get("version"))
+        if connection.version != expected:
+            raise VersionConflict(connection)
+        changed_at = timezone.now()
+        if change.action == "connection_created":
+            if connection.is_deleted:
+                raise ValidationError({"undo": "이미 삭제된 연결선입니다."})
+            connection.is_deleted = True
+            connection.deleted_at = changed_at
+        elif change.action == "connection_deleted":
+            if (
+                not connection.is_deleted
+                or connection.node_a.is_deleted
+                or connection.node_b.is_deleted
+            ):
+                raise ValidationError({"undo": "현재 상태에서는 연결선을 복원할 수 없습니다."})
+            duplicate = BrainstormConnection.objects.filter(canvas=canvas, is_deleted=False).filter(
+                Q(node_a=connection.node_a, node_b=connection.node_b)
+                | Q(node_a=connection.node_b, node_b=connection.node_a)
+            )
+            if duplicate.exists():
+                raise ValidationError({"undo": "같은 메모 사이에 다른 연결선이 있습니다."})
+            connection.is_deleted = False
+            connection.deleted_at = None
+        else:
+            raise ValidationError({"undo": "현재 실행 취소할 수 없는 연결선 작업입니다."})
+        connection.version += 1
+        connection.updated_at = changed_at
+        connection.save(update_fields=["is_deleted", "deleted_at", "version", "updated_at"])
+
     @staticmethod
     def _unclassified_restore_position(canvas, *, exclude_node_id):
         used = {

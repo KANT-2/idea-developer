@@ -12,6 +12,10 @@
   var apiBase = root.dataset.apiBase;
   var prdTitle = root.dataset.prdTitle || "PRD";
   var interval = Math.min(5000, Math.max(2000, Number(root.dataset.pollingIntervalMs || 3000)));
+  function nextPollDelay() {
+    // Slack 링크처럼 여러 사용자가 동시에 들어와도 폴링 요청이 한 시각에 몰리지 않게 한다.
+    return Math.min(5000, Math.max(2000, interval + Math.floor(Math.random() * 2001)));
+  }
   var csrf = document.querySelector('meta[name="csrf-token"]')?.content || "";
   var activeCanvasId = null;
   var DEFAULT_CANVAS_ZOOM = .55;
@@ -50,6 +54,7 @@
     var boardPair = window.React.useState("canvas"), boardView = boardPair[0], setBoardView = boardPair[1];
     var sourcePair = window.React.useState(null), source = sourcePair[0], setSource = sourcePair[1];
     var focusPair = window.React.useState(null), focused = focusPair[0], setFocused = focusPair[1];
+    var selectedPair = window.React.useState([]), selected = selectedPair[0], setSelected = selectedPair[1];
     // 연결선이 많아지면 서로 어지럽게 교차한다. 메모를 가리키거나 고른 동안만
     // 그 메모로 이어진 선을 도드라지게 하고 나머지는 옅게 깔아 둔다.
     var hoverPair = window.React.useState(null), hoveredNode = hoverPair[0], setHoveredNode = hoverPair[1];
@@ -83,7 +88,7 @@
       function clearFocusedNode(event) {
         var target = event.target;
         if (target && target.closest && target.closest(".brain-note, .brain-note-actions, .brain-assignee-menu")) return;
-        setFocused(null);
+        setFocused(null); setSelected([]);
       }
       document.addEventListener("mousedown", clearFocusedNode);
       return function () { document.removeEventListener("mousedown", clearFocusedNode); };
@@ -142,9 +147,9 @@
 
     window.React.useEffect(function () {
       var stopped = false;
-      function cycle() { if (stopped) return; poll().finally(function () { timerRef.current = window.setTimeout(cycle, interval); }); }
+      function cycle() { if (stopped) return; poll().finally(function () { timerRef.current = window.setTimeout(cycle, nextPollDelay()); }); }
       function reconnect() { cursorRef.current = null; fullSync(); }
-      fullSync().finally(function () { timerRef.current = window.setTimeout(cycle, interval); });
+      fullSync().finally(function () { timerRef.current = window.setTimeout(cycle, nextPollDelay()); });
       window.addEventListener("online", reconnect);
       return function () { stopped = true; clearTimeout(timerRef.current); window.removeEventListener("online", reconnect); };
     }, []);
@@ -155,6 +160,53 @@
         .catch(function (error) { setNotice({kind: error.code === "version_conflict" ? "warning" : "danger", text: error.message}); cursorRef.current = null; return fullSync(); })
         .finally(function () { setBusy(false); });
     }
+
+    function historyAction(path, completedMessage) {
+      if (busy || !state?.permissions?.can_edit) return;
+      setBusy(true); setNotice(null);
+      request(apiBase + path, {method: "POST", body: "{}"})
+        .then(function () { cursorRef.current = null; return fullSync(); })
+        .then(function () { setNotice({kind: "info", text: completedMessage}); })
+        .catch(function (error) {
+          setNotice({kind: error.code === "version_conflict" ? "warning" : "danger", text: error.message});
+          cursorRef.current = null;
+          return fullSync();
+        })
+        .finally(function () { setBusy(false); });
+    }
+
+    function closeEditorWithConfirmation() {
+      if (!editor) return true;
+      var original = editor.node ? editor.node.content : "";
+      if ((editor.content || "") !== original && !window.confirm("작성 중인 내용을 버리고 닫으시겠습니까?")) return false;
+      setEditor(null);
+      return true;
+    }
+
+    window.React.useEffect(function () {
+      function keyboard(event) {
+        var target = event.target;
+        var isTextInput = target && (target.matches?.("input, textarea") || target.isContentEditable);
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+          event.preventDefault();
+          if (editor && (editor.content || "").trim()) saveEditor();
+          return;
+        }
+        if ((event.ctrlKey || event.metaKey) && !isTextInput && event.key.toLowerCase() === "z") {
+          event.preventDefault(); historyAction("undo/", "마지막 작업을 취소했습니다."); return;
+        }
+        if ((event.ctrlKey || event.metaKey) && !isTextInput && event.key.toLowerCase() === "y") {
+          event.preventDefault(); historyAction("redo/", "취소한 작업을 다시 실행했습니다."); return;
+        }
+        if (event.key !== "Escape") return;
+        if (assigneeMenu) { setAssigneeMenu(null); return; }
+        if (editor) { closeEditorWithConfirmation(); return; }
+        if (tool === "connect" || source) { setTool("select"); setSource(null); return; }
+        setSelected([]); setFocused(null);
+      }
+      document.addEventListener("keydown", keyboard);
+      return function () { document.removeEventListener("keydown", keyboard); };
+    });
 
     function createNote() {
       setEditor({node: null, content: "", color: "yellow"});
@@ -247,6 +299,22 @@
         });
       });
       refresh(request(apiBase + "nodes/" + node.id + "/position/", {method: "PATCH", body: JSON.stringify({version: node.version, x: x, y: y, section_id: sectionId})}));
+    }
+
+    function moveNodes(nodes, destinations) {
+      refresh(request(apiBase + "nodes/batch-position/", {
+        method: "POST",
+        body: JSON.stringify({nodes: nodes.map(function (node) {
+          var destination = destinations[node.id];
+          return {
+            id: node.id,
+            version: node.version,
+            x: Math.round(destination.x),
+            y: Math.round(destination.y),
+            section_id: destination.section_id
+          };
+        })})
+      }), function () { setSelected([]); setFocused(null); });
     }
 
     function holdNode(node) {
@@ -584,17 +652,46 @@
         createConnection(source, node);
         setSource(null); setTool("select"); return;
       }
+      if (event.shiftKey) {
+        setSelected(function (current) {
+          var next = current.slice();
+          if (!next.length && focused && focused !== node.id) next.push(focused);
+          var index = next.indexOf(node.id);
+          if (index >= 0) next.splice(index, 1); else next.push(node.id);
+          return next;
+        });
+        return;
+      }
       if (!state.permissions.can_edit || state.permissions.is_completed || event.button !== 0) return;
       // 화면에 보이는 자리에서 잡아야 손에 쥐는 순간 메모가 튀지 않는다.
-      var start = positions[node.id] || displayPosition(node);
+      var movingIds = selected.length > 1 && selected.includes(node.id) ? selected.slice() : [node.id];
+      if (movingIds.length === 1) setSelected([]);
+      var movingNodes = state.nodes.filter(function (item) { return movingIds.includes(item.id); });
+      var starts = {};
+      movingNodes.forEach(function (item) { starts[item.id] = positions[item.id] || displayPosition(item); });
+      var start = starts[node.id];
       var sx = event.clientX, sy = event.clientY, moved = false;
+      function boundedDelta(rawX, rawY) {
+        var minX = Math.min.apply(null, movingNodes.map(function (item) { return starts[item.id].x; }));
+        var maxX = Math.max.apply(null, movingNodes.map(function (item) { return starts[item.id].x; }));
+        var minY = Math.min.apply(null, movingNodes.map(function (item) { return starts[item.id].y; }));
+        var maxY = Math.max.apply(null, movingNodes.map(function (item) { return starts[item.id].y; }));
+        return {
+          x: Math.max(10 - minX, Math.min(canvasWidth() - NODE_W - maxX, rawX)),
+          y: Math.max(10 - minY, Math.min(CANVAS_H - NODE_H - maxY, rawY))
+        };
+      }
       function moving(moveEvent) {
         var deltaX = moveEvent.clientX - sx, deltaY = moveEvent.clientY - sy;
         if (!moved && Math.abs(deltaX) + Math.abs(deltaY) < 5) return;
         moved = true;
-        draggingRef.current = node.id;
-        var x = Math.max(10, Math.min(canvasWidth() - NODE_W, start.x + deltaX / view.zoom)), y = Math.max(10, Math.min(CANVAS_H - NODE_H, start.y + deltaY / view.zoom));
-        setState(function (previous) { return Object.assign({}, previous, {nodes: previous.nodes.map(function (item) { return item.id === node.id ? Object.assign({}, item, {x: x, y: y}) : item; })}); });
+        draggingRef.current = movingIds;
+        var delta = boundedDelta(deltaX / view.zoom, deltaY / view.zoom);
+        setState(function (previous) { return Object.assign({}, previous, {nodes: previous.nodes.map(function (item) {
+          return movingIds.includes(item.id)
+            ? Object.assign({}, item, {x: starts[item.id].x + delta.x, y: starts[item.id].y + delta.y})
+            : item;
+        })}); });
       }
       function done(upEvent) {
         window.removeEventListener("mousemove", moving); window.removeEventListener("mouseup", done);
@@ -606,10 +703,25 @@
           && upEvent.clientX >= heldBounds.left && upEvent.clientX <= heldBounds.right
           && upEvent.clientY >= heldBounds.top && upEvent.clientY <= heldBounds.bottom;
         if (droppedOnHeld) {
+          if (movingNodes.length > 1) {
+            setNotice({kind: "warning", text: "여러 메모는 한 번에 보류할 수 없습니다."});
+            cursorRef.current = null; fullSync();
+            return;
+          }
           holdNode(node);
           return;
         }
-        var x = Math.max(10, Math.min(canvasWidth() - NODE_W, start.x + (upEvent.clientX - sx) / view.zoom)), y = Math.max(10, Math.min(CANVAS_H - NODE_H, start.y + (upEvent.clientY - sy) / view.zoom));
+        var finalDelta = boundedDelta((upEvent.clientX - sx) / view.zoom, (upEvent.clientY - sy) / view.zoom);
+        if (movingNodes.length > 1) {
+          var destinations = {};
+          movingNodes.forEach(function (item) {
+            var x = starts[item.id].x + finalDelta.x, y = starts[item.id].y + finalDelta.y;
+            destinations[item.id] = {x: x, y: y, section_id: sectionAt(x, y)};
+          });
+          moveNodes(movingNodes, destinations);
+          return;
+        }
+        var x = start.x + finalDelta.x, y = start.y + finalDelta.y;
         // 손을 뗀 지금에서야 자리를 정리한다.
         var sectionId = sectionAt(x, y), spot = {x: x, y: y}, index = sectionId ? laneIndex(sectionId) : -1;
         if (index >= 0) spot = settleInRegion(index, x, y, takenSpots(sectionId, node.id)) || spot;
@@ -802,6 +914,11 @@
       return {x: cx + Math.cos(angle) * radiusX, y: cy + Math.sin(angle) * radiusY};
     }
     function line(connection) {
+      var nodeA = visible.find(function (node) { return node.id === connection.node_a_id; });
+      var nodeB = visible.find(function (node) { return node.id === connection.node_b_id; });
+      // 자유 캔버스에서는 두 메모가 모두 미분류일 때만 관계선을 보여 준다.
+      // 분류 뒤에도 DB 연결은 유지하므로 둘 다 미분류로 돌아오면 다시 표시된다.
+      if (!nodeA || !nodeB || nodeA.section_id !== null || nodeB.section_id !== null) return null;
       var a = positions[connection.node_a_id], b = positions[connection.node_b_id]; if (!a || !b) return null;
       var x1 = a.x + NODE_W / 2, y1 = a.y + NODE_H / 2, x2 = b.x + NODE_W / 2, y2 = b.y + NODE_H / 2;
       // 강조 중인 메모 쪽 끝만 부챗살로 벌려 선끼리 겹치지 않게 한다.
@@ -843,17 +960,17 @@
       var touches = spotlight && (connection.node_a_id === spotlight || connection.node_b_id === spotlight);
       var emphasis = touches ? " highlighted" : "";
       return h("g", {key: connection.id},
-        h("path", {d: curve, className: "brain-connection" + emphasis + (connection.pending ? " pending" : "")}),
+        h("path", {d: curve, className: "brain-connection unclassified" + emphasis + (connection.pending ? " pending" : "")}),
         canEdit && !connection.pending ? h("circle", {cx: handleX, cy: handleY, r: 9, className: "brain-connection-delete" + emphasis, onClick: function () { deleteConnection(connection); }}) : null);
     }
     function note(node) {
-      var p = positions[node.id], selected = focused === node.id, connect = source?.id === node.id;
+      var p = positions[node.id], isFocused = focused === node.id, isMultiSelected = selected.includes(node.id), connect = source?.id === node.id;
       var assignee = (state.participants || []).find(function (participant) { return participant.user_id === node.assignee_id; });
-      return h("article", {key: node.id, "data-node": "true", "data-color": node.color, className: "brain-note " + (selected ? "selected " : "") + (connect ? "connect-source" : ""), style: {left: p.x, top: p.y}, onMouseDown: function (event) { beginMove(event, node); }, onMouseEnter: function () { setHoveredNode(node.id); }, onMouseLeave: function () { setHoveredNode(function (current) { return current === node.id ? null : current; }); }, onDoubleClick: function (event) { event.stopPropagation(); if (canEdit) editNode(node); }},
+      return h("article", {key: node.id, "data-node": "true", "data-color": node.color, className: "brain-note " + (isFocused ? "selected " : "") + (isMultiSelected ? "multi-selected " : "") + (connect ? "connect-source" : ""), style: {left: p.x, top: p.y}, onMouseDown: function (event) { beginMove(event, node); }, onMouseEnter: function () { setHoveredNode(node.id); }, onMouseLeave: function () { setHoveredNode(function (current) { return current === node.id ? null : current; }); }, onDoubleClick: function (event) { event.stopPropagation(); if (canEdit) editNode(node); }},
         h("div", {className: "brain-note-top"}, h("span", {className: "brain-note-status " + node.status}, node.status === "accepted" ? "채택" : "아이디어"), canEdit ? h("div", {className: "brain-note-controls", onMouseDown: function (event) { event.stopPropagation(); }}, h("button", {type: "button", onClick: function (event) { event.stopPropagation(); editNode(node); }, title: "내용 수정", "aria-label": "내용 수정"}, "✎"), h("button", {type: "button", onClick: function (event) { event.stopPropagation(); deleteNode(node); }, title: "삭제", "aria-label": "삭제"}, "×")) : null),
         h("p", {title: node.content}, node.content),
         h("footer", null, h("span", null, "ver." + node.introduced_in_version), h("span", {title: assignee ? "담당자 " + assignee.display_name : "담당자 없음"}, assignee ? "담당 " + assignee.display_name : "담당자 없음")),
-        selected && canEdit ? (function () {
+        isFocused && canEdit ? (function () {
           var place = actionsOffset(node, p);
           return h("div", {className: "brain-note-actions", style: {left: place.dx, top: place.dy}, onMouseDown: function (event) { event.stopPropagation(); }},
             h("button", {type: "button", onClick: function () { statusNode(node, "held"); }}, "보류"),
@@ -1046,7 +1163,7 @@
     function renderEditor() {
       if (!editor) return null;
       var colorOptions = ["yellow", "blue", "pink", "green", "orange", "purple"];
-      var current = member(state.current_user_id);
+      var current = member(editor.node ? editor.node.author_id : state.current_user_id);
       return window.ReactDOM.createPortal(h("div", {className: "brain-editor-backdrop", onMouseDown: function (event) { if (event.target === event.currentTarget) setEditor(null); }},
         h("section", {className: "brain-editor-modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "brain-editor-title"},
           h("header", null, h("div", null, h("span", null, editor.node ? "EDIT IDEA" : "NEW IDEA"), h("h2", {id: "brain-editor-title"}, editor.node ? "아이디어 수정" : "새 메모 추가")), h("button", {type: "button", onClick: function () { setEditor(null); }, "aria-label": "닫기"}, "×")),
@@ -1260,6 +1377,7 @@
         h("div", {className: "brain-version-content"},
           !state.permissions.is_latest_canvas ? h("div", {className: "brain-readonly-banner"}, h("i", {className: "bi bi-lock"}), " 이전 버전은 조회 전용입니다. 최신 보드에서만 편집할 수 있습니다.") : null,
           boardView === "canvas" && tool === "connect" ? h("div", {className: "brain-connect-banner"}, source ? "두 번째 메모를 선택해 주세요" : "연결할 첫 번째 메모를 선택해 주세요", h("button", {onClick: function () { setTool("select"); setSource(null); }}, "취소")) : null,
+          boardView === "canvas" && selected.length > 1 && tool !== "connect" ? h("div", {className: "brain-multi-banner"}, selected.length + "개 메모 선택됨", h("button", {type: "button", onClick: function () { setSelected([]); setFocused(null); }}, "선택 해제")) : null,
           notice ? h("div", {className: "brain-notice alert alert-" + notice.kind}, notice.text, h("button", {type: "button", className: "btn-close", onClick: function () { setNotice(null); }})) : null,
           boardView === "board" ? renderBoard() : boardView === "canvas" ? renderCanvas() : renderList(),
           h("section", {className: "brain-held" + (heldExpanded ? "" : " collapsed"), onDragOver: function (event) { if (canEdit) event.preventDefault(); }, onDrop: dropHeld},
