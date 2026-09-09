@@ -23,11 +23,11 @@
 | AI 작업 lock·lease·취소·재시도 | `apps/ai/services.py`, `worker.py` | `test_ai_infrastructure.py`, `test_worker.py` |
 | Gemini schema·ID·prompt injection 방어 | `apps/ai/gemini.py`, `providers.py`, 기능별 processor | `test_gemini_provider.py`, `test_brainstorm_ai.py` |
 | AI 코치 대화 append·30일 TTL | `apps/ai/coaching.py`, `apps/jobs/cleanup.py` | `test_ai_coaching.py`, `test_brainstorm_export_cleanup.py` |
-| 3관점 진단·종합 점수·섹션별 종합 의견 | `apps/ai/evaluation.py`, `apps/ai/views.py`, PRD 작성 JS | `test_ai_prd_evaluation.py` 및 종합 전용 회귀 테스트 |
+| 3관점 진단·종합 점수·섹션별 종합 의견 | `apps/ai/evaluation.py`, `apps/ai/views.py`, PRD 작성 JS | `test_ai_prd_evaluation.py` |
 | 세 관점 통합 PRD 전체 초안·선택 승인·version 검증 | `apps/ai/perspective_draft.py`, `apps/ai/views.py`, PRD 작성 JS | `test_ai_perspective_draft.py` |
 | AI PRD 미리보기·승인·version·멱등성 | `apps/ai/prd_apply.py`, brainstorm AI views | `test_prd_apply_ai.py` |
 | 기여도 lineage·반영 confidence·50:50 | `apps/ai/contribution.py` | `test_contribution_evaluation.py` |
-| Slack 참여자·코멘트 알림과 실패 격리 | `apps/common/slack_notifications.py`, PRD services | `test_slack_notifications.py` |
+| Slack 참여자·코멘트 알림·PRD 링크와 실패 격리 | `apps/common/slack_notifications.py`, PRD services | `test_slack_notifications.py` |
 | 자정 자동 완료·영구 삭제 | `run_midnight_maintenance`, cleanup service | `test_midnight_maintenance.py` |
 | 구조화 로그의 request ID·extra·예외 보존 | `apps/common/logging.py`, `apps/ai/worker.py` | `test_logging.py`, `test_ai_infrastructure.py` |
 

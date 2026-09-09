@@ -1,6 +1,6 @@
 # 문서 안내
 
-이 디렉터리는 Idea Developer의 현재 정책, 기능, 데이터, API, 테스트와 운영 절차를 설명한다.
+이 디렉터리는 `idea-developer`의 현재 정책, 기능, 데이터, API, 테스트와 운영 절차를 설명한다.
 구현 과정에서 사용한 과거 시나리오와 프롬프트는 `specs/`에 보관하지만 현재 동작의 근거로
 사용하지 않는다.
 
@@ -42,6 +42,8 @@
 4. [제품 결정 기록](decisions/README.md)
 5. [부모 프로젝트 이관](08_PARENT_HANDOFF.md)
 6. [소스 전달 양식](integration/SOURCE_DELIVERY_TEMPLATE.md)
+7. [현재 소스 전달 명세](integration/SOURCE_DELIVERY_CURRENT.md)
+8. [부모 시스템 통합 체크리스트](integration/PARENT_INTEGRATION_CHECKLIST.md)
 
 ### 개발 환경과 통합을 시작할 때
 

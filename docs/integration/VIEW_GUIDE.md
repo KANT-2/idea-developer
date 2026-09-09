@@ -11,7 +11,7 @@ AX2 통합 플랫폼의 팀 간 데이터 연계를 위해 공통적으로 사�
 | 구분 | VIEW | 주요 용도 | 사용 팀 |
 |---|---|---|---|
 | 1 | `ax_user_team_login_view` | 사용자 기본정보 및 대표 팀 정보 조회 | 전체 조 |
-| 2 | `user_round_team_view` | 사용자의 Round별 팀 소속 조회 | 3조 |
+| 2 | `user_round_team_view` | 사용자의 Round별 팀 소속 조회 | `idea-developer` |
 
 ---
 
@@ -153,7 +153,7 @@ WHERE user_id = 123;
 
 ### 사용 팀
 
-**3조**
+**idea-developer**
 
 ### 목적
 
@@ -284,7 +284,7 @@ WHERE user_id = ?;
 | VIEW | 목적 | 대상 |
 |---|---|---|
 | `public.ax_user_team_login_view` | 사용자 기본정보 및 대표 팀 정보 | 전체 조 |
-| `public.user_round_team_view` | 사용자의 Round별 팀 소속 확인 | 3조 |
+| `public.user_round_team_view` | 사용자의 Round별 팀 소속 확인 | `idea-developer` |
 
 `user_round_team_view`는 다음 질문에 답하기 위한 VIEW입니다.
 

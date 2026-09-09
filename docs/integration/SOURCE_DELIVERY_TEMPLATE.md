@@ -1,6 +1,6 @@
-# 3조 소스 전달 양식
+# 소스 전달 양식
 
-4조 통합 저장소에 전달할 때 아래 항목을 빠짐없이 작성합니다. 실제 비밀번호와 API 키는
+부모 통합 저장소에 전달할 때 아래 항목을 빠짐없이 작성합니다. 실제 비밀번호와 API 키는
 기록하지 않고 필요한 환경변수 이름만 전달합니다.
 
 ```text
@@ -29,6 +29,12 @@ requirements 변경 여부:
 - PostgreSQL VIEW:
 - Slack notifications 모듈:
 - Gemini:
+- 서비스 공개 URL:
+
+별도 프로세스와 운영 작업:
+- AI worker:
+- 자정 유지보수:
+- HTTP polling:
 
 테스트 결과:
 - python manage.py check --settings=config.settings.test
@@ -49,6 +55,9 @@ requirements 변경 여부:
 - `.env`, 실제 DB 비밀번호, Gemini 키, 개인정보가 commit되지 않았는지 확인합니다.
 - 부모 프로젝트에서 사용하는 `accounts_user.id`와 자식의 외부 `user_id` 계약을 확인합니다.
 - 브레인스토밍 React CDN origin을 부모 CSP에 반영해야 하는지 확인합니다.
+- `DJANGO_SITE_URL`이 Slack 메시지에 포함되는 실제 서비스 URL인지 확인합니다.
 - `docs/requirements/CURRENT_REQUIREMENTS.md`의 회차 없는 PRD, 과거 PRD와 기여도 정책을 함께
   전달합니다.
 - 브레인스토밍 AI 분석·항목 분류 API는 Legacy이며 신규 UI에서 사용하지 않음을 표시합니다.
+- 현재 전달본의 상세 범위는 `SOURCE_DELIVERY_CURRENT.md`, 실제 합치는 순서는
+  `PARENT_INTEGRATION_CHECKLIST.md`에서 확인합니다.

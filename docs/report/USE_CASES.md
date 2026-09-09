@@ -72,7 +72,7 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    Product[Idea Developer]
+    Product[idea-developer]
     Product --> Auth[인증·사용자 연동]
     Product --> Home[홈 대시보드]
     Product --> Prd[PRD 관리]

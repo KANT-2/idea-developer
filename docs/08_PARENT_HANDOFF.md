@@ -30,6 +30,10 @@
 - version 충돌과 idempotency 규칙
 - 소프트 삭제, 감사 로그, AI 사용 로그
 
+최종 PRD 템플릿은 신규 프로젝트 30문항, 기존 프로젝트 신규 기능 32문항, 기존 기능 개선
+32문항입니다. `prds.0014`, `prds.0015`는 기존 PRD 질문도 갱신하므로 실제 운영 데이터에
+적용하기 전 staging 백업과 비교가 필요합니다.
+
 독립 시스템의 삭제 정책은 PRD를 30일간 복구 가능 상태로 보관한 뒤 상세 변경·AI·기여도
 기록과 함께 영구 삭제하는 것입니다. PRD FK가 없는 `PrdDeletionAuditLog`에는 삭제된 PRD ID,
 제목 스냅샷, 생성자·실행자와 삭제 시각만 남깁니다. 이 로그는 규제 준수용 전체 감사 원장이
@@ -39,6 +43,10 @@
 ## 추가 인프라 선택사항
 
 현재 부모 저장소에는 Redis, Celery, Django Channels가 없습니다. 독립 MVP는 PostgreSQL 작업 worker와 HTTP polling을 사용합니다. 부모 팀이 진짜 실시간 커서·프레즌스를 원하면 Redis와 Channels 도입 범위를 별도로 검토해야 합니다.
+
+웹 프로세스와 별도로 `python manage.py run_job_worker`를 실행합니다. 서비스 timezone 기준 매일
+자정에는 `python manage.py run_midnight_maintenance`를 한 번 실행해 기한 경과 PRD 완료 처리와
+보관기간이 지난 소프트 삭제·AI 임시 데이터 정리를 수행합니다.
 
 ## 회차와 기여도 이관 계약
 
@@ -66,6 +74,9 @@ Slack Member ID를 저장하지 않으며 부모 `accounts_user.id`와 같은 �
 
 ## 소스 전달
 
-4조 통합팀에 전달할 때는 코드만 보내지 않고
+부모 통합팀에 전달할 때는 코드만 보내지 않고
 `docs/integration/SOURCE_DELIVERY_TEMPLATE.md`에 기준 commit, 변경 범위, migration,
 requirements, 환경변수와 테스트 결과를 함께 기록합니다.
+
+현재 구현의 구체적인 전달 범위는 `docs/integration/SOURCE_DELIVERY_CURRENT.md`, 실제 통합 순서는
+`docs/integration/PARENT_INTEGRATION_CHECKLIST.md`를 함께 사용합니다.
