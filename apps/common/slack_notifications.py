@@ -15,11 +15,15 @@ def send_prd_participant_added(*, prd_id: int, prd_title: str, user_ids) -> None
     recipients = _normalize_user_ids(user_ids)
     if not recipients:
         return
+    prd_url = _prd_url(prd_id)
     _send(
         user_ids=recipients,
         title="새 PRD에 참여자로 추가되었습니다.",
-        message=f"‘{prd_title}’ PRD에 참여자로 추가되었습니다. PRD를 열어 내용을 확인해 주세요.",
-        url=_prd_url(prd_id),
+        message=(
+            f"‘{prd_title}’ PRD에 참여자로 추가되었습니다. "
+            f"PRD를 열어 내용을 확인해 주세요.\nPRD 바로가기: {prd_url}"
+        ),
+        url=prd_url,
     )
 
 

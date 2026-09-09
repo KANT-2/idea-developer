@@ -24,7 +24,11 @@ class SlackNotificationGatewayTests(SimpleTestCase):
         slack.send_slack_dm_ax_batch.assert_called_once_with(
             [8, 9],
             "새 PRD에 참여자로 추가되었습니다.",
-            "‘새 서비스’ PRD에 참여자로 추가되었습니다. PRD를 열어 내용을 확인해 주세요.",
+            (
+                "‘새 서비스’ PRD에 참여자로 추가되었습니다. "
+                "PRD를 열어 내용을 확인해 주세요.\n"
+                "PRD 바로가기: https://service.example/ideas/prds/12/"
+            ),
             "https://service.example/ideas/prds/12/",
         )
         slack.send_slack_dm_ax.assert_not_called()

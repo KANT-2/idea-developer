@@ -93,7 +93,7 @@ Context로 변환한다. 회차 팀 작업은 URL이나 프론트 입력을 신�
 - owner 자신은 제거하거나 다른 역할로 변경할 수 없다.
 - editor, tutor, viewer 사이의 역할 변경과 참여자 제거를 지원한다.
 - 참여자 수정에도 resource `version`을 사용한다.
-- 참여자 추가가 commit되면 추가된 사용자에게 Slack DM을 보낸다.
+- 참여자 추가가 commit되면 추가된 사용자에게 해당 PRD 바로가기 URL을 포함한 Slack DM을 보낸다.
 - Slack 실패는 최대 3회 재시도하지만 PRD 저장을 롤백하지 않는다.
 
 ## 6. PRD 작성과 상태
