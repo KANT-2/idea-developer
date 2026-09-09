@@ -1,4 +1,4 @@
-# Idea Developer 최종보고서
+# idea-developer 최종보고서
 
 > 작성 기준일: YYYY-MM-DD
 >
@@ -18,7 +18,7 @@
 
 ### 1.2 목표
 
-- 독립 실행 가능한 Django 기반 Idea Developer 구축
+- 독립 실행 가능한 Django 기반 `idea-developer` 구축
 - PRD 작성, 브레인스토밍, AI 코칭과 협업 기능 통합
 - 부모 시스템과 안전하게 연결할 수 있는 명확한 연동 경계 제공
 

@@ -6,10 +6,10 @@
 flowchart LR
     User[사용자 브라우저]
     Parent[(부모 PostgreSQL VIEW)]
-    Child[(Idea Developer PostgreSQL)]
+    Child[(idea-developer PostgreSQL)]
     Gemini[Gemini API]
     Slack[부모 notifications.slack]
-    App[Idea Developer Django]
+    App[idea-developer Django]
 
     User -->|화면 요청·API 입력| App
     App -->|Django template·JSON 응답| User
@@ -20,7 +20,7 @@ flowchart LR
     App -->|accounts_user.id·알림 내용| Slack
 ```
 
-부모 VIEW는 읽기 전용이다. Idea Developer는 부모 원본 사용자·회차·팀 테이블을 직접 JOIN하거나
+부모 VIEW는 읽기 전용이다. `idea-developer`는 부모 원본 사용자·회차·팀 테이블을 직접 JOIN하거나
 VIEW에 쓰지 않는다.
 
 ## 2. Level 1: 애플리케이션 내부 흐름
@@ -63,7 +63,7 @@ flowchart TB
 
 ## 3. 데이터 소유권
 
-| 데이터 | 진실의 원천 | Idea Developer 처리 |
+| 데이터 | 진실의 원천 | idea-developer 처리 |
 |---|---|---|
 | 사용자 이름·이메일·활성·부모 역할 | 부모 VIEW | 읽기, 화면 snapshot, session 매핑 |
 | 회차 참가자·회차별 팀 | 부모 VIEW | `user_id + round_id` 검증 |

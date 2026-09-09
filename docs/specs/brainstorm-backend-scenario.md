@@ -2,7 +2,7 @@
 
 > 문서 성격: 내부 제품·백엔드 설계 기록(소장용)
 >
-> 최종 갱신: 2026-09-06
+> 최종 갱신: 2026-09-09
 >
 > 우선순위: `docs/requirements/CURRENT_REQUIREMENTS.md`가 이 문서보다 우선한다.
 
@@ -908,6 +908,11 @@ Django template과 Bootstrap 레이아웃 안에서 React를 CDN 방식으로 �
 ```
 
 React는 캔버스 드래그, 확대·축소, 연결선, 화면 상태 갱신을 담당한다. Django는 인증, 회차 Context, 초기 화면 렌더링, API, CSRF, 동기화 권한을 담당한다.
+
+자유 캔버스에서는 `Shift`를 누른 채 메모를 여러 개 선택해 한 번에 이동할 수 있다. 캔버스에
+포커스가 있고 텍스트 입력 중이 아닐 때 `Ctrl/Cmd+Z`는 본인의 마지막 변경을 실행 취소하고,
+`Ctrl/Cmd+Y`는 다시 실행한다. `Esc`는 선택·연결 모드를 해제한다. 실행 취소와 다시 실행도
+서버의 version을 검증하며, 다른 변경이 먼저 저장됐다면 덮어쓰지 않고 충돌을 안내한다.
 
 독립 시스템에 부모와 호환되는 `templates/base.html`을 만들고 `extra_head`, `breadcrumb`, `content`, `modals`, `extra_js` block을 제공한다. `extra_head`에는 브레인스토밍 전용 CSS와 고정 버전 React CDN을, `content`에는 `#brainstorm-root`를, `extra_js`에는 JSX 없는 브레인스토밍 정적 JavaScript를 배치한다. `CSRF_COOKIE_HTTPONLY = true`를 사용할 경우 API 요청의 CSRF 값은 쿠키를 읽지 말고 Django 템플릿이 DOM에 렌더링한 토큰에서 가져온다.
 

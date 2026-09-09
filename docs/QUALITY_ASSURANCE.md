@@ -14,10 +14,10 @@ Pull Request와 `develop`, `main` push에서는 GitHub Actions가 PostgreSQL 16�
 실행한다. 애플리케이션 코드 커버리지는 85% 미만이면 실패하며 운영 설정의 `check --deploy`도
 통과해야 한다.
 
-2026-09-07 최신 `develop` 병합 후 로컬 회귀 기준으로 391개 테스트를 발견해 386개가 통과했고,
-SQLite에서 지원하지 않는 PostgreSQL 행 잠금 전용 테스트 5개는 건너뛰었다. `apps` 기준 측정
-커버리지는 88.1%다. 건너뛴
-5개는 PostgreSQL 16 CI 또는 테스트 DB 생성 권한이 있는 로컬 PostgreSQL에서 실행한다.
+2026-09-09 최신 `develop` 기준 로컬 SQLite 회귀에서는 398개 테스트 중 PostgreSQL 행 잠금
+전용 5개를 제외한 393개가 통과했다. 같은 commit의 GitHub Actions PostgreSQL 16 환경에서는
+398개 전체가 통과했고 `apps` 기준 커버리지는 88%였다. 로컬 PostgreSQL 검증은 애플리케이션
+DB와 분리된 테스트 DB를 만들 수 있는 `CREATE DATABASE` 권한이 있어야 한다.
 
 ## 2. 테스트 범위
 
@@ -83,3 +83,6 @@ SQLite에서 지원하지 않는 PostgreSQL 행 잠금 전용 테스트 5개는 
 - SQLite 전체 회귀에서는 PostgreSQL `select_for_update` 전용 동시성 테스트 5개가 skip된다.
   GitHub Actions의 PostgreSQL 16 job에서 이 5개를 포함해 실행한다. 로컬 PostgreSQL에서 직접
   실행하려면 애플리케이션 DB와 분리된 테스트 DB 생성 권한이 필요하다.
+- 2026-09-09 검증 근거는 GitHub Actions run `34329903572`이며 PostgreSQL 398개 테스트,
+  migration 검사와 Ruff가 통과했다. `check --deploy` 명령도 성공했지만, 모든 서브도메인의 HTTPS
+  전환이 확인된 뒤에만 켤 수 있는 HSTS include-subdomains·preload 권고 2건은 남아 있다.

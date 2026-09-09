@@ -2,7 +2,7 @@
 
 ## 1. 목적과 범위
 
-Idea Developer는 PRD 작성, 브레인스토밍, AI 지원과 기여도 평가를 제공하는 독립 Django
+`idea-developer`는 PRD 작성, 브레인스토밍, AI 지원과 기여도 평가를 제공하는 독립 Django
 시스템이다. 부모 운영 저장소의 사용자·회차·팀 원장을 복제하거나 수정하지 않으며, 통합 시에는
 인증 resolver, base template과 URL include 지점만 교체할 수 있도록 경계를 둔다.
 

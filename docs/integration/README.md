@@ -15,3 +15,10 @@
 - VIEW 오류, 설정 누락, 복수 팀 데이터는 쓰기 권한을 추측하지 않고 fail closed합니다.
 
 구현 파일은 `apps/integration/models.py`, `repository.py`, `context.py`이며 테스트 fixture는 `tests/fixtures/integration_views.py`에 있습니다.
+
+## 부모 시스템 전달 문서
+
+- `SOURCE_DELIVERY_TEMPLATE.md`: 매 전달 때 채우는 공통 양식
+- `SOURCE_DELIVERY_CURRENT.md`: 현재 구현 범위, migration, requirements, 환경변수와 보류사항
+- `PARENT_INTEGRATION_CHECKLIST.md`: 부모 저장소에 합치는 순서와 staging 검증 목록
+- `VIEW_GUIDE.md`: 부모가 제공한 PostgreSQL VIEW 원문 규격

@@ -1,10 +1,10 @@
-# Idea Developer ERD
+# idea-developer ERD
 
-> 기준: Django 모델 및 migration, 2026-09-07
+> 기준: Django 모델 및 migration, 2026-09-09
 
 ## 1. 시스템 경계
 
-부모 시스템은 사용자·회차·팀 원장을 소유하고, Idea Developer는 PRD·브레인스토밍·AI 결과를
+부모 시스템은 사용자·회차·팀 원장을 소유하고, `idea-developer`는 PRD·브레인스토밍·AI 결과를
 소유한다. 두 영역은 물리 FK가 아닌 외부 식별자와 읽기 전용 VIEW 계약으로 연결한다.
 
 ```mermaid
@@ -14,7 +14,7 @@ flowchart LR
         RT[user_round_team_view<br/>managed=False]
     end
 
-    subgraph Child[Idea Developer · idea_developer schema]
+    subgraph Child[idea-developer · idea_developer schema]
         LU[idea_local_user_mapping]
         P[prds]
         PP[prd_participants]

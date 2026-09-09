@@ -1,6 +1,6 @@
 # 데이터 사전
 
-> 기준: Django 모델 및 migration, 2026-09-07
+> 기준: Django 모델 및 migration, 2026-09-09
 
 ## 1. 인증·외부 연동
 

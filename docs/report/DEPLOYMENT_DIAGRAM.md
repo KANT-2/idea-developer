@@ -15,7 +15,7 @@ flowchart TB
     end
 
     subgraph Databases[PostgreSQL]
-        Child[(Idea Developer DB)]
+        Child[(idea-developer DB)]
         Parent[(Parent DB VIEWs<br/>read-only connection)]
     end
 
@@ -43,7 +43,7 @@ flowchart TB
 | 자정 유지보수 | 마감 자동 완료, 30일 삭제, 만료 대화·미리보기 정리 | 접근 시 일부 마감 보정, TTL 정리 지연 |
 | 부모 VIEW connection | 사용자·회차·팀 검증 | 검증이 필요한 쓰기 fail closed |
 | Gemini | AI 응답 | AI job 실패·재시도, 일반 편집 유지 |
-| Slack 공통 모듈 | 참여자·코멘트 DM | 저장 유지, 알림 재시도 후 실패 로그 |
+| Slack 공통 모듈 | 참여자·코멘트 DM, 초대 PRD 링크 | 저장 유지, 알림 재시도 후 실패 로그 |
 
 ## 3. 배포 설정 경계
 
@@ -61,4 +61,5 @@ flowchart TB
 3. 로그인, 홈 첫 페이지, PRD 저장과 version 충돌을 smoke test한다.
 4. 테스트 AI job 하나가 worker에서 완료되는지 확인한다.
 5. 자정 유지보수 명령을 dry-run 또는 안전한 테스트 데이터로 확인한다.
-6. Slack 미연동 사용자와 전송 실패가 핵심 저장을 취소하지 않는지 확인한다.
+6. Slack 초대 링크가 실제 HTTPS 서비스로 열리고, 미연동 사용자와 전송 실패가 핵심 저장을
+   취소하지 않는지 확인한다.

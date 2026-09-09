@@ -1,6 +1,6 @@
-# Idea Developer
+# idea-developer
 
-아이디어 디벨로퍼를 독립 Django 시스템으로 개발하는 저장소입니다.
+`idea-developer`를 독립 Django 시스템으로 개발하는 저장소입니다.
 
 - Backend: Django 5.2.x
 - UI: Django Template + Bootstrap 5.3.2
@@ -10,7 +10,7 @@
 - 협업 갱신: HTTP polling + version 충돌 검사
 - 백그라운드 작업: PostgreSQL 작업 테이블 + Django management command worker
 
-부모 프로젝트의 테스트용 `ideas` 앱은 확정 구현이 아닙니다. 이 저장소에서는 독립 시스템을 완성하며, 부모 프로젝트 이식은 부모 운영 팀이 담당합니다.
+이 저장소에서는 독립 `idea-developer` 시스템을 완성하며, 부모 프로젝트 이식은 부모 운영 팀이 담당합니다.
 
 ## 처음 시작하기
 
@@ -33,6 +33,8 @@
 15. [최종보고서 도식·양식](docs/report/README.md)
 16. [부모 프로젝트 이관 메모](docs/08_PARENT_HANDOFF.md)
 17. [소스 전달 양식](docs/integration/SOURCE_DELIVERY_TEMPLATE.md)
+18. [현재 소스 전달 명세](docs/integration/SOURCE_DELIVERY_CURRENT.md)
+19. [부모 시스템 통합 체크리스트](docs/integration/PARENT_INTEGRATION_CHECKLIST.md)
 
 ## 가장 중요한 규칙
 

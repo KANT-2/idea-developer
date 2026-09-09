@@ -45,7 +45,7 @@ sequenceDiagram
     DB-->>API: commit
     API-->>UI: 생성된 PRD 반환
     UI-->>U: PRD 작성 화면 이동
-    API->>S: commit 이후 참여자 DM
+    API->>S: commit 이후 참여자 DM + PRD 바로가기 URL
     alt Slack 일시 실패
         S->>S: 최대 3회 재시도
         S-->>API: 최종 실패 로그
