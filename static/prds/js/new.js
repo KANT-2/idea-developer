@@ -214,6 +214,25 @@
       const data = await api(root.dataset.searchApi + "?" + params);
       if (sequence !== searchSequence) return;
       results.replaceChildren();
+      if (data.bulk_mode) {
+        const available = data.results.filter(function (user) {
+          const userId = Number(user.user_id);
+          return userId !== currentUserId && !selected.has(userId) && !user.selected;
+        });
+        if (available.length) {
+          const addAll = document.createElement("button");
+          addAll.type = "button";
+          addAll.className = "participant-result-row participant-result-all";
+          addAll.innerHTML = '<span class="participant-result-avatar"><i class="bi bi-people-fill"></i></span>' +
+            '<span class="participant-result-copy"><strong>검색 결과 모두 추가</strong><small>활성 사용자 ' + available.length + '명을 편집자로 추가합니다.</small></span>' +
+            '<span class="participant-result-state">모두 추가</span>';
+          addAll.addEventListener("click", function () {
+            available.forEach(addUser);
+            scheduleSearch(0);
+          });
+          results.append(addAll);
+        }
+      }
       data.results.forEach(function (user) { results.append(resultButton(user)); });
       if (!data.results.length) {
         searchHelp.classList.remove("d-none");

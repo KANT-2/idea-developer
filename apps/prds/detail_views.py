@@ -705,6 +705,50 @@ def participants(request, prd_id):
                 access = _lock_current_access(access)
                 _enforce_participant_management(access)
                 payload = _parse_json(request)
+                user_ids = payload.get("user_ids")
+                if user_ids is not None:
+                    if (
+                        not isinstance(user_ids, list)
+                        or not user_ids
+                        or len(user_ids) > settings.USER_SEARCH_MAX_PAGE_SIZE
+                        or any(
+                            isinstance(user_id, bool) or not isinstance(user_id, int) or user_id < 1
+                            for user_id in user_ids
+                        )
+                    ):
+                        raise ValidationError(
+                            {
+                                "user_ids": (
+                                    "사용자 ID 목록은 1명 이상 "
+                                    f"{settings.USER_SEARCH_MAX_PAGE_SIZE}명 이하여야 합니다."
+                                )
+                            }
+                        )
+                    participants_added = PrdParticipantService(repository).add_participants(
+                        prd=access.prd,
+                        user_ids=tuple(user_ids),
+                        role=payload.get("role", PrdParticipantRole.EDITOR),
+                        actor_user_id=context.user_id,
+                    )
+                    summaries = _participant_summaries(
+                        repository,
+                        user_ids=tuple(row.user_id for row in participants_added),
+                        round_id=access.prd.round_id,
+                    )
+                    return api_success(
+                        {
+                            "items": [
+                                _serialize_participant(
+                                    row,
+                                    display_name=summaries.get(row.user_id),
+                                )
+                                for row in participants_added
+                            ],
+                            "created_count": len(participants_added),
+                        },
+                        status=201 if participants_added else 200,
+                        request_id=_request_id(request),
+                    )
                 user_id = payload.get("user_id")
                 if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id < 1:
                     raise ValidationError({"user_id": "사용자 ID가 올바르지 않습니다."})

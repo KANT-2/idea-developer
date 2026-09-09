@@ -169,6 +169,7 @@ def search_participants(request):
             request_id=_request_id(request),
         )
     query = request.GET.get("q", "").strip()
+    bulk_mode = query.casefold() == "all"
     if len(query) < settings.USER_SEARCH_MIN_LENGTH:
         return api_error(
             code="query_too_short",
@@ -178,7 +179,10 @@ def search_participants(request):
         )
     try:
         page = max(1, int(request.GET.get("page", "1")))
-        requested_size = int(request.GET.get("page_size", str(settings.USER_SEARCH_PAGE_SIZE)))
+        default_page_size = (
+            settings.USER_SEARCH_MAX_PAGE_SIZE if bulk_mode else settings.USER_SEARCH_PAGE_SIZE
+        )
+        requested_size = int(request.GET.get("page_size", str(default_page_size)))
         if requested_size <= 0:
             raise ValueError
         page_size = min(requested_size, settings.USER_SEARCH_MAX_PAGE_SIZE)
@@ -187,13 +191,13 @@ def search_participants(request):
         repository = get_integration_repository()
         if context.round_id is None:
             result_page = repository.search_login_users(
-                query=query,
+                query="" if bulk_mode else query,
                 page=page,
                 page_size=page_size,
             )
         else:
             result_page = repository.search_round_users(
-                query=query,
+                query="" if bulk_mode else query,
                 round_id=context.round_id,
                 team_id=None,
                 page=page,
@@ -213,6 +217,7 @@ def search_participants(request):
     return api_success(
         {
             "results": [_serialize_user(row, selected_user_ids) for row in result_page.results],
+            "bulk_mode": bulk_mode,
             "pagination": {
                 "page": result_page.page,
                 "page_size": result_page.page_size,

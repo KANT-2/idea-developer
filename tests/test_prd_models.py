@@ -468,6 +468,19 @@ class ConfirmedPrdTemplateSeedTests(TestCase):
             )
         )
         self.assertEqual(
+            {
+                template.prd_type: sum(
+                    section.questions.count() for section in template.sections.all()
+                )
+                for template in templates.values()
+            },
+            {
+                PrdType.NEW_PRODUCT: 29,
+                PrdType.NEW_FEATURE: 31,
+                PrdType.IMPROVEMENT: 32,
+            },
+        )
+        self.assertEqual(
             list(templates[PrdType.NEW_PRODUCT].sections.values_list("title", flat=True)),
             [
                 "프로젝트 요약",
@@ -492,11 +505,15 @@ class ConfirmedPrdTemplateSeedTests(TestCase):
         self.assertEqual(prd.sections.count(), 7)
         self.assertEqual(
             PrdQuestion.objects.filter(section__prd=prd).count(),
-            46,
+            31,
         )
         self.assertEqual(
             prd.sections.order_by("position").first().title,
             "기능 요약",
+        )
+        self.assertEqual(
+            prd.sections.order_by("position").first().questions.order_by("position").first().prompt,
+            "어떤 서비스에 어떤 이름의 기능을 추가하나요?",
         )
 
     def test_existing_prd_answers_and_brainstorm_links_are_preserved_during_backfill(self):
@@ -554,4 +571,4 @@ class ConfirmedPrdTemplateSeedTests(TestCase):
         self.assertEqual(node.status, BrainstormNodeStatus.ACCEPTED)
         self.assertEqual(answer.question_id, legacy_question.pk)
         self.assertEqual(answer.content, "기존 답변은 유지됩니다.")
-        self.assertGreater(legacy_question.position, 6)
+        self.assertGreater(legacy_question.position, 4)

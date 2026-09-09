@@ -524,6 +524,9 @@ class HomeQueryService:
         labels = {
             "answer_updated": "질문 답변을 수정했습니다.",
             "participant_added": "참여자를 추가했습니다.",
+            "participants_added": (
+                f"참여자 {len(history.after_data.get('user_ids', []))}명을 추가했습니다."
+            ),
             "participant_role_changed": "참여자 역할을 변경했습니다.",
             "participant_removed": "참여자를 제외했습니다.",
             "prd_created": "새 PRD를 만들었습니다.",

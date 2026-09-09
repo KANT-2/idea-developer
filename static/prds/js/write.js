@@ -947,6 +947,7 @@
   async function startSectionCoaching(section, row) {
     clearAlert();
     scope.value = String(section.id);
+    window.StudioControls?.syncSelect(scope);
     await loadConversation();
     input.value = [
       "AI 진단에서 “" + section.title + "” 섹션이 “" + evaluationStatusLabel(row.status)
@@ -1139,6 +1140,7 @@
 
   function goToCoachChat(row) {
     scope.value = findQuestionSectionId(row.question_id);
+    window.StudioControls?.syncSelect(scope);
     perspectiveDraftModal.hide();
     bootstrap.Offcanvas.getOrCreateInstance(document.getElementById("write-support-panel")).show();
     input.value =

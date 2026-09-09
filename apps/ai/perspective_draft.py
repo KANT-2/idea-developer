@@ -53,7 +53,7 @@ class PrdPerspectiveDraftService:
             idempotency_key=idempotency_key,
             # PRD 전체(질문 수십 개)를 한 번에 쓰기 때문에 기본 타임아웃
             # (AI_JOB_TIMEOUT_SECONDS, 30초)로는 부족하다. gemini-3.5-flash-lite로
-            # 바꾼 뒤 41개 질문 기준 15~25초가 걸리는 것을 확인해 여유를 두고
+            # 여러 질문의 초안을 한 번에 만들 때 15~25초가 걸리는 것을 확인해 여유를 두고
             # 60초로 잡았다.
             timeout_seconds=60,
         )

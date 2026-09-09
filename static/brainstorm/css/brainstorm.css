@@ -64,6 +64,7 @@ body:has(#brainstorm-root) .studio-header{display:none}.studio-main:has(#brainst
 .brain-ai-body .brain-ai-answer-row strong{display:block;color:#333d4f;font-size:12.5px;line-height:1.45}
 .brain-ai-body .brain-ai-answer-row p{margin:6px 0 0;color:#4b5565;font-size:12.5px;line-height:1.65;white-space:pre-wrap}
 .brain-connection.pending{stroke:#6366f1;stroke-width:2.2;stroke-dasharray:8 5;opacity:.95}
+.brain-connection.unclassified{opacity:.58}.brain-connection.unclassified.highlighted{opacity:1}
 
 /* Keep the selected-note actions compact: hold and assignee share one row. */
 .brain-note-actions{min-width:270px;flex-wrap:nowrap}
@@ -110,3 +111,38 @@ body:has(#brainstorm-root) .studio-header{display:none}.studio-main:has(#brainst
 .brain-board-card>p{font-size:14px}.brain-person small,.brain-card-controls button,.brain-card-controls select,.brain-card-controls label{font-size:11px}
 .brain-list-heading span{font-size:11px}.brain-list-group article p{font-size:13px}.brain-list-group article small,.brain-list-group article button{font-size:11px}
 .brain-editor-author>span{font-size:12px}.brain-editor-author strong{font-size:13px}.brain-editor-author small{font-size:11px}.brain-editor-modal>footer .btn{font-size:12px}
+.brain-editor-author>span{grid-column:auto;white-space:nowrap}.brain-editor-author strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.brain-note.multi-selected {
+  outline: 3px solid #6366f1;
+  outline-offset: 3px;
+  box-shadow: 0 14px 30px rgba(79, 70, 229, 0.24);
+}
+
+.brain-multi-banner {
+  position: absolute;
+  z-index: 45;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 42px;
+  padding: 8px 12px 8px 16px;
+  color: #3730a3;
+  background: rgba(238, 242, 255, 0.96);
+  border: 1px solid #a5b4fc;
+  border-radius: 999px;
+  box-shadow: 0 10px 28px rgba(49, 46, 129, 0.18);
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.brain-multi-banner button {
+  padding: 4px 9px;
+  color: #4338ca;
+  background: #fff;
+  border: 1px solid #c7d2fe;
+  border-radius: 999px;
+  font-size: 0.82rem;
+}

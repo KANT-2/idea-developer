@@ -30,7 +30,7 @@
             <div class="participant-add-wrap">
               <button id="participant-picker-toggle" class="participant-add-button" type="button" aria-expanded="false" aria-controls="participant-picker" aria-label="참여자 추가"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
               <div id="participant-picker" class="participant-picker d-none">
-                <div class="participant-search-box"><i class="bi bi-search" aria-hidden="true"></i><input id="participant-search" type="search" minlength="2" autocomplete="off" placeholder="이름으로 검색" aria-label="참여자 이름 검색"><span id="participant-search-spinner" class="spinner-border spinner-border-sm d-none" aria-hidden="true"></span></div>
+                <div class="participant-search-box"><i class="bi bi-search" aria-hidden="true"></i><input id="participant-search" type="search" minlength="2" autocomplete="off" placeholder="이름 검색 · 전체는 all" aria-label="참여자 이름 검색"><span id="participant-search-spinner" class="spinner-border spinner-border-sm d-none" aria-hidden="true"></span></div>
                 <div class="participant-picker-scroll">
                   <section class="participant-picker-section"><p class="participant-picker-label">내가 속한 팀</p><button id="add-team" class="team-add-row" type="button" disabled><span class="team-add-icon"><i class="bi bi-people-fill"></i></span><span class="team-add-copy"><strong id="team-name">현재 팀</strong><small id="team-description">팀 정보를 불러오는 중입니다.</small></span><span id="team-add-state" class="team-add-state">불러오는 중</span></button></section>
                   <div class="participant-picker-divider"></div>
@@ -45,4 +45,4 @@
   </div></div><form class="d-none">{% csrf_token %}</form>
 </div>
 {% endblock %}
-{% block extra_js %}<script src="{% static 'prds/js/new.js' %}?v=20260906-1"></script>{% endblock %}
+{% block extra_js %}<script src="{% static 'prds/js/new.js' %}?v=20260909-1"></script>{% endblock %}

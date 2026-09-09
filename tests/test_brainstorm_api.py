@@ -554,6 +554,117 @@ class BrainstormApiTests(TestCase):
         self.assertIsNone(node.section_id)
         self.assertEqual((node.position_x, node.position_y), (Decimal("7"), Decimal("8")))
 
+    def test_batch_position_moves_selected_notes_as_one_operation(self):
+        first = self.create_note()
+        second = self.create_note(content="두 번째")
+
+        response = self.json_request(
+            "post",
+            "batch-position",
+            {
+                "nodes": [
+                    {
+                        "id": str(first.pk),
+                        "version": 1,
+                        "x": 120,
+                        "y": 140,
+                        "section_id": self.section_a.pk,
+                    },
+                    {
+                        "id": str(second.pk),
+                        "version": 1,
+                        "x": 260,
+                        "y": 280,
+                        "section_id": self.section_a.pk,
+                    },
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual((first.position_x, first.position_y, first.version), (120, 140, 2))
+        self.assertEqual((second.position_x, second.position_y, second.version), (260, 280, 2))
+        self.assertEqual(first.section_id, self.section_a.pk)
+        self.assertEqual(second.section_id, self.section_a.pk)
+        log = BrainstormChangeLog.objects.get(action="nodes_moved")
+        self.assertEqual(str(log.operation_id), response.json()["data"]["operation_id"])
+
+        undone = self.json_request("post", "undo")
+        self.assertEqual(undone.status_code, 200)
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual((first.position_x, first.position_y, first.version), (10, 20, 3))
+        self.assertEqual((second.position_x, second.position_y, second.version), (10, 20, 3))
+        self.assertIsNone(first.section_id)
+        self.assertIsNone(second.section_id)
+
+    def test_batch_position_conflict_rolls_back_every_selected_note(self):
+        first = self.create_note()
+        second = self.create_note(content="두 번째", version=2)
+
+        response = self.json_request(
+            "post",
+            "batch-position",
+            {
+                "nodes": [
+                    {"id": str(first.pk), "version": 1, "x": 100, "y": 100},
+                    {"id": str(second.pk), "version": 1, "x": 200, "y": 200},
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, 409)
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual((first.position_x, first.position_y, first.version), (10, 20, 1))
+        self.assertEqual((second.position_x, second.position_y, second.version), (10, 20, 2))
+        self.assertFalse(BrainstormChangeLog.objects.filter(action="nodes_moved").exists())
+
+    def test_canvas_operation_can_be_undone_redone_and_undone_again(self):
+        node = self.create_note()
+        moved = self.json_request(
+            "patch",
+            "node-position",
+            {"section_id": self.section_a.pk, "x": 300, "y": 320, "version": 1},
+            node_id=node.pk,
+        )
+        undone = self.json_request("post", "undo")
+        redone = self.json_request("post", "redo")
+        undone_again = self.json_request("post", "undo")
+
+        self.assertEqual(moved.status_code, 200)
+        self.assertEqual(undone.status_code, 200)
+        self.assertEqual(redone.status_code, 200)
+        self.assertEqual(undone_again.status_code, 200)
+        node.refresh_from_db()
+        self.assertEqual((node.position_x, node.position_y, node.version), (10, 20, 5))
+        self.assertIsNone(node.section_id)
+        self.assertEqual(
+            list(BrainstormChangeLog.objects.order_by("id").values_list("action", flat=True)),
+            ["node_moved", "operation_undone", "operation_redone", "operation_undone"],
+        )
+
+    def test_undo_rejects_a_stale_operation_instead_of_overwriting_newer_data(self):
+        node = self.create_note()
+        self.json_request(
+            "patch",
+            "node-position",
+            {"section_id": None, "x": 100, "y": 120, "version": 1},
+            node_id=node.pk,
+        )
+        node.refresh_from_db()
+        node.position_x = Decimal("777")
+        node.version += 1
+        node.save(update_fields=["position_x", "version", "updated_at"])
+
+        response = self.json_request("post", "undo")
+
+        self.assertEqual(response.status_code, 409)
+        node.refresh_from_db()
+        self.assertEqual((node.position_x, node.version), (Decimal("777"), 3))
+
     def test_connection_creation_is_idempotent_and_rejects_invalid_connections(self):
         first = self.create_note()
         second = self.create_note(content="두 번째")
@@ -869,6 +980,13 @@ class BrainstormApiTests(TestCase):
                 {"section_id": self.section_a.id, "x": 1, "y": 2, "version": 1},
                 node_id=first.pk,
             ),
+            self.json_request(
+                "post",
+                "batch-position",
+                {"nodes": [{"id": str(first.pk), "version": 1, "x": 1, "y": 2}]},
+            ),
+            self.json_request("post", "undo"),
+            self.json_request("post", "redo"),
             self.json_request("delete", "node-delete", {"version": 1}, node_id=first.pk),
             self.json_request(
                 "post",

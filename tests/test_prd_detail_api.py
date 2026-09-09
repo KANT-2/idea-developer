@@ -595,6 +595,34 @@ class PrdDetailApiTests(TestCase):
             ["participant_added", "participant_role_changed", "participant_removed"],
         )
 
+    @patch("apps.prds.services.send_prd_participant_added")
+    def test_owner_bulk_adds_participants_with_one_batched_notification(self, send_notification):
+        participants_url = reverse("prd_api:participants", args=[self.prd.id])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.post_json(
+                participants_url,
+                {"user_ids": [11, 12, 11], "role": PrdParticipantRole.EDITOR},
+            )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["data"]["created_count"], 2)
+        self.assertEqual(
+            set(
+                self.prd.participants.filter(user_id__in=[11, 12]).values_list("user_id", flat=True)
+            ),
+            {11, 12},
+        )
+        self.assertEqual(
+            self.prd.change_history.filter(event_type="participants_added").count(),
+            1,
+        )
+        send_notification.assert_called_once_with(
+            prd_id=self.prd.pk,
+            prd_title=self.prd.title,
+            user_ids=(11, 12),
+        )
+
     def test_participant_update_and_delete_reject_stale_version(self):
         participant = PrdParticipant.objects.create(
             prd=self.prd,
