@@ -1,6 +1,6 @@
 # Idea Developer
 
-아이디어 디벨로퍼를 독립 Django 시스템으로 개발하는 팀 저장소입니다.
+아이디어 디벨로퍼를 독립 Django 시스템으로 개발하는 저장소입니다.
 
 - Backend: Django 5.2.x
 - UI: Django Template + Bootstrap 5.3.2
@@ -14,39 +14,32 @@
 
 ## 처음 시작하기
 
-처음 참여한다면 아래 문서를 순서대로 읽으세요.
+처음 실행하거나 통합한다면 아래 문서를 순서대로 읽으세요.
 
 1. [전체 문서 안내](docs/README.md)
-2. [프로젝트 시작 안내](docs/00_START_HERE.md)
-3. [현재 구현 기준](docs/requirements/CURRENT_REQUIREMENTS.md)
-4. [기능 명세](docs/FUNCTIONAL_SPEC.md)
-5. [예외 처리 목록](docs/EXCEPTION_CATALOG.md)
-6. [개발 환경 설치](docs/01_LOCAL_SETUP.md)
-7. [Git과 GitHub 작업 흐름](docs/02_GIT_WORKFLOW.md)
-8. [브랜치·커밋·Pull Request](docs/03_BRANCH_COMMIT_PR.md)
-9. [프로젝트 구조](docs/04_PROJECT_STRUCTURE.md)
-10. [팀 코드 분배표](docs/05_TEAM_TASKS.md)
-11. [문제 해결](docs/06_TROUBLESHOOTING.md)
-12. [AI 코딩 규칙](docs/07_AI_CODING_RULES.md)
-13. [API 계약 개요](docs/api/README.md)
-14. [제품 결정 기록](docs/decisions/README.md)
-15. [시스템 아키텍처](docs/ARCHITECTURE.md)
-16. [데이터베이스 ERD](docs/database/ERD.md)
-17. [데이터 사전](docs/database/DATA_DICTIONARY.md)
-18. [요구사항 추적표](docs/REQUIREMENTS_TRACEABILITY.md)
-19. [테스트·보안·운영 품질](docs/QUALITY_ASSURANCE.md)
-20. [최종보고서 도식·양식](docs/report/README.md)
-21. [부모 팀 이관 메모](docs/08_PARENT_HANDOFF.md)
-22. [4조 소스 전달 양식](docs/integration/SOURCE_DELIVERY_TEMPLATE.md)
+2. [현재 구현 기준](docs/requirements/CURRENT_REQUIREMENTS.md)
+3. [기능 명세](docs/FUNCTIONAL_SPEC.md)
+4. [예외 처리 목록](docs/EXCEPTION_CATALOG.md)
+5. [개발 환경 설치](docs/01_LOCAL_SETUP.md)
+6. [프로젝트 구조](docs/04_PROJECT_STRUCTURE.md)
+7. [문제 해결](docs/06_TROUBLESHOOTING.md)
+8. [API 계약 개요](docs/api/README.md)
+9. [제품 결정 기록](docs/decisions/README.md)
+10. [시스템 아키텍처](docs/ARCHITECTURE.md)
+11. [데이터베이스 ERD](docs/database/ERD.md)
+12. [데이터 사전](docs/database/DATA_DICTIONARY.md)
+13. [요구사항 추적표](docs/REQUIREMENTS_TRACEABILITY.md)
+14. [테스트·보안·운영 품질](docs/QUALITY_ASSURANCE.md)
+15. [최종보고서 도식·양식](docs/report/README.md)
+16. [부모 프로젝트 이관 메모](docs/08_PARENT_HANDOFF.md)
+17. [소스 전달 양식](docs/integration/SOURCE_DELIVERY_TEMPLATE.md)
 
 ## 가장 중요한 규칙
 
-- `main`에서 직접 작업하거나 push하지 않습니다.
-- `develop`에서 직접 작업하지 않고 배정된 개인 브랜치 또는 작업 브랜치를 사용합니다.
-- 작은 단위로 commit하고 GitHub에 push합니다.
-- Pull Request(PR)를 열고 팀원 한 명의 확인을 받은 뒤 merge합니다.
+- 통합 대상 브랜치에 직접 push하지 않고 작업 브랜치와 Pull Request를 사용합니다.
+- 작은 단위로 commit하고 테스트 결과를 Pull Request에 기록합니다.
 - `.env`, 비밀번호, API 키, 실제 사용자 데이터는 절대 commit하지 않습니다.
-- 다른 사람 파일을 임의로 덮어쓰지 않습니다.
+- 부모 프로젝트와 겹치는 인증·사용자·팀 코드는 이관 계약을 확인한 뒤 수정합니다.
 
 ## 현재 상태
 

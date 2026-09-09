@@ -43,14 +43,10 @@
 5. [부모 프로젝트 이관](08_PARENT_HANDOFF.md)
 6. [소스 전달 양식](integration/SOURCE_DELIVERY_TEMPLATE.md)
 
-### 최근 통합 내용을 확인할 때
+### 개발 환경과 통합을 시작할 때
 
-- [2026-09-06 develop 동기화 기록](updates/2026-09-06-develop-sync.md)
-
-### 개발 환경과 협업을 시작할 때
-
-`00_START_HERE.md`부터 번호 순서대로 읽는다. 팀원이 기능을 전달할 때는
-`integration/SOURCE_DELIVERY_TEMPLATE.md`를 사용한다.
+`01_LOCAL_SETUP.md`에서 독립 실행 환경을 준비하고 `04_PROJECT_STRUCTURE.md`에서 코드 구조를
+확인한다. 부모 프로젝트에 전달할 때는 `integration/SOURCE_DELIVERY_TEMPLATE.md`를 사용한다.
 
 ## 문서 갱신 규칙
 
