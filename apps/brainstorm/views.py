@@ -378,14 +378,18 @@ def canvas(request, prd_id):
         ).first()
         if viewport_row is None:
             viewport_row = UserCanvasViewport(canvas=canvas_row, user_id=context.user_id)
-        sections = access.prd.sections.filter(is_deleted=False).prefetch_related(
-            Prefetch(
-                "questions",
-                queryset=PrdQuestion.objects.filter(is_deleted=False)
-                .select_related("answer")
-                .order_by("position", "id"),
+        sections = (
+            access.prd.sections.filter(is_deleted=False)
+            .prefetch_related(
+                Prefetch(
+                    "questions",
+                    queryset=PrdQuestion.objects.filter(is_deleted=False)
+                    .select_related("answer")
+                    .order_by("position", "id"),
+                )
             )
-        ).order_by("position", "id")
+            .order_by("position", "id")
+        )
         version_rows = list(
             BrainstormCanvas.objects.filter(prd=access.prd, is_deleted=False).order_by(
                 "display_order", "-version_number", "-id"
