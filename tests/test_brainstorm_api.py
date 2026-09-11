@@ -5,6 +5,7 @@ import uuid
 from decimal import Decimal
 from unittest.mock import Mock, patch
 
+from django.conf import settings
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -24,8 +25,10 @@ from apps.integration.context import IntegrationContext
 from apps.integration.repository import FixtureIntegrationRepository
 from apps.prds.models import (
     Prd,
+    PrdAnswer,
     PrdParticipant,
     PrdParticipantRole,
+    PrdQuestion,
     PrdSection,
     PrdStatus,
     PrdType,
@@ -1162,6 +1165,47 @@ class BrainstormApiTests(TestCase):
         self.assertEqual(data["counts"]["total"], 1)
         self.assertGreater(data["cursor"], initial["cursor"])
 
+    def test_canvas_includes_reference_questions_without_deleted_rows(self):
+        active = PrdQuestion.objects.create(
+            section=self.section_a,
+            prompt="사용자의 핵심 문제는 무엇인가요?",
+            position=1,
+            is_completed=True,
+        )
+        PrdAnswer.objects.create(
+            question=active,
+            content="반복되는 수작업이 핵심 문제입니다.",
+            updated_by_user_id=7,
+        )
+        PrdQuestion.objects.create(
+            section=self.section_a,
+            prompt="이번에는 다루지 않는 질문",
+            position=2,
+            is_deleted=True,
+            deleted_at=timezone.now(),
+        )
+        PrdQuestion.objects.create(
+            section=self.section_b,
+            prompt="보류한 질문",
+            position=1,
+            is_held=True,
+        )
+
+        response = self.client.get(
+            self.url("canvas"),
+            HTTP_IDEMPOTENCY_KEY="canvas-with-reference-questions",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        sections = response.json()["data"]["sections"]
+        first_question = sections[0]["questions"][0]
+        self.assertEqual(sections[0]["guide"], "")
+        self.assertEqual(first_question["id"], active.pk)
+        self.assertEqual(first_question["answer"], "반복되는 수작업이 핵심 문제입니다.")
+        self.assertTrue(first_question["is_completed"])
+        self.assertNotIn("이번에는 다루지 않는 질문", str(sections))
+        self.assertTrue(sections[1]["questions"][0]["is_held"])
+
     def test_invalid_or_missing_cursor_requires_full_state_reload(self):
         self.initialize_canvas()
         for query in ({}, {"cursor": "not-a-number"}, {"cursor": 999999}):
@@ -1205,7 +1249,10 @@ class BrainstormApiTests(TestCase):
             response,
             f'data-api-base="/api/v1/prds/{self.prd.id}/brainstorm/"',
         )
-        self.assertContains(response, 'data-polling-interval-ms="3000"')
+        self.assertContains(
+            response,
+            f'data-polling-interval-ms="{settings.POLLING_INTERVAL_MS}"',
+        )
 
     def test_canvas_queries_reject_invalid_filter_cursor_limit_and_pagination(self):
         self.initialize_canvas()

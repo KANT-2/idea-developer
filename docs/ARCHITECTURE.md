@@ -66,9 +66,10 @@ Redis, Celery, Django Channels와 브라우저 Babel/Tailwind 런타임은 필�
 1. 최초 진입은 활성 캔버스를 `display_order` 순으로 조회하고 첫 최신 캔버스 전체 상태를 연다.
 2. 최신 캔버스만 변경할 수 있으며 과거 버전의 mutation은 서버가 거절한다.
 3. 순서 변경과 최신 삭제·다음 보드 승격은 PRD 잠금 안에서 처리한다.
-4. 이후 2~5초 간격으로 증가 cursor 이후의 change log를 조회한다.
-5. cursor 만료·네트워크 재연결·선택 보드 삭제 시 최신 보드 전체 상태를 다시 조회한다.
-6. 드래그 중간 좌표는 저장하지 않고 pointer release에서 최종 좌표만 PATCH한다.
+4. 이후 기본 2초에 최대 1초의 분산 지연을 더해 증가 cursor 이후의 change log를 조회한다.
+5. 메모·연결선 변경은 이벤트 snapshot을 묶어 한 번에 화면 상태에 적용하고, 재접속·cursor 무효화·캔버스 단위 변경만 전체 상태를 다시 조회한다.
+6. cursor 만료·네트워크 재연결·선택 보드 삭제 시 최신 보드 전체 상태를 다시 조회한다.
+7. 드래그 중간 좌표는 저장하지 않고 pointer release에서 최종 좌표만 PATCH한다.
 
 ### AI 작업
 
@@ -94,4 +95,4 @@ Redis, Celery, Django Channels와 브라우저 Babel/Tailwind 런타임은 필�
 - `database/ERD.md`
 - `database/DATA_DICTIONARY.md`
 - `QUALITY_ASSURANCE.md`
-- `08_PARENT_HANDOFF.md`
+- `integration/VIEW_GUIDE.md`

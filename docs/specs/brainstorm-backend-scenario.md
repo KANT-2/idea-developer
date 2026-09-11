@@ -213,6 +213,10 @@ PATCH /api/brainstorm/nodes/{node_id}/position
 
 화면 이동 중 매 프레임 저장하지 않고, 이동이나 확대가 끝난 뒤 debounce해 저장한다.
 
+미분류 메모는 `6200×3600` 자유 캔버스 안에서 사용자가 지정한 좌표를 유지한다. 오른쪽 미분류
+안내 영역은 새 메모와 자동 정렬의 기본 배치 영역일 뿐이며, 렌더링할 때 기존 메모를 그 영역
+안으로 강제로 되돌리지 않는다.
+
 ## 10. 상단 개수와 필터
 
 상단에는 다음 개수를 표시한다.
@@ -916,7 +920,7 @@ React는 캔버스 드래그, 확대·축소, 연결선, 화면 상태 갱신을
 
 독립 시스템에 부모와 호환되는 `templates/base.html`을 만들고 `extra_head`, `breadcrumb`, `content`, `modals`, `extra_js` block을 제공한다. `extra_head`에는 브레인스토밍 전용 CSS와 고정 버전 React CDN을, `content`에는 `#brainstorm-root`를, `extra_js`에는 JSX 없는 브레인스토밍 정적 JavaScript를 배치한다. `CSRF_COOKIE_HTTPONLY = true`를 사용할 경우 API 요청의 CSRF 값은 쿠키를 읽지 말고 Django 템플릿이 DOM에 렌더링한 토큰에서 가져온다.
 
-부모 저장소에는 현재 Redis, Celery, Django Channels, WebSocket 라우팅이 없다. 스택 호환성을 위해 단독 시스템 MVP도 HTTP polling을 사용한다. 변경 이벤트에 증가하는 ID 또는 `updated_at` cursor를 두고 2~5초 간격으로 증분 조회하며, 재연결 시 전체 상태를 다시 조회한다. 저장 충돌은 기존 시나리오의 `version`과 `409 Conflict`로 막는다.
+부모 저장소에는 현재 Redis, Celery, Django Channels, WebSocket 라우팅이 없다. 스택 호환성을 위해 단독 시스템 MVP도 HTTP polling을 사용한다. 변경 이벤트에 증가하는 ID cursor를 두고 기본 2초에 최대 1초의 분산 지연을 더해 증분 조회한다. 메모·연결선 이벤트는 최신 snapshot만 묶어서 화면에 반영하고, 재연결·cursor 무효화·캔버스 단위 변경 시에만 전체 상태를 다시 조회한다. 저장 충돌은 기존 시나리오의 `version`과 `409 Conflict`로 막는다.
 
 HTTP polling 단계에서는 다른 사용자의 저장 완료 후 변경 반영은 지원하지만, 부드러운 실시간 마우스 커서와 순간적인 프레즌스는 제공하지 않는다. 부모 이식 팀이 이 두 기능을 필수로 정하면 Django Channels와 Redis Channel Layer를 신규 도입해야 한다는 이관 메모를 남긴다.
 

@@ -1,59 +1,56 @@
-# 문서 안내
+# 기술 문서
 
-이 디렉터리는 `idea-developer`의 현재 정책, 기능, 데이터, API, 테스트와 운영 절차를 설명한다.
-구현 과정에서 사용한 과거 시나리오와 프롬프트는 `specs/`에 보관하지만 현재 동작의 근거로
-사용하지 않는다.
+이 디렉터리는 Idea Developer의 제품 동작, 설계, API, 데이터 구조, 운영 방법을 설명합니다.
 
-## 문서 우선순위
+## 처음 읽는 순서
 
-문서끼리 내용이 다를 때는 아래 순서를 따른다.
+1. [프로젝트 개요와 실행 방법](../README.md)
+2. [로컬 개발 환경](01_LOCAL_SETUP.md)
+3. [프로젝트 구조](04_PROJECT_STRUCTURE.md)
+4. [기능 명세](FUNCTIONAL_SPEC.md)
+5. [시스템 아키텍처](ARCHITECTURE.md)
 
-1. `requirements/CURRENT_REQUIREMENTS.md`: 현재 확정된 제품 정책
-2. `FUNCTIONAL_SPEC.md`: 사용자 기능, 권한, 상태 변화와 결과
-3. `EXCEPTION_CATALOG.md`: 예외 상황과 서버·화면 처리 원칙
-4. `api/README.md`: HTTP 계약
-5. `database/ERD.md`, `database/DATA_DICTIONARY.md`: 데이터 구조
-6. 실제 migration, 서비스 코드와 자동 테스트
+## 문서 분류
 
-문서와 코드가 다르면 추측으로 문서만 고치지 않는다. 요구사항을 먼저 확인한 뒤 코드, 테스트,
-문서를 같은 변경 단위에서 맞춘다.
+### 제품과 기능
 
-## 목적별 읽기 순서
+- [현재 요구사항](requirements/CURRENT_REQUIREMENTS.md)
+- [기능 명세](FUNCTIONAL_SPEC.md)
+- [예외 처리 목록](EXCEPTION_CATALOG.md)
+- [화면 흐름](report/SCREEN_FLOW.md)
+- [사용 사례](report/USE_CASES.md)
 
-### 기능을 이해할 때
+### 개발과 구조
 
-1. [현재 구현 기준](requirements/CURRENT_REQUIREMENTS.md)
-2. [기능 명세](FUNCTIONAL_SPEC.md)
-3. [예외 처리 목록](EXCEPTION_CATALOG.md)
-4. [API 계약](api/README.md)
+- [로컬 개발 환경](01_LOCAL_SETUP.md)
+- [프로젝트 구조](04_PROJECT_STRUCTURE.md)
+- [문제 해결](06_TROUBLESHOOTING.md)
+- [기여 방법](../CONTRIBUTING.md)
 
-### 구조와 DB를 검토할 때
+### API와 데이터
 
-1. [시스템 아키텍처](ARCHITECTURE.md)
-2. [ERD](database/ERD.md)
-3. [데이터 사전](database/DATA_DICTIONARY.md)
-4. [외부 VIEW 연동](integration/VIEW_GUIDE.md)
+- [API 문서](api/README.md)
+- [데이터베이스 안내](database/README.md)
+- [ERD](database/ERD.md)
+- [데이터 사전](database/DATA_DICTIONARY.md)
+- [외부 PostgreSQL VIEW 연동](integration/VIEW_GUIDE.md)
 
-### 품질과 이관을 확인할 때
+### 아키텍처와 품질
 
-1. [최종보고서 도식·양식](report/README.md)
-2. [요구사항 추적표](REQUIREMENTS_TRACEABILITY.md)
-3. [테스트·보안·운영 품질](QUALITY_ASSURANCE.md)
-4. [제품 결정 기록](decisions/README.md)
-5. [부모 프로젝트 이관](08_PARENT_HANDOFF.md)
-6. [소스 전달 양식](integration/SOURCE_DELIVERY_TEMPLATE.md)
-7. [현재 소스 전달 명세](integration/SOURCE_DELIVERY_CURRENT.md)
-8. [부모 시스템 통합 체크리스트](integration/PARENT_INTEGRATION_CHECKLIST.md)
+- [시스템 아키텍처](ARCHITECTURE.md)
+- [데이터 흐름](report/DATA_FLOW.md)
+- [배포 구조](report/DEPLOYMENT_DIAGRAM.md)
+- [시퀀스 다이어그램](report/SEQUENCE_DIAGRAMS.md)
+- [상태 다이어그램](report/STATE_DIAGRAMS.md)
+- [품질 보증](QUALITY_ASSURANCE.md)
+- [요구사항 추적표](REQUIREMENTS_TRACEABILITY.md)
 
-### 개발 환경과 통합을 시작할 때
+## 문서 관리 원칙
 
-`01_LOCAL_SETUP.md`에서 독립 실행 환경을 준비하고 `04_PROJECT_STRUCTURE.md`에서 코드 구조를
-확인한다. 부모 프로젝트에 전달할 때는 `integration/SOURCE_DELIVERY_TEMPLATE.md`를 사용한다.
+- 현재 동작과 일치하는 내용만 사용자·개발자 문서에 기록합니다.
+- 기능 변경 시 관련 API, 데이터 구조, 테스트 설명도 함께 갱신합니다.
+- 확정되지 않은 계획은 현재 기능처럼 표현하지 않습니다.
+- 개인 이름, 임시 담당자, 작업용 브랜치, 대화형 프롬프트 등 개발 과정의 기록은 제품 문서에 포함하지 않습니다.
+- 실제 비밀번호, API 키, 사용자 개인정보를 문서나 예제에 기록하지 않습니다.
 
-## 문서 갱신 규칙
-
-- 기능 또는 권한 변경: 현재 구현 기준, 기능 명세, 예외 목록과 관련 테스트를 함께 갱신한다.
-- API 변경: API 계약과 프론트 호출부, 회귀 테스트를 함께 갱신한다.
-- 모델 또는 migration 변경: ERD와 데이터 사전을 함께 갱신한다.
-- 운영 작업 변경: 품질 문서와 환경변수 예시를 함께 갱신한다.
-- 확정되지 않은 항목은 구현된 것처럼 쓰지 않고 `보류` 또는 `부모팀 협의`로 표시한다.
+`specs/`, `updates/`, 일부 integration 문서는 구현 배경이나 이전 전달 기록을 보관합니다. 현재 동작을 확인할 때는 코드, migration, 자동 테스트와 위의 핵심 문서를 우선하세요.

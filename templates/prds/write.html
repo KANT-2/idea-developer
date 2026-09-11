@@ -131,6 +131,12 @@
   <div class="modal-footer"><button id="answer-conflict-use-latest" type="button" class="btn btn-light">먼저 저장된 내용 사용</button><button id="answer-conflict-keep-local" type="button" class="btn btn-primary">내가 작성한 내용으로 계속 편집</button></div>
 </div></div></div>
 
+<div class="modal fade" id="answer-held-conflict-modal" tabindex="-1" aria-labelledby="answer-held-conflict-title" aria-hidden="true"><div class="modal-dialog modal-md modal-dialog-centered"><div class="modal-content">
+  <div class="modal-header"><div><h2 class="modal-title fs-5" id="answer-held-conflict-title">질문이 보류되었습니다</h2><p class="mb-0 text-secondary small">다른 사용자가 이 질문을 보류하여 작성한 내용을 저장하지 못했습니다.</p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button></div>
+  <div class="modal-body"><label class="form-label fw-semibold" for="answer-held-conflict-local">내가 작성 중이던 내용</label><textarea id="answer-held-conflict-local" class="form-control" rows="9" readonly></textarea><p class="small text-secondary mt-2 mb-0">내용이 필요하면 복사한 뒤, 질문의 보류가 해제되었을 때 다시 작성해 주세요.</p></div>
+  <div class="modal-footer"><button id="answer-held-conflict-copy" type="button" class="btn btn-outline-secondary"><i class="bi bi-clipboard"></i> 내용 복사</button><button type="button" class="btn btn-primary" data-bs-dismiss="modal">확인</button></div>
+</div></div></div>
+
 <div class="modal fade" id="export-modal" tabindex="-1" aria-labelledby="export-modal-title" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content export-modal-content">
   <div class="modal-header export-modal-head"><div><span>PRD MARKDOWN</span><h2 class="modal-title" id="export-modal-title">PRD 완성도 점검 및 내보내기</h2><p id="export-prd-title"></p></div><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="닫기"></button></div>
   <div class="export-modal-tabs" role="tablist" aria-label="PRD 내보내기 보기"><button id="export-check-tab" class="active" type="button" role="tab" aria-selected="true"><i class="bi bi-check2-circle"></i> 완성도 점검</button><button id="export-preview-tab" type="button" role="tab" aria-selected="false"><i class="bi bi-file-earmark-text"></i> PRD 미리보기</button></div>
@@ -155,5 +161,5 @@
 <script src="{% static 'prds/js/write-participants.js' %}?v=20260909-1"></script>
 <script src="{% static 'prds/js/write-comments.js' %}?v=20260906-2"></script>
 <script src="{% static 'prds/js/write-contributions.js' %}?v=20260906-1"></script>
-<script src="{% static 'prds/js/write.js' %}?v=20260909-1"></script>
+<script src="{% static 'prds/js/write.js' %}?v=20260910-1"></script>
 {% endblock %}

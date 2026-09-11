@@ -466,12 +466,12 @@ class BrainstormMutationService:
             )
         except (BrainstormNode.DoesNotExist, ValidationError, ValueError) as exc:
             raise ValidationError({"node_id": "메모를 찾을 수 없습니다."}) from exc
+        if node.version != expected:
+            raise VersionConflict(node)
         if require_note and node.node_type != BrainstormNodeType.NOTE:
             raise ValidationError({"node_id": "일반 메모만 변경할 수 있습니다."})
         if node.is_deleted and not include_deleted:
             raise ValidationError({"node_id": "삭제된 메모는 변경할 수 없습니다."})
-        if node.version != expected:
-            raise VersionConflict(node)
         return node
 
     @transaction.atomic
