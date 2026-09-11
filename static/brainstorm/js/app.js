@@ -11,10 +11,10 @@
   var h = window.React.createElement;
   var apiBase = root.dataset.apiBase;
   var prdTitle = root.dataset.prdTitle || "PRD";
-  var interval = Math.min(5000, Math.max(2000, Number(root.dataset.pollingIntervalMs || 3000)));
+  var interval = Math.min(5000, Math.max(2000, Number(root.dataset.pollingIntervalMs || 2000)));
   function nextPollDelay() {
     // Slack 링크처럼 여러 사용자가 동시에 들어와도 폴링 요청이 한 시각에 몰리지 않게 한다.
-    return Math.min(5000, Math.max(2000, interval + Math.floor(Math.random() * 2001)));
+    return Math.min(5000, Math.max(2000, interval + Math.floor(Math.random() * 1001)));
   }
   var csrf = document.querySelector('meta[name="csrf-token"]')?.content || "";
   var activeCanvasId = null;
@@ -69,6 +69,9 @@
     var assigneeMenuPair = window.React.useState(null), assigneeMenu = assigneeMenuPair[0], setAssigneeMenu = assigneeMenuPair[1];
     var heldExpandedPair = window.React.useState(true), heldExpanded = heldExpandedPair[0], setHeldExpanded = heldExpandedPair[1];
     var versionsOpenPair = window.React.useState(true), versionsOpen = versionsOpenPair[0], setVersionsOpen = versionsOpenPair[1];
+    var questionsOpenPair = window.React.useState(false), questionsOpen = questionsOpenPair[0], setQuestionsOpen = questionsOpenPair[1];
+    var questionSearchPair = window.React.useState(""), questionSearch = questionSearchPair[0], setQuestionSearch = questionSearchPair[1];
+    var openQuestionSectionsPair = window.React.useState({}), openQuestionSections = openQuestionSectionsPair[0], setOpenQuestionSections = openQuestionSectionsPair[1];
     var timerRef = window.React.useRef(null);
     var cursorRef = window.React.useRef(null);
     var initialViewport = window.React.useRef(false);
@@ -130,12 +133,87 @@
         });
     }
 
+    function applyConfirmedNode(snapshot) {
+      if (!snapshot || !snapshot.id) return false;
+      setState(function (previous) {
+        if (!previous) return previous;
+        var nodes = previous.nodes.filter(function (item) { return item.id !== snapshot.id; });
+        var heldNodes = previous.held_nodes.filter(function (item) { return item.id !== snapshot.id; });
+        var connections = previous.connections;
+        if (snapshot.is_deleted || snapshot.status === "held") {
+          connections = connections.filter(function (line) {
+            return line.node_a_id !== snapshot.id && line.node_b_id !== snapshot.id;
+          });
+        }
+        if (!snapshot.is_deleted) {
+          if (snapshot.status === "held") heldNodes.push(snapshot);
+          else nodes.push(snapshot);
+        }
+        var regularNotes = nodes.filter(function (item) { return item.node_type === "note"; });
+        return Object.assign({}, previous, {
+          nodes: nodes,
+          held_nodes: heldNodes,
+          connections: connections,
+          counts: {
+            total: regularNotes.length,
+            unclassified: regularNotes.filter(function (item) { return !item.section_id; }).length,
+            accepted: regularNotes.filter(function (item) { return !!item.section_id; }).length,
+            held: heldNodes.length
+          }
+        });
+      });
+      return true;
+    }
+
+    function applyEventBatch(data) {
+      if (!data.events || !data.events.length) return true;
+      // 여러 노드가 한꺼번에 움직이는 작업은 개별 snapshot이 없으므로 전체 상태가 필요하다.
+      if (data.events.some(function (event) { return event.target_type === "canvas"; })) return false;
+      setState(function (previous) {
+        if (!previous) return previous;
+        var nodes = previous.nodes.slice();
+        var heldNodes = previous.held_nodes.slice();
+        var connections = previous.connections.slice();
+        data.events.forEach(function (event) {
+          if (event.target_type === "node" && event.snapshot) {
+            var snapshot = event.snapshot;
+            nodes = nodes.filter(function (item) { return item.id !== snapshot.id; });
+            heldNodes = heldNodes.filter(function (item) { return item.id !== snapshot.id; });
+            connections = connections.filter(function (line) {
+              return line.node_a_id !== snapshot.id && line.node_b_id !== snapshot.id;
+            });
+            if (!snapshot.is_deleted) {
+              if (snapshot.status === "held") heldNodes.push(snapshot);
+              else nodes.push(snapshot);
+              (event.related_connections || []).forEach(function (line) {
+                connections = connections.filter(function (item) { return item.id !== line.id; });
+                connections.push(line);
+              });
+            }
+          } else if (event.target_type === "connection") {
+            connections = connections.filter(function (item) { return item.id !== event.target_id; });
+            if (event.action !== "connection_deleted" && event.snapshot) {
+              connections.push(event.snapshot);
+            }
+          }
+        });
+        return Object.assign({}, previous, {
+          nodes: nodes,
+          held_nodes: heldNodes,
+          connections: connections,
+          counts: data.counts || previous.counts
+        });
+      });
+      return true;
+    }
+
     function poll() {
       if (cursorRef.current === null || !navigator.onLine) return fullSync();
       return request(apiBase + "events/?cursor=" + encodeURIComponent(cursorRef.current)).then(function (data) {
         cursorRef.current = data.cursor;
-        if (data.reset_required || data.events.length) return fullSync();
+        if (data.reset_required || !applyEventBatch(data)) return fullSync();
         setSync("connected");
+        if (data.has_more) return poll();
       }).catch(function (error) {
         if (error.code === "validation_error") {
           activeCanvasId = null; cursorRef.current = null;
@@ -156,7 +234,17 @@
 
     function refresh(promise, success) {
       setBusy(true); setNotice(null);
-      return promise.then(function (data) { if (success) success(data); cursorRef.current = null; return fullSync(); })
+      return promise.then(function (data) {
+        if (success) success(data);
+        // POST/PATCH/DELETE가 확정한 단일 메모는 곧바로 반영한다. 임시 메모가 아니며
+        // 다음 polling 때 같은 event가 와도 ID 기준 upsert라 중복되지 않는다.
+        if (data && data.node_type && applyConfirmedNode(data)) {
+          setSync("connected");
+          return data;
+        }
+        cursorRef.current = null;
+        return fullSync();
+      })
         .catch(function (error) { setNotice({kind: error.code === "version_conflict" ? "warning" : "danger", text: error.message}); cursorRef.current = null; return fullSync(); })
         .finally(function () { setBusy(false); });
     }
@@ -201,6 +289,7 @@
         if (event.key !== "Escape") return;
         if (assigneeMenu) { setAssigneeMenu(null); return; }
         if (editor) { closeEditorWithConfirmation(); return; }
+        if (questionsOpen) { setQuestionsOpen(false); return; }
         if (tool === "connect" || source) { setTool("select"); setSource(null); return; }
         setSelected([]); setFocused(null);
       }
@@ -208,12 +297,52 @@
       return function () { document.removeEventListener("keydown", keyboard); };
     });
 
-    function createNote() {
-      setEditor({node: null, content: "", color: "yellow"});
+    function createNote(section) {
+      setEditor({
+        node: null,
+        content: "",
+        color: "yellow",
+        targetSectionId: section ? section.id : null
+      });
     }
 
     function editNode(node) {
       setEditor({node: node, content: node.content, color: node.color || "yellow"});
+    }
+
+    function nearestFreeNotePosition(wantX, wantY) {
+      var gap = 20;
+      var stepX = NODE_W + gap, stepY = NODE_H + gap;
+      var occupied = state.nodes.filter(function (node) {
+        return node.status !== "held";
+      }).map(function (node) {
+        return positions[node.id] || displayPosition(node);
+      });
+      function fits(x, y) {
+        if (x < 20 || y < 20 || x > CANVAS_W - NODE_W || y > CANVAS_H - NODE_H) {
+          return false;
+        }
+        // 미분류 공간에서 시작한 메모가 빈자리를 찾다가 섹션으로 들어가 분류되지 않게 한다.
+        if (sectionAt(x, y) !== null) return false;
+        return !occupied.some(function (spot) {
+          return overlaps(
+            x, y, NODE_W, NODE_H,
+            spot.x - gap, spot.y - gap, NODE_W + gap * 2, NODE_H + gap * 2
+          );
+        });
+      }
+      var originX = Math.round(wantX), originY = Math.round(wantY);
+      if (fits(originX, originY)) return {x: originX, y: originY};
+      // 화면 중앙에서 오른쪽·아래·왼쪽·위 순으로 원을 넓힌다. 기존 메모는 움직이지 않는다.
+      var directions = [[1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, 1], [-1, -1], [1, -1]];
+      for (var ring = 1; ring <= 24; ring += 1) {
+        for (var index = 0; index < directions.length; index += 1) {
+          var x = Math.round(originX + directions[index][0] * stepX * ring);
+          var y = Math.round(originY + directions[index][1] * stepY * ring);
+          if (fits(x, y)) return {x: x, y: y};
+        }
+      }
+      return {x: originX, y: originY};
     }
 
     function saveEditor() {
@@ -225,7 +354,24 @@
         // 배율로 나눈 좌표는 소수점이 길게 남는다. 서버가 자릿수를 12개로 제한하므로 반올림한다.
         var x = Math.round(Math.max(20, Math.min(CANVAS_W - NODE_W, (window.innerWidth / 2 - view.x) / view.zoom - NODE_W / 2)));
         var y = Math.round(Math.max(20, Math.min(CANVAS_H - NODE_H, ((window.innerHeight - 190) / 2 - view.y) / view.zoom - NODE_H / 2)));
-        refresh(request(apiBase + "nodes/", {method: "POST", headers: {"Idempotency-Key": key()}, body: JSON.stringify({content: content, color: editor.color, x: x, y: y, section_id: sectionAt(x, y)})}));
+        var sectionId = editor.targetSectionId || sectionAt(x, y), spot = {x: x, y: y};
+        if (sectionId) {
+          var targetIndex = laneIndex(sectionId);
+          var targetTaken = takenSpots(sectionId);
+          spot = editor.targetSectionId
+            ? slotInRegion(targetIndex, targetTaken.length, targetTaken)
+            : settleInRegion(targetIndex, x, y, targetTaken) || spot;
+        } else {
+          spot = nearestFreeNotePosition(x, y);
+        }
+        refresh(
+          request(apiBase + "nodes/", {
+            method: "POST",
+            headers: {"Idempotency-Key": key()},
+            body: JSON.stringify({content: content, color: editor.color, x: Math.round(spot.x), y: Math.round(spot.y), section_id: sectionId})
+          }),
+          function (created) { setFocused(created.id); }
+        );
       }
       setEditor(null);
     }
@@ -260,7 +406,6 @@
             };
             return Object.assign({}, previous, {nodes: nodes, held_nodes: heldNodes, connections: connections, counts: counts});
           });
-          cursorRef.current = null;
           setSync("connected");
         })
         .catch(function (error) {
@@ -435,13 +580,16 @@
     function layoutPositions(nodes) {
       var placed = {};
       var dragging = draggingRef.current;
+      function isDraggingNode(nodeId) {
+        return Array.isArray(dragging) ? dragging.includes(nodeId) : dragging === nodeId;
+      }
       nodes.forEach(function (node) { placed[node.id] = {x: Number(node.x), y: Number(node.y)}; });
       state.sections.forEach(function (section, index) {
         var taken = [];
         nodes.forEach(function (node) {
           if (node.node_type === "title" || node.section_id !== section.id) return;
           // 끌고 있는 메모는 손을 따라와야 한다. 자리만 차지한 것으로 친다.
-          if (node.id === dragging) return taken.push(placed[node.id]);
+          if (isDraggingNode(node.id)) return taken.push(placed[node.id]);
           var spot = settleInRegion(index, placed[node.id].x, placed[node.id].y, taken);
           if (!spot) {
             // 자리를 못 찾아도 항목 밖에 그리면 분류된 메모가 미분류처럼 보인다.
@@ -453,40 +601,9 @@
           taken.push(spot);
         });
       });
-      // 분류하지 않은 메모는 오른쪽 여백 안에 있어야 한다.
-      // 네모에 걸치면 어느 항목인지 알 수 없고, 여백을 벗어나면 화면 밖으로 사라져
-      // 미분류 개수와 눈에 보이는 수가 어긋난다.
-      var tray = trayBox();
-      var trayLabel = trayLabelBox();
-      var trayTop = Math.max(tray.y, trayLabel.bottom);
-      var minX = tray.x, maxX = tray.x + tray.w - NODE_W;
-      var minY = trayTop, maxY = tray.y + tray.h - NODE_H;
-      var trayTaken = [];
-      nodes.forEach(function (node) {
-        if (node.section_id || node.node_type === "title" || node.id === dragging) return;
-        var spot = placed[node.id];
-        var ok = spot.x >= minX && spot.x <= maxX && spot.y >= minY && spot.y <= maxY
-          && !trayTaken.some(function (row) {
-            return overlaps(spot.x, spot.y, NODE_W, NODE_H, row.x, row.y, NODE_W, NODE_H);
-          });
-        if (!ok) {
-          // 여백을 벗어났거나 다른 미분류 메모와 겹치면 빈 칸을 찾아 앉힌다.
-          var columns = Math.max(1, Math.floor(tray.w / (NODE_W + 20)));
-          for (var slot = 0; slot < 200; slot += 1) {
-            var candidate = {
-              x: minX + 12 + (slot % columns) * (NODE_W + 20),
-              y: minY + 12 + Math.floor(slot / columns) * (NODE_H + 18)
-            };
-            if (candidate.y > maxY) break;
-            var clash = trayTaken.some(function (row) {
-              return overlaps(candidate.x, candidate.y, NODE_W, NODE_H, row.x, row.y, NODE_W, NODE_H);
-            });
-            if (!clash) { spot = candidate; break; }
-          }
-        }
-        placed[node.id] = spot;
-        trayTaken.push(spot);
-      });
+      // 미분류 메모는 6200×3600 자유 캔버스 어디에나 둘 수 있다. 새 메모와 자동 정렬의
+      // 시작 위치로만 오른쪽 tray를 사용하고, 사용자가 직접 옮긴 좌표를 렌더링 단계에서
+      // tray 안으로 되돌리지 않는다.
       return placed;
     }
     // 메모를 고르면 뜨는 조작 막대의 자리를 정한다.
@@ -615,7 +732,6 @@
           connections.push(connection);
           return Object.assign({}, previous, {connections: connections});
         });
-        cursorRef.current = null;
         setSync("connected");
       }).catch(function (error) {
         setState(function (previous) {
@@ -635,7 +751,6 @@
           setState(function (previous) {
             return Object.assign({}, previous, {connections: previous.connections.filter(function (item) { return item.id !== connection.id; })});
           });
-          cursorRef.current = null;
           setSync("connected");
         }).catch(function (error) {
           setNotice({kind: error.code === "version_conflict" ? "warning" : "danger", text: error.message});
@@ -783,6 +898,7 @@
     }
     function loadClassificationResult() {
       setBusy(true); setNotice(null);
+      setQuestionsOpen(false);
       request(apiBase + "canvas/", {headers: {"Idempotency-Key": key()}})
         .then(function (serverState) {
           var result = {
@@ -806,6 +922,7 @@
         .finally(function () { setBusy(false); });
     }
     function previewPrd() {
+      setQuestionsOpen(false);
       var selectedDefaults = [];
       // 성공 응답은 작업 필드가 최상위에 그대로 펼쳐져 있어 job이라는 키가 없다.
       // 반영할 메모가 없을 때만 서버가 {job: null, message: "..."}를 따로 보낸다.
@@ -1260,6 +1377,61 @@
       );
     }
 
+    function renderQuestionPanel() {
+      if (!questionsOpen) return null;
+      var term = questionSearch.trim().toLowerCase();
+      var total = state.sections.reduce(function (sum, section) { return sum + (section.questions || []).length; }, 0);
+      var visibleSections = state.sections.map(function (section) {
+        var questions = (section.questions || []).filter(function (question) {
+          return !term || section.title.toLowerCase().includes(term) || question.prompt.toLowerCase().includes(term) || (question.answer || "").toLowerCase().includes(term);
+        });
+        return {section: section, questions: questions};
+      }).filter(function (group) { return group.questions.length; });
+      var hasExplicitOpenState = Object.keys(openQuestionSections).length > 0;
+      return h("aside", {className: "brain-question-panel", role: "dialog", "aria-modal": "false", "aria-labelledby": "brain-question-panel-title"},
+        h("header", null,
+          h("div", null, h("span", null, "PRD REFERENCE"), h("h2", {id: "brain-question-panel-title"}, "PRD 질문"), h("small", null, total + "개 질문")),
+          h("button", {type: "button", onClick: function () { setQuestionsOpen(false); }, "aria-label": "질문 목록 닫기"}, "×")
+        ),
+        h("div", {className: "brain-question-search"}, h("i", {className: "bi bi-search"}), h("input", {type: "search", value: questionSearch, placeholder: "질문 또는 답변 검색", onChange: function (event) { setQuestionSearch(event.target.value); }})),
+        h("div", {className: "brain-question-body"},
+          visibleSections.length ? visibleSections.map(function (group, index) {
+            var section = group.section;
+            var open = term || (hasExplicitOpenState ? !!openQuestionSections[section.id] : index === 0);
+            var completed = group.questions.filter(function (question) { return question.is_completed && !question.is_held; }).length;
+            return h("section", {key: section.id, className: "brain-question-section" + (open ? " open" : "")},
+              h("div", {className: "brain-question-section-head"},
+                h("button", {type: "button", className: "brain-question-section-title", onClick: function () { setOpenQuestionSections(function (current) { var next = Object.assign({}, current); next[section.id] = !open; return next; }); }},
+                  h("span", {className: "brain-question-section-index"}, String(section.position).padStart(2, "0")),
+                  h("strong", null, section.title)
+                ),
+                canCreateNote ? h("button", {type: "button", className: "brain-question-section-add", title: section.title + "에 메모 추가", "aria-label": section.title + "에 메모 추가", onClick: function () { createNote(section); }},
+                  h("i", {className: "bi bi-plus-lg"}), h("span", null, "메모 추가")
+                ) : null,
+                h("small", null, completed + "/" + group.questions.filter(function (question) { return !question.is_held; }).length),
+                h("button", {type: "button", className: "brain-question-section-toggle", onClick: function () { setOpenQuestionSections(function (current) { var next = Object.assign({}, current); next[section.id] = !open; return next; }); }, "aria-label": section.title + (open ? " 접기" : " 펼치기")},
+                  h("i", {className: "bi bi-chevron-down"})
+                )
+              ),
+              open ? h("div", {className: "brain-question-items"},
+                group.questions.map(function (question) {
+                  var answered = !!(question.answer || "").trim();
+                  var statusClass = question.is_held ? " held" : answered || question.is_completed ? " done" : "";
+                  return h("article", {key: question.id, className: "brain-question-item" + statusClass},
+                    h("div", {className: "brain-question-copy"},
+                      h("span", null, question.is_held ? "보류" : answered || question.is_completed ? "작성됨" : "미작성"),
+                      h("strong", null, question.prompt),
+                      answered ? h("p", {title: question.answer}, question.answer) : null
+                    )
+                  );
+                })
+              ) : null
+            );
+          }) : h("p", {className: "brain-question-empty"}, term ? "검색 결과가 없습니다." : "등록된 질문이 없습니다.")
+        )
+      );
+    }
+
     function changeBoard(value) {
       setBoardView(value); setSource(null); setTool("select");
     }
@@ -1367,10 +1539,13 @@
       h("div", {className: "brain-toolbar"},
         h("div", {className: "brain-counts"}, h("span", null, state.counts.total + "개 메모"), h("span", {className: "warn"}, "미분류 " + state.counts.unclassified), h("span", {className: "good"}, "✓ " + state.counts.accepted + "개 채택")),
         boardView === "canvas" ? h("div", {className: "brain-tools"}, toolButton("select", "bi bi-cursor", "선택"), toolButton("connect", "bi bi-bezier2", "연결")) : null,
-        canCreateNote ? h("button", {type: "button", className: "brain-add", onClick: createNote}, h("i", {className: "bi bi-plus-lg"}), " 메모 추가") : null,
+        canCreateNote ? h("button", {type: "button", className: "brain-add", onClick: function () { createNote(); }}, h("i", {className: "bi bi-plus-lg"}), " 메모 추가") : null,
         h("div", {className: "brain-filter"}, ["all", "accepted", "default"].map(function (value) { return h("button", {key: value, type: "button", className: filter === value ? "active" : "", onClick: function () { setFilter(value); }}, {all: "전체", accepted: "채택됨", default: "미분류"}[value]); })),
         boardView === "canvas" && canEdit ? h("button", {type: "button", className: "btn btn-sm brain-auto", disabled: busy, onClick: autoLayout}, h("i", {className: "bi bi-grid-3x3-gap"}), " 자동 정렬") : null,
-        h("div", {className: "brain-ai-actions"}, h("button", {type: "button", disabled: busy, onClick: loadClassificationResult}, h("i", {className: "bi bi-diagram-3"}), " 분류 결과"))
+        h("div", {className: "brain-ai-actions"},
+          h("button", {type: "button", className: "brain-question-trigger" + (questionsOpen ? " active" : ""), "aria-expanded": questionsOpen, onClick: function () { var next = !questionsOpen; setQuestionsOpen(next); if (next) setAiPanel(null); }}, h("i", {className: "bi bi-card-checklist"}), " 질문 보기"),
+          h("button", {type: "button", className: "brain-classification-trigger", disabled: busy, onClick: loadClassificationResult}, h("i", {className: "bi bi-diagram-3"}), " 분류 결과")
+        )
       ),
       h("div", {className: "brain-workspace"},
         renderVersionSidebar(),
@@ -1394,7 +1569,7 @@
           )
         )
       ),
-      renderEditor(), renderAssigneeMenu(), renderAiPanel(),
+      renderEditor(), renderAssigneeMenu(), renderAiPanel(), renderQuestionPanel(),
       busy ? h("div", {className: "brain-busy"}, h("span", {className: "spinner-border spinner-border-sm"}), jobId ? " AI 작업 처리 중" : " 저장 중") : null);
   }
 

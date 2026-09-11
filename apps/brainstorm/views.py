@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied, ValidationError
-from django.db.models import Count, Q
+from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError
+from django.db.models import Count, Prefetch, Q
 from django.http import Http404
 from django.shortcuts import render
 from django.urls import reverse
@@ -15,6 +15,7 @@ from apps.common.responses import api_error, api_success
 from apps.integration.exceptions import IntegrationError
 from apps.integration.views import render_context_exception
 from apps.prds.detail import PrdNotFound, PrdPermissionPresenter
+from apps.prds.models import PrdQuestion
 from apps.prds.views import (
     _context_error,
     _request_id,
@@ -310,6 +311,21 @@ def _canvas_counts(canvas_row):
     return counts
 
 
+def _serialize_reference_question(question):
+    try:
+        answer = question.answer
+    except ObjectDoesNotExist:
+        answer = None
+    return {
+        "id": question.pk,
+        "prompt": question.prompt,
+        "position": question.position,
+        "is_completed": question.is_completed,
+        "is_held": question.is_held,
+        "answer": answer.content if answer and answer.content.strip() else "",
+    }
+
+
 def _latest_cursor(canvas_row):
     return (
         BrainstormChangeLog.objects.filter(canvas=canvas_row)
@@ -362,7 +378,14 @@ def canvas(request, prd_id):
         ).first()
         if viewport_row is None:
             viewport_row = UserCanvasViewport(canvas=canvas_row, user_id=context.user_id)
-        sections = access.prd.sections.filter(is_deleted=False).order_by("position", "id")
+        sections = access.prd.sections.filter(is_deleted=False).prefetch_related(
+            Prefetch(
+                "questions",
+                queryset=PrdQuestion.objects.filter(is_deleted=False)
+                .select_related("answer")
+                .order_by("position", "id"),
+            )
+        ).order_by("position", "id")
         version_rows = list(
             BrainstormCanvas.objects.filter(prd=access.prd, is_deleted=False).order_by(
                 "display_order", "-version_number", "-id"
@@ -382,7 +405,16 @@ def canvas(request, prd_id):
                 ],
                 "current_user_id": context.user_id,
                 "sections": [
-                    {"id": section.id, "title": section.title, "position": section.position}
+                    {
+                        "id": section.id,
+                        "title": section.title,
+                        "guide": section.guide,
+                        "position": section.position,
+                        "questions": [
+                            _serialize_reference_question(question)
+                            for question in section.questions.all()
+                        ],
+                    }
                     for section in sections
                 ],
                 "participants": _canvas_participants(access),

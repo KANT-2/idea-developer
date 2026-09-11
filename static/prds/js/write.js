@@ -79,6 +79,10 @@
   const answerConflictModal = bootstrap.Modal.getOrCreateInstance(answerConflictElement);
   const answerConflictLatest = document.getElementById("answer-conflict-latest");
   const answerConflictLocal = document.getElementById("answer-conflict-local");
+  const answerHeldConflictElement = document.getElementById("answer-held-conflict-modal");
+  const answerHeldConflictModal = bootstrap.Modal.getOrCreateInstance(answerHeldConflictElement);
+  const answerHeldConflictLocal = document.getElementById("answer-held-conflict-local");
+  const answerHeldConflictCopy = document.getElementById("answer-held-conflict-copy");
   let answerConflictQuestionId = null;
   let detail = null;
   let activeJobId = null;
@@ -575,6 +579,17 @@
       const latest = await api(detailApi);
       renderDetail(latest);
       if (questionId && localContent !== undefined) {
+        if (latestQuestion.is_held) {
+          pendingAnswers.delete(questionId);
+          answerHeldConflictLocal.value = localContent;
+          answerHeldConflictModal.show();
+          updateSaveAllButton();
+          showAlert(
+            "다른 사용자가 이 질문을 보류했습니다. 작성 중인 내용은 복사할 수 있습니다.",
+            "warning"
+          );
+          return;
+        }
         answerConflictQuestionId = questionId;
         answerConflictLatest.value = latestQuestion.answer?.content || "";
         answerConflictLocal.value = localContent;
@@ -606,6 +621,19 @@
     }
     answerConflictQuestionId = null;
     updateSaveAllButton();
+  });
+
+  answerHeldConflictCopy.addEventListener("click", async function () {
+    const original = answerHeldConflictCopy.innerHTML;
+    try {
+      await navigator.clipboard.writeText(answerHeldConflictLocal.value);
+      answerHeldConflictCopy.innerHTML = '<i class="bi bi-check2"></i> 복사됨';
+      window.setTimeout(function () { answerHeldConflictCopy.innerHTML = original; }, 1800);
+    } catch (error) {
+      answerHeldConflictLocal.focus();
+      answerHeldConflictLocal.select();
+      showAlert("내용을 선택했습니다. Ctrl+C로 복사해 주세요.", "warning");
+    }
   });
 
   async function saveOneAnswer(questionId, button) {

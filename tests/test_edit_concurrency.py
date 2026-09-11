@@ -193,6 +193,48 @@ class PostgreSqlEditConcurrencyTests(TransactionTestCase):
         self.assertEqual(self.question.version, 2)
         self.assertIn(self.question.answer.content, {"답변 A", "답변 B"})
 
+    def test_same_question_concurrent_answer_update_and_hold_allow_only_one_writer(self):
+        answer_url = reverse(
+            "prd_api:question-answer",
+            kwargs={"prd_id": self.prd.pk, "question_id": self.question.pk},
+        )
+        hold_url = reverse(
+            "prd_api:question-hold",
+            kwargs={"prd_id": self.prd.pk, "question_id": self.question.pk},
+        )
+        barrier = threading.Barrier(2)
+
+        def update():
+            barrier.wait(timeout=5)
+            return self.owner_client.patch(
+                answer_url,
+                data=json.dumps({"content": "보류와 동시에 작성한 답변", "version": 1}),
+                content_type="application/json",
+            ).status_code
+
+        def hold():
+            barrier.wait(timeout=5)
+            return self.editor_client.patch(
+                hold_url,
+                data=json.dumps({"is_held": True, "version": 1}),
+                content_type="application/json",
+            ).status_code
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(self._thread_request, update),
+                executor.submit(self._thread_request, hold),
+            ]
+            statuses = sorted(future.result(timeout=10) for future in futures)
+
+        self.assertEqual(statuses, [200, 409])
+        self.question.refresh_from_db()
+        self.assertEqual(self.question.version, 2)
+        if self.question.is_held:
+            self.assertEqual(self.question.answer.content, "기존 답변")
+        else:
+            self.assertEqual(self.question.answer.content, "보류와 동시에 작성한 답변")
+
     def test_same_note_concurrent_moves_allow_only_one_writer(self):
         url = reverse(
             "brainstorm_api:node-position",
@@ -222,6 +264,230 @@ class PostgreSqlEditConcurrencyTests(TransactionTestCase):
         self.assertIn(
             (self.node.position_x, self.node.position_y),
             {(100, 120), (200, 220)},
+        )
+
+    def test_twenty_participants_can_create_notes_at_once_without_loss(self):
+        """A presentation-sized burst must create every independently keyed note."""
+        participant_count = 20
+        barrier = threading.Barrier(participant_count)
+        clients = []
+        for offset in range(participant_count):
+            user_id = 100 + offset
+            user = LocalUserMapping.objects.create_user(
+                user_id,
+                f"load-user-{user_id}@example.test",
+            )
+            PrdParticipant.objects.create(
+                prd=self.prd,
+                user_id=user_id,
+                participant_id=1000 + user_id,
+                role=PrdParticipantRole.EDITOR,
+            )
+            client = Client()
+            client.force_login(user)
+            clients.append((client, user_id))
+
+        url = reverse("brainstorm_api:node-create", kwargs={"prd_id": self.prd.pk})
+
+        def create(client, user_id):
+            barrier.wait(timeout=10)
+            response = client.post(
+                url,
+                data=json.dumps(
+                    {
+                        "content": f"사용자 {user_id}의 동시 생성 메모",
+                        "color": "yellow",
+                        "x": 100 + user_id,
+                        "y": 200 + user_id,
+                        "section_id": None,
+                    }
+                ),
+                content_type="application/json",
+                HTTP_IDEMPOTENCY_KEY=f"twenty-user-create-{user_id}",
+                HTTP_X_BRAINSTORM_CANVAS_ID=str(self.canvas.pk),
+            )
+            return response.status_code
+
+        with ThreadPoolExecutor(max_workers=participant_count) as executor:
+            futures = [
+                executor.submit(self._thread_request, lambda c=client, u=user_id: create(c, u))
+                for client, user_id in clients
+            ]
+            statuses = [future.result(timeout=30) for future in futures]
+
+        self.assertEqual(statuses.count(201), participant_count)
+        self.assertEqual(
+            BrainstormNode.objects.filter(
+                canvas=self.canvas,
+                content__startswith="사용자 ",
+            ).count(),
+            participant_count,
+        )
+
+    def test_same_note_concurrent_content_update_and_delete_returns_conflict(self):
+        content_url = reverse(
+            "brainstorm_api:node-content",
+            kwargs={"prd_id": self.prd.pk, "node_id": self.node.pk},
+        )
+        delete_url = reverse(
+            "brainstorm_api:node-delete",
+            kwargs={"prd_id": self.prd.pk, "node_id": self.node.pk},
+        )
+        barrier = threading.Barrier(2)
+
+        def update():
+            barrier.wait(timeout=5)
+            response = self.owner_client.patch(
+                content_url,
+                data=json.dumps({"content": "수정된 내용", "version": 1}),
+                content_type="application/json",
+                HTTP_X_BRAINSTORM_CANVAS_ID=str(self.canvas.pk),
+            )
+            return response.status_code
+
+        def delete():
+            barrier.wait(timeout=5)
+            response = self.editor_client.delete(
+                delete_url,
+                data=json.dumps({"version": 1}),
+                content_type="application/json",
+                HTTP_X_BRAINSTORM_CANVAS_ID=str(self.canvas.pk),
+            )
+            return response.status_code
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(self._thread_request, update),
+                executor.submit(self._thread_request, delete),
+            ]
+            statuses = sorted(future.result(timeout=10) for future in futures)
+
+        self.assertEqual(statuses, [200, 409])
+        self.node.refresh_from_db()
+        self.assertEqual(self.node.version, 2)
+        if self.node.is_deleted:
+            self.assertEqual(self.node.content, "동시 편집 메모")
+        else:
+            self.assertEqual(self.node.content, "수정된 내용")
+
+    def test_create_update_and_delete_different_notes_can_finish_together(self):
+        deletable = BrainstormNode.create_note(
+            canvas=self.canvas,
+            context=_SessionResolver().resolve(type("Request", (), {"user": self.owner})()),
+            content="동시 삭제 대상",
+            color="yellow",
+            position_x=300,
+            position_y=320,
+            section=None,
+            creation_idempotency_key="mixed-delete-target",
+        )
+        create_url = reverse("brainstorm_api:node-create", kwargs={"prd_id": self.prd.pk})
+        update_url = reverse(
+            "brainstorm_api:node-content",
+            kwargs={"prd_id": self.prd.pk, "node_id": self.node.pk},
+        )
+        delete_url = reverse(
+            "brainstorm_api:node-delete",
+            kwargs={"prd_id": self.prd.pk, "node_id": deletable.pk},
+        )
+        barrier = threading.Barrier(3)
+
+        def create():
+            barrier.wait(timeout=5)
+            return self.owner_client.post(
+                create_url,
+                data=json.dumps(
+                    {
+                        "content": "혼합 작업 중 생성",
+                        "color": "blue",
+                        "x": 500,
+                        "y": 520,
+                        "section_id": None,
+                    }
+                ),
+                content_type="application/json",
+                HTTP_IDEMPOTENCY_KEY="mixed-operation-create",
+                HTTP_X_BRAINSTORM_CANVAS_ID=str(self.canvas.pk),
+            ).status_code
+
+        def update():
+            barrier.wait(timeout=5)
+            return self.editor_client.patch(
+                update_url,
+                data=json.dumps({"content": "혼합 작업 중 수정", "version": 1}),
+                content_type="application/json",
+                HTTP_X_BRAINSTORM_CANVAS_ID=str(self.canvas.pk),
+            ).status_code
+
+        def delete():
+            client = Client()
+            client.force_login(LocalUserMapping.objects.get(pk=self.owner.pk))
+            barrier.wait(timeout=5)
+            return client.delete(
+                delete_url,
+                data=json.dumps({"version": 1}),
+                content_type="application/json",
+                HTTP_X_BRAINSTORM_CANVAS_ID=str(self.canvas.pk),
+            ).status_code
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = [
+                executor.submit(self._thread_request, create),
+                executor.submit(self._thread_request, update),
+                executor.submit(self._thread_request, delete),
+            ]
+            statuses = sorted(future.result(timeout=15) for future in futures)
+
+        self.assertEqual(statuses, [200, 200, 201])
+        self.node.refresh_from_db()
+        deletable.refresh_from_db()
+        self.assertEqual(self.node.content, "혼합 작업 중 수정")
+        self.assertTrue(deletable.is_deleted)
+        self.assertTrue(
+            BrainstormNode.objects.filter(
+                canvas=self.canvas,
+                content="혼합 작업 중 생성",
+                is_deleted=False,
+            ).exists()
+        )
+
+    def test_concurrent_retries_with_same_idempotency_key_create_only_one_note(self):
+        url = reverse("brainstorm_api:node-create", kwargs={"prd_id": self.prd.pk})
+        barrier = threading.Barrier(2)
+        payload = {
+            "content": "동일 생성 요청",
+            "color": "green",
+            "x": 700,
+            "y": 720,
+            "section_id": None,
+        }
+
+        def create():
+            client = Client()
+            client.force_login(LocalUserMapping.objects.get(pk=self.owner.pk))
+            barrier.wait(timeout=5)
+            return client.post(
+                url,
+                data=json.dumps(payload),
+                content_type="application/json",
+                HTTP_IDEMPOTENCY_KEY="same-concurrent-create",
+                HTTP_X_BRAINSTORM_CANVAS_ID=str(self.canvas.pk),
+            ).status_code
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(self._thread_request, create),
+                executor.submit(self._thread_request, create),
+            ]
+            statuses = sorted(future.result(timeout=10) for future in futures)
+
+        self.assertEqual(statuses, [200, 201])
+        self.assertEqual(
+            BrainstormNode.objects.filter(
+                canvas=self.canvas,
+                creation_idempotency_key="same-concurrent-create",
+            ).count(),
+            1,
         )
 
     def test_same_comment_concurrent_updates_allow_only_one_writer(self):

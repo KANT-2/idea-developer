@@ -1,64 +1,47 @@
-# 협업 규칙
+# 기여 가이드
 
-## 작업 시작 전
+Idea Developer에 변경을 제안할 때는 기능, 테스트, 문서가 서로 일치하도록 관리합니다.
 
-```bash
-git switch develop
-git pull origin develop
-git switch -c <종류>/<짧은-작업명>
-```
+## 개발 절차
 
-브랜치 예시:
+1. 변경 목적과 영향 범위를 확인합니다.
+2. 현재 기준 브랜치에서 짧은 작업 브랜치를 만듭니다.
+3. 관련 코드와 테스트를 함께 수정합니다.
+4. migration이 필요한 모델 변경은 새 migration으로 추가합니다.
+5. 전체 테스트와 Ruff 검사를 실행합니다.
+6. 변경 이유와 검증 결과를 Pull Request에 기록합니다.
 
-- `feat/login-ui`
-- `feat/home-kpi`
-- `fix/otp-expiration`
-- `test/prd-permission`
-- `docs/jiwon-git-practice`
-
-## 작업 중
-
-```bash
+```powershell
+git switch -c feat/short-description
+python manage.py test --settings=config.settings.test
+python -m ruff check .
 git status
-git diff
-git add <내가-수정한-파일>
-git commit -m "feat: 로그인 이메일 입력 화면 추가"
+git diff --check
 ```
 
-`git add .`는 관계없는 파일까지 포함할 수 있으므로 초반에는 파일명을 직접 적습니다.
+## 변경 원칙
 
-## GitHub에 올리기
+- 인증과 권한은 모든 관련 API에서 서버가 검사해야 합니다.
+- 외부 PostgreSQL VIEW는 조회 전용으로 유지합니다.
+- 기존 migration을 수정하지 않고 새 migration을 추가합니다.
+- API 계약을 바꾸면 호출하는 화면과 API 문서를 함께 갱신합니다.
+- 버그 수정에는 실패 상황을 재현하는 회귀 테스트를 추가합니다.
+- 관련 없는 코드 정리나 대규모 포맷 변경을 한 변경에 섞지 않습니다.
 
-```bash
-git push -u origin <현재-브랜치명>
-```
+## 보안
 
-GitHub에서 base branch를 `develop`으로 선택해 Pull Request를 만들고 다음을 적습니다.
+다음 항목은 저장소에 커밋하지 않습니다.
 
-- 무엇을 바꿨는지
-- 왜 바꿨는지
-- 어떻게 확인했는지
-- 화면 변경이면 스크린샷
-- 아직 남은 문제
+- `.env`
+- 실제 비밀번호와 API 키
+- 운영 데이터베이스 dump
+- 사용자 개인정보
+- 개인용 로그와 로컬 산출물
 
-## 리뷰와 merge
+예제 값은 실제 환경에서 사용할 수 없는 placeholder만 사용합니다.
 
-- 작성자는 자기 PR을 바로 merge하지 않습니다.
-- 리뷰어는 코드와 테스트를 확인한 뒤 승인하거나 수정 요청을 남깁니다.
-- 수정 요청은 같은 브랜치에 새 commit으로 push합니다.
-- 승인 뒤 GitHub의 `Squash and merge`를 기본으로 사용합니다.
-- merge 후 로컬 브랜치를 정리합니다.
+## Pull Request 설명
 
-```bash
-git switch main
-git pull origin main
-git branch -d <작업-브랜치명>
-```
+변경한 기능과 이유, 주요 구현 방식, 실행한 테스트, migration·환경변수 변경 여부, 알려진 제한을 기록합니다. 화면 변경이 있다면 전후 이미지를 첨부합니다.
 
-## 금지 사항
-
-- `main`, `develop` 직접 push
-- 공유 브랜치에서 `git push --force`
-- `.env`, DB 비밀번호, 사용자 개인정보 commit
-- 팀장이 전달하지 않은 파일을 임의로 추가하거나 수정
-- 테스트 실패 상태로 merge
+검토가 끝나기 전에는 공유 브랜치의 이력을 강제로 변경하지 않습니다.

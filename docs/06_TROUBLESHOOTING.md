@@ -22,7 +22,7 @@ git add <해결한-파일>
 git commit -m "merge: develop 변경과 로그인 화면 충돌 해결"
 ```
 
-모르겠으면 `git status` 결과와 충돌 파일을 팀원에게 보여줍니다. 무작정 `--force`를 사용하지 않습니다.
+원인을 확인할 수 없다면 `git status` 결과와 충돌 파일을 저장소 관리자에게 전달합니다. 무작정 `--force`를 사용하지 않습니다.
 
 ## 잘못된 파일을 add했어요
 
@@ -42,18 +42,18 @@ git restore --staged <파일>
 git commit --amend -m "올바른 메시지"
 ```
 
-이미 공유 branch에 push했다면 혼자 amend·force push하지 말고 팀원에게 먼저 알립니다.
+이미 공유 branch에 push했다면 amend·force push 전에 저장소 관리자와 영향을 확인합니다.
 
 ## `.env`를 실수로 commit했어요
 
-즉시 팀장에게 알리고 노출된 비밀번호·키를 폐기하고 재발급합니다. 파일만 삭제해도 Git 기록에는 비밀이 남을 수 있습니다.
+즉시 저장소 관리자에게 알리고 노출된 비밀번호·키를 폐기하고 재발급합니다. 파일만 삭제해도 Git 기록에는 비밀이 남을 수 있습니다.
 
 ```bash
 git rm --cached .env
 git commit -m "fix: 저장소에서 환경변수 파일 제거"
 ```
 
-그 후 키 회전과 기록 제거는 팀장이 처리합니다.
+그 후 키 회전과 Git 기록 제거 절차를 진행합니다.
 
 ## migration 충돌
 
